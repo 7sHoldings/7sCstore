@@ -16,7 +16,7 @@ async function main() {
   const email = (process.env.ADMIN_EMAIL || process.argv[2] || "").toLowerCase().trim();
   const password = process.env.ADMIN_PASSWORD || process.argv[3] || "";
   const name = process.env.ADMIN_NAME || "Owner";
-  const locationName = process.env.LOCATION_NAME || "Main Location";
+  const locationName = process.env.LOCATION_NAME || "Henderson";
 
   if (!email || !password) {
     console.error('Usage: ADMIN_EMAIL="you@example.com" ADMIN_PASSWORD="secret" npm run db:bootstrap');

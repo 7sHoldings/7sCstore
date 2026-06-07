@@ -1,7 +1,7 @@
-// 7sCstore service worker — enables installability and offline app-shell.
+// 7sCstores service worker — enables installability and offline app-shell.
 // Network-first for navigations (always fresh financial data when online),
 // with a cached fallback so the app opens offline.
-const CACHE = "7scstore-v1";
+const CACHE = "7scstores-v1";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();

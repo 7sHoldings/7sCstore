@@ -5,10 +5,10 @@ import { loginAction } from "./actions";
 import { Icon } from "@/components/ui";
 
 const DEMO = [
-  ["Owner / Admin", "owner@7scstore.com"],
-  ["Manager", "manager@7scstore.com"],
-  ["Accountant", "accountant@7scstore.com"],
-  ["Employee", "employee@7scstore.com"],
+  ["Owner / Admin", "owner@7scstores.com"],
+  ["Manager", "manager@7scstores.com"],
+  ["Accountant", "accountant@7scstores.com"],
+  ["Employee", "employee@7scstores.com"],
 ];
 
 export default function LoginPage() {
@@ -22,7 +22,7 @@ export default function LoginPage() {
           <div className="w-10 h-10 rounded-lg bg-on-primary/10 flex items-center justify-center">
             <Icon name="local_gas_station" className="text-on-primary" />
           </div>
-          <span className="text-headline-md font-bold">7sCstore</span>
+          <span className="text-headline-md font-bold">7sCstores</span>
         </div>
         <div className="z-10 max-w-md">
           <h1 className="text-3xl lg:text-4xl font-bold leading-tight">
@@ -55,7 +55,7 @@ export default function LoginPage() {
                 name="email"
                 type="email"
                 autoComplete="email"
-                defaultValue="owner@7scstore.com"
+                defaultValue="owner@7scstores.com"
                 className="ft-input"
                 placeholder="you@example.com"
               />

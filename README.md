@@ -1,4 +1,4 @@
-# 7sCstore — Gas Station Business Reporting
+# 7sCstores — Gas Station Business Reporting
 
 A single web application where a gas-station owner can record and understand the
 financial performance of the station — **sales, expenses, product purchases, and
@@ -34,10 +34,10 @@ npm run dev          # http://localhost:3000
 
 | Role | Email |
 |---|---|
-| Owner / Admin | `owner@7scstore.com` |
-| Manager | `manager@7scstore.com` |
-| Accountant | `accountant@7scstore.com` |
-| Employee | `employee@7scstore.com` |
+| Owner / Admin | `owner@7scstores.com` |
+| Manager | `manager@7scstores.com` |
+| Accountant | `accountant@7scstores.com` |
+| Employee | `employee@7scstores.com` |
 
 ## Architecture
 

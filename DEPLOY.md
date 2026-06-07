@@ -1,4 +1,4 @@
-# Deploying 7sCstore (Vercel + Supabase + Namecheap)
+# Deploying 7sCstores (Vercel + Supabase + Namecheap)
 
 This app is a Next.js 15 application backed by Supabase Postgres. The recommended
 host is **Vercel**. Below is the full path from repo to a live domain.

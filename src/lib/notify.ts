@@ -21,7 +21,7 @@ interface DispatchInput {
 /** Send an email via Resend if RESEND_API_KEY is configured. */
 async function sendEmail(to: string, subject: string, body: string): Promise<boolean> {
   const key = process.env.RESEND_API_KEY;
-  const from = process.env.NOTIFY_EMAIL_FROM || "alerts@7scstore.com";
+  const from = process.env.NOTIFY_EMAIL_FROM || "alerts@7scstores.com";
   if (!key) return false;
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -87,7 +87,7 @@ export async function dispatchAlert(input: DispatchInput): Promise<{ email: bool
   });
 
   const cfg = await getSettings(["emailEnabled", "smsEnabled", "notifyEmail", "notifyPhone"]);
-  const subject = `7sCstore alert: ${input.type.replace(/_/g, " ").toLowerCase()}`;
+  const subject = `7sCstores alert: ${input.type.replace(/_/g, " ").toLowerCase()}`;
 
   let email = false;
   let sms = false;
@@ -106,11 +106,11 @@ export async function sendTest(channel: Channel): Promise<{ ok: boolean; reason?
   if (channel === "email") {
     if (!process.env.RESEND_API_KEY) return { ok: false, reason: "No email provider configured (RESEND_API_KEY)." };
     if (!cfg.notifyEmail) return { ok: false, reason: "No recipient email set." };
-    const ok = await sendEmail(cfg.notifyEmail, "7sCstore test alert", "This is a test notification from 7sCstore.");
+    const ok = await sendEmail(cfg.notifyEmail, "7sCstores test alert", "This is a test notification from 7sCstores.");
     return { ok, reason: ok ? undefined : "Provider rejected the message." };
   }
   if (!providerStatus().smsProvider) return { ok: false, reason: "No SMS provider configured (Twilio)." };
   if (!cfg.notifyPhone) return { ok: false, reason: "No recipient phone set." };
-  const ok = await sendSMS(cfg.notifyPhone, "7sCstore test alert: this is a test notification.");
+  const ok = await sendSMS(cfg.notifyPhone, "7sCstores test alert: this is a test notification.");
   return { ok, reason: ok ? undefined : "Provider rejected the message." };
 }

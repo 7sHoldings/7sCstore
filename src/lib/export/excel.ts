@@ -4,7 +4,7 @@ import type { ReportDoc } from "../reportBuilder";
 /** Render a ReportDoc to an .xlsx workbook buffer (FR-35). */
 export async function reportToExcel(doc: ReportDoc): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "7sCstore";
+  wb.creator = "7sCstores";
   wb.created = new Date();
 
   const navy = "FF0A2540";
@@ -15,7 +15,7 @@ export async function reportToExcel(doc: ReportDoc): Promise<Buffer> {
 
   summary.mergeCells("A1:B1");
   const titleCell = summary.getCell("A1");
-  titleCell.value = `7sCstore — ${doc.title}`;
+  titleCell.value = `7sCstores — ${doc.title}`;
   titleCell.font = { size: 16, bold: true, color: { argb: navy } };
 
   summary.getCell("A2").value = `Period: ${doc.periodLabel}`;

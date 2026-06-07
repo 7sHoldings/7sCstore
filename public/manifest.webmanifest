@@ -1,6 +1,6 @@
 {
-  "name": "7sCstore — Gas Station Reporting",
-  "short_name": "7sCstore",
+  "name": "7sCstores — Gas Station Reporting",
+  "short_name": "7sCstores",
   "description": "Record and understand your gas station's sales, expenses, purchases, and profit.",
   "start_url": "/dashboard",
   "display": "standalone",

@@ -3,14 +3,14 @@ import "./globals.css";
 import PWARegister from "@/components/PWARegister";
 
 export const metadata: Metadata = {
-  title: "7sCstore — Gas Station Business Reporting",
+  title: "7sCstores — Gas Station Business Reporting",
   description:
     "Record and understand the financial performance of your gas station — sales, expenses, purchases, and profit.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "7sCstore",
+    title: "7sCstores",
   },
   icons: {
     icon: "/icons/icon-192.png",

@@ -42,7 +42,7 @@ export default function AppShell({
           <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
             <Icon name="local_gas_station" className="text-on-primary text-[20px]" />
           </div>
-          <span className="font-bold text-primary">7sCstore</span>
+          <span className="font-bold text-primary">7sCstores</span>
         </div>
         <div className="hidden md:block" />
         <div className="flex items-center gap-2">
@@ -72,7 +72,7 @@ export default function AppShell({
             <Icon name="local_gas_station" className="text-on-primary" />
           </div>
           <div>
-            <p className="font-bold text-body-lg">7sCstore</p>
+            <p className="font-bold text-body-lg">7sCstores</p>
             <p className="text-label-caps uppercase text-on-primary-container">Reporting Suite</p>
           </div>
         </div>
