@@ -19,7 +19,13 @@ export const modiInsightsAdapter: PosAdapter = {
 
   async fetchSince(since: Date): Promise<NormalizedSale[]> {
     const cookie = process.env.MODI_COOKIE!;
+    const storeId = process.env.MODI_STORE_ID || "16";
+    const ccode = process.env.MODI_CCODE || "854388";
     const out: NormalizedSale[] = [];
+
+    // Select the store in the session first (mirrors /Home/ChangeStore in the UI)
+    // so the report endpoints return this store's data.
+    await changeStore(cookie, storeId, ccode);
 
     for (const day of daysFrom(since)) {
       const FromDate = `${fmtDate(day)} 12:00 AM`;
@@ -77,6 +83,30 @@ export const modiInsightsAdapter: PosAdapter = {
     return out;
   },
 };
+
+/** Set the active store in the session (POST /Home/ChangeStore). */
+async function changeStore(cookie: string, id: string, ccode: string): Promise<void> {
+  const res = await fetch(BASE + "/Home/ChangeStore", {
+    method: "POST",
+    headers: {
+      cookie,
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "x-requested-with": "XMLHttpRequest",
+      accept: "*/*",
+      origin: BASE,
+      referer: BASE + "/Home/SelectStore",
+    },
+    body: new URLSearchParams({ ID: id, CCode: ccode, IsLocked: "false", IsRedirectBilling: "false" }).toString(),
+    cache: "no-store",
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
+  }
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("json")) {
+    throw new Error("Modisoft store-select returned non-JSON (likely a login page) — refresh MODI_COOKIE.");
+  }
+}
 
 async function post(cookie: string, path: string, body: Record<string, string>): Promise<unknown[]> {
   const res = await fetch(BASE + path, {
