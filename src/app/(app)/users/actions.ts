@@ -59,6 +59,47 @@ export async function toggleUserActive(id: string): Promise<void> {
   revalidatePath("/users");
 }
 
+const editSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1, "Name is required."),
+  email: z.string().email("Enter a valid email."),
+});
+
+export async function updateUser(
+  _prev: { error?: string; ok?: boolean } | undefined,
+  formData: FormData
+): Promise<{ error?: string; ok?: boolean }> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "manageUsers")) return { error: "Only owners can manage users." };
+
+  const parsed = editSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  const v = parsed.data;
+  const email = v.email.toLowerCase();
+
+  const clash = await prisma.user.findFirst({ where: { email, NOT: { id: v.id } } });
+  if (clash) return { error: "Another user already uses that email." };
+
+  try {
+    const before = await prisma.user.findUnique({ where: { id: v.id } });
+    await prisma.user.update({ where: { id: v.id }, data: { name: v.name, email } });
+    await logAudit({
+      userId: session.userId,
+      action: "UPDATE",
+      entity: "User",
+      entityId: v.id,
+      before: { name: before?.name, email: before?.email },
+      after: { name: v.name, email },
+    });
+  } catch (e) {
+    console.error(e);
+    return { error: "Could not update the user." };
+  }
+  revalidatePath("/users");
+  return { ok: true };
+}
+
 export async function changeUserRole(id: string, role: string): Promise<void> {
   const session = await getSession();
   if (!session || !can(session.role, "manageUsers")) return;

@@ -1,8 +1,9 @@
 "use client";
 
-import { useTransition } from "react";
-import { toggleUserActive, changeUserRole } from "./actions";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { toggleUserActive, changeUserRole, updateUser } from "./actions";
 import { Icon } from "@/components/ui";
+import Modal from "@/components/Modal";
 import { ROLE_LABELS } from "@/lib/rbac";
 
 const ROLES = ["OWNER", "MANAGER", "ACCOUNTANT", "EMPLOYEE"] as const;
@@ -23,6 +24,13 @@ export default function UserRow({
   isSelf: boolean;
 }) {
   const [pending, start] = useTransition();
+  const [editing, setEditing] = useState(false);
+  const [state, editAction, editPending] = useActionState(updateUser, {});
+  const formRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (state?.ok) setEditing(false);
+  }, [state?.ok]);
 
   return (
     <tr className="hover:bg-surface-container-low/50">
@@ -59,15 +67,49 @@ export default function UserRow({
         )}
       </td>
       <td className="px-4 py-3 text-right">
-        <button
-          disabled={isSelf || pending}
-          onClick={() => start(() => toggleUserActive(id))}
-          className="ft-btn-ghost text-body-sm disabled:opacity-40"
-          title={isSelf ? "You can't disable yourself" : ""}
-        >
-          <Icon name={active ? "block" : "check_circle"} className="text-[18px]" />
-          {active ? "Disable" : "Enable"}
-        </button>
+        <div className="inline-flex items-center gap-1">
+          <button
+            onClick={() => setEditing(true)}
+            className="ft-btn-ghost text-body-sm"
+            title="Edit name / email"
+          >
+            <Icon name="edit" className="text-[18px]" /> Edit
+          </button>
+          <button
+            disabled={isSelf || pending}
+            onClick={() => start(() => toggleUserActive(id))}
+            className="ft-btn-ghost text-body-sm disabled:opacity-40"
+            title={isSelf ? "You can't disable yourself" : ""}
+          >
+            <Icon name={active ? "block" : "check_circle"} className="text-[18px]" />
+            {active ? "Disable" : "Enable"}
+          </button>
+        </div>
+
+        {editing && (
+          <Modal title="Edit User" onClose={() => setEditing(false)}>
+            <form ref={formRef} action={editAction} className="space-y-4 text-left">
+              <input type="hidden" name="id" value={id} />
+              <div>
+                <label className="ft-label" htmlFor={`u-name-${id}`}>Name</label>
+                <input id={`u-name-${id}`} name="name" type="text" defaultValue={name} className="ft-input" required />
+              </div>
+              <div>
+                <label className="ft-label" htmlFor={`u-email-${id}`}>Email</label>
+                <input id={`u-email-${id}`} name="email" type="email" defaultValue={email} className="ft-input" required />
+              </div>
+              {state?.error && (
+                <div className="flex items-center gap-2 text-error text-body-sm bg-error-container/50 px-3 py-2 rounded-md">
+                  <Icon name="error" className="text-[18px]" /> {state.error}
+                </div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setEditing(false)} className="ft-btn-secondary flex-1 justify-center">Cancel</button>
+                <button type="submit" disabled={editPending} className="ft-btn-primary flex-1 justify-center">{editPending ? "Saving…" : "Save changes"}</button>
+              </div>
+            </form>
+          </Modal>
+        )}
       </td>
     </tr>
   );

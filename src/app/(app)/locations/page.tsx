@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getActiveLocationId } from "@/lib/location";
 import { Card, PageHeader, Badge, EmptyState, Icon } from "@/components/ui";
 import LocationForm from "./LocationForm";
+import LocationManager from "./LocationManager";
 
 export const dynamic = "force-dynamic";
 
@@ -45,10 +46,13 @@ export default async function LocationsPage() {
                 </div>
                 {l.id === activeId && <Badge tone="success">Active</Badge>}
               </div>
-              <div className="mt-3 flex gap-4 text-body-sm text-on-surface-variant">
-                <span>{l._count.sales} sales</span>
-                <span>{l._count.expenses} expenses</span>
-                <span>{l._count.users} users</span>
+              <div className="mt-3 flex items-center justify-between">
+                <div className="flex gap-4 text-body-sm text-on-surface-variant">
+                  <span>{l._count.sales} sales</span>
+                  <span>{l._count.expenses} expenses</span>
+                  <span>{l._count.users} users</span>
+                </div>
+                <LocationManager id={l.id} name={l.name} address={l.address} canDelete={locations.length > 1} />
               </div>
             </Card>
           ))}
