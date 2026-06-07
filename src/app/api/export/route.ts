@@ -26,7 +26,8 @@ export async function GET(req: NextRequest) {
   const period = (sp.get("period") as PeriodKey) || "mtd";
   const from = sp.get("from");
   const to = sp.get("to");
-  const range = from && to ? customRange(from, to) : rangeFor(period);
+  const date = sp.get("date"); // single-day export (e.g. daily closing)
+  const range = date ? customRange(date, date) : from && to ? customRange(from, to) : rangeFor(period);
 
   const doc = await buildReport(type, range, (await getActiveLocationId()) ?? undefined);
   const filenameBase = `${type}_${new Date().toISOString().slice(0, 10)}`;

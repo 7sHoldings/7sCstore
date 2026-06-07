@@ -22,5 +22,5 @@ export async function loginAction(
 
   await createSession(session);
   await logAudit({ userId: session.userId, action: "LOGIN", entity: "User", entityId: session.userId });
-  redirect("/dashboard");
+  redirect("/daily");
 }

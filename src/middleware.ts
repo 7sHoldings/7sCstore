@@ -25,7 +25,7 @@ export async function middleware(req: NextRequest) {
   const authed = await isValid(token);
 
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    if (authed) return NextResponse.redirect(new URL("/dashboard", req.url));
+    if (authed) return NextResponse.redirect(new URL("/daily", req.url));
     return NextResponse.next();
   }
 

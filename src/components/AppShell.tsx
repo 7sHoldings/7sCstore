@@ -31,8 +31,25 @@ export default function AppShell({
   const [open, setOpen] = useState(false);
 
   const items = NAV_ITEMS.filter((i) => !i.perm || can(role, i.perm));
+  const mainItems = items.filter((i) => i.section !== "manage");
+  const manageItems = items.filter((i) => i.section === "manage");
   const mobileItems = items.filter((i) => i.mobile).slice(0, 4);
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
+
+  const navLink = (item: (typeof items)[number]) => (
+    <Link
+      key={item.href}
+      href={item.href}
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-body-md ${
+        isActive(item.href)
+          ? "text-primary font-bold bg-surface-container border-r-2 border-primary"
+          : "text-on-surface-variant hover:bg-surface-container-high"
+      }`}
+    >
+      <Icon name={item.icon} className="text-[20px]" filled={isActive(item.href)} />
+      {item.label}
+    </Link>
+  );
 
   return (
     <div className="min-h-screen">
@@ -78,20 +95,13 @@ export default function AppShell({
         </div>
 
         <nav className="flex-1 flex flex-col gap-1 overflow-y-auto custom-scrollbar">
-          {items.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-body-md ${
-                isActive(item.href)
-                  ? "text-primary font-bold bg-surface-container border-r-2 border-primary"
-                  : "text-on-surface-variant hover:bg-surface-container-high"
-              }`}
-            >
-              <Icon name={item.icon} className="text-[20px]" filled={isActive(item.href)} />
-              {item.label}
-            </Link>
-          ))}
+          {mainItems.map(navLink)}
+          {manageItems.length > 0 && (
+            <>
+              <p className="text-label-caps uppercase text-on-surface-variant/70 px-3 mt-4 mb-1">Manage</p>
+              {manageItems.map(navLink)}
+            </>
+          )}
         </nav>
 
         <div className="border-t border-outline-variant pt-3 mt-3">

@@ -56,5 +56,5 @@ export async function setupAction(
     role: "OWNER",
     locationId,
   });
-  redirect("/dashboard");
+  redirect("/daily");
 }

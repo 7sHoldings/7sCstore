@@ -16,8 +16,10 @@ import {
   gradeLabel,
 } from "./format";
 import { purchaseMargin, money } from "./calc";
+import { buildSalesView } from "./salesView";
 
 export type ReportType =
+  | "daily_closing"
   | "daily"
   | "weekly"
   | "monthly_pl"
@@ -30,6 +32,7 @@ export type ReportType =
   | "tax";
 
 export const REPORT_META: Record<ReportType, { title: string; icon: string; desc: string }> = {
+  daily_closing: { title: "Daily Closing", icon: "event_note", desc: "Fuel, lottery & merchandise with cash/credit" },
   daily: { title: "Daily Business Report", icon: "today", desc: "Sales, expenses, and profit for the day" },
   weekly: { title: "Weekly Sales Report", icon: "date_range", desc: "Sales performance across the week" },
   monthly_pl: { title: "Monthly P&L Statement", icon: "summarize", desc: "Full profit & loss statement" },
@@ -72,6 +75,58 @@ export async function buildReport(
     periodLabel: range.label,
     generatedAt,
   };
+
+  // Daily Closing — the sales-focused view (fuel / lottery / merchandise with
+  // cash/credit), matching the Daily Sales screen.
+  if (type === "daily_closing") {
+    const where = { date: { gte: range.start, lt: range.end }, ...(locationId ? { locationId } : {}) };
+    const [sales, fuelSales] = await Promise.all([
+      prisma.sale.findMany({ where, select: { paymentType: true, amount: true, refund: true, category: true, note: true } }),
+      prisma.fuelSale.findMany({ where, select: { grade: true, gallons: true, total: true, pricePerGallon: true } }),
+    ]);
+    const view = buildSalesView(sales, fuelSales);
+    const pct = (v: number) => (view.merch.split.total !== 0 ? `${((v / view.merch.split.total) * 100).toFixed(1)}%` : "—");
+    return {
+      ...base,
+      summary: [
+        { label: "Merchandise", value: fmtMoney(view.merch.split.total) },
+        { label: "Lottery / Lotto", value: fmtMoney(view.lotto.split.total) },
+        { label: "Fuel", value: fmtMoney(view.fuel.split.total) },
+        { label: "Total Sales", value: fmtMoney(view.total.total) },
+        { label: "Cash", value: fmtMoney(view.total.cash) },
+        { label: "Credit / Debit", value: fmtMoney(view.total.card) },
+      ],
+      sections: [
+        {
+          heading: `Fuel Sales — Cash ${fmtMoney(view.fuel.split.cash)} · Credit/Debit ${fmtMoney(view.fuel.split.card)}`,
+          columns: ["Grade", "Gallons", "Price/gal", "Sales"],
+          align: ["left", "right", "right", "right"],
+          rows: [
+            ...view.fuel.byGrade.map((g) => [gradeLabel(g.grade), fmtNumber(g.gallons), fmtMoney4(g.price), fmtMoney(g.total)]),
+            ["Total", fmtNumber(view.fuel.gallons), "", fmtMoney(view.fuel.split.total)],
+          ],
+        },
+        {
+          heading: `Lottery / Lotto — Cash ${fmtMoney(view.lotto.split.cash)} · Credit/Debit ${fmtMoney(view.lotto.split.card)}`,
+          columns: ["Department", "Sales"],
+          align: ["left", "right"],
+          rows: [
+            ...view.lotto.depts.map((d) => [d.name, fmtMoney(d.sales)]),
+            ["Total", fmtMoney(view.lotto.split.total)],
+          ],
+        },
+        {
+          heading: `Merchandise — Cash ${fmtMoney(view.merch.split.cash)} · Credit/Debit ${fmtMoney(view.merch.split.card)}`,
+          columns: ["Department", "Sales", "Refund", "Sales %"],
+          align: ["left", "right", "right", "right"],
+          rows: [
+            ...view.merch.depts.map((d) => [d.name, fmtMoney(d.sales), d.refund > 0 ? `-${fmtMoney(d.refund)}` : "—", pct(d.sales)]),
+            ["Grand Total", fmtMoney(view.merch.split.total), view.merch.refund > 0 ? `-${fmtMoney(view.merch.refund)}` : "—", "100.0%"],
+          ],
+        },
+      ],
+    };
+  }
 
   const data = await getReportData(range, locationId);
   const p = data.pnl;

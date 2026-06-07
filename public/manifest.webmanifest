@@ -2,7 +2,7 @@
   "name": "7sCstores — Gas Station Reporting",
   "short_name": "7sCstores",
   "description": "Record and understand your gas station's sales, expenses, purchases, and profit.",
-  "start_url": "/dashboard",
+  "start_url": "/daily",
   "display": "standalone",
   "background_color": "#f8f9ff",
   "theme_color": "#0a2540",
