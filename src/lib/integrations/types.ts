@@ -10,6 +10,7 @@ export interface NormalizedSale {
   paymentType: "CASH" | "CARD" | "OTHER";
   amount: number;
   taxCollected?: number;
+  refund?: number;
   note?: string;
   fuel?: {
     grade: "REGULAR" | "MID" | "PREMIUM" | "DIESEL";

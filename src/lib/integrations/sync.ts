@@ -3,12 +3,17 @@ import { prisma } from "../db";
 import { dispatchAlert } from "../notify";
 import { money, perGallon } from "../calc";
 import { modiAdapter } from "./modi";
+import { modiInsightsAdapter } from "./modiInsights";
 import { mockModiAdapter } from "./mockModi";
 import type { PosAdapter } from "./types";
 
-/** Use the real Modi adapter when configured, otherwise the sandbox. */
+/**
+ * Pick the active adapter: official API (MODI_API_URL+KEY) → Insights session
+ * cookie (MODI_COOKIE) → sandbox. The first two are "live".
+ */
 export function activeAdapter(): { adapter: PosAdapter; live: boolean } {
   if (modiAdapter.isConfigured()) return { adapter: modiAdapter, live: true };
+  if (modiInsightsAdapter.isConfigured()) return { adapter: modiInsightsAdapter, live: true };
   return { adapter: mockModiAdapter, live: false };
 }
 
@@ -73,6 +78,7 @@ export async function runSync(locationId: string): Promise<{ imported: number; l
             paymentType: s.paymentType,
             amount: money(s.amount),
             taxCollected: money(s.taxCollected ?? 0),
+            refund: money(s.refund ?? 0),
             note: s.note,
             source: "POS_MODI",
           },
