@@ -15,11 +15,11 @@ export default async function AppLayout({
   if (!session) redirect("/login");
 
   // Verify the account still exists / is active (e.g. after a data wipe a stale
-  // cookie shouldn't keep someone "logged in" as a deleted user).
+  // cookie shouldn't keep someone "logged in" as a deleted user). Cookies can't
+  // be modified during render, so hand off to a route handler that clears it.
   const dbUser = await prisma.user.findUnique({ where: { id: session.userId } });
   if (!dbUser || !dbUser.active) {
-    await destroySession();
-    redirect("/login");
+    redirect("/api/session/clear");
   }
 
   async function logout() {
