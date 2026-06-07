@@ -34,3 +34,7 @@ yarn-error.log*
 # uploads (receipts)
 /public/uploads/*
 !/public/uploads/.gitkeep
+
+# python cache (from skills)
+__pycache__/
+*.pyc
