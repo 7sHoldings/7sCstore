@@ -6,7 +6,7 @@ import { jwtVerify } from "jose";
  * runs in the edge runtime) and redirects unauthenticated users to /login.
  * Fine-grained role checks happen in server components/actions via rbac.ts.
  */
-const PUBLIC_PATHS = ["/login", "/setup"];
+const PUBLIC_PATHS = ["/login", "/setup", "/api/cron"];
 
 async function isValid(token: string | undefined): Promise<boolean> {
   if (!token) return false;
