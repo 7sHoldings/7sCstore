@@ -49,16 +49,40 @@ export const modiInsightsAdapter: PosAdapter = {
 
       // Authoritative daily totals come from the POS-Closing report (635), which
       // matches what the owner sees on screen. It has no cash/card split, so we
-      // derive a cash ratio from the Card & Cash Closing report (554).
-      const [grocery, fuel, currentDept] = await Promise.all([
+      // take the per-department / per-grade cash ratio from the Card & Cash
+      // Closing reports (554 dept, 545 fuel) and apply it to the 635 totals.
+      const [grocery, fuel, currentDept, currentFuel] = await Promise.all([
         post(cookie, "/Sales/_SelectGroceryDeptSales", { sort: "", group: "", filter: "", ReportID: "635", DeptID: "-1", FromDate, ToDate }),
         post(cookie, "/Sales/_SelectFuelSales", { sort: "", group: "", filter: "", ReportID: "635", DeptID: "-1", FromDate, ToDate }),
         post(cookie, "/Sales/_SelectCurrentPOSDeptSales", { sort: "", group: "", filter: "", ReportID: "554", FromDate, ToDate }).catch(() => [] as unknown[]),
+        post(cookie, "/Sales/_SelectCurrentFuelSales", { sort: "", group: "", filter: "", ReportID: "545", FromDate, ToDate }).catch(() => [] as unknown[]),
       ]);
 
-      const cashRatio = computeCashRatio(currentDept);
+      // Per-department cash ratio (from 554) + overall fallback.
+      const deptRatio = new Map<string, number | null>();
+      let oCash = 0, oCard = 0;
+      for (const raw of currentDept) {
+        const r = raw as Record<string, unknown>;
+        const cash = num(r.SalesCash);
+        const card = num(r.SalesCreditDebit);
+        oCash += cash; oCard += card;
+        deptRatio.set(String(r.DeptName ?? "").trim().toUpperCase(), cash + card > 0 ? cash / (cash + card) : null);
+      }
+      const overallRatio = oCash + oCard > 0 ? oCash / (oCash + oCard) : null;
 
-      // ---- Store / department sales (635) ----
+      // Per-grade fuel cash ratio (from 545) + fuel overall fallback.
+      const fuelRatio = new Map<string, number | null>();
+      let fCash = 0, fCard = 0;
+      for (const raw of currentFuel) {
+        const r = raw as Record<string, unknown>;
+        const cash = num(r.AmountCash);
+        const card = num(r.AmountCreditDebit);
+        fCash += cash; fCard += card;
+        fuelRatio.set(String(r.FuelType ?? "").trim().toUpperCase(), cash + card > 0 ? cash / (cash + card) : null);
+      }
+      const fuelOverall = fCash + fCard > 0 ? fCash / (fCash + fCard) : overallRatio;
+
+      // ---- Store / department sales (635 totals, 554 per-dept split) ----
       for (const raw of grocery) {
         const r = raw as Record<string, unknown>;
         const name = String(r.DeptName ?? "");
@@ -66,7 +90,8 @@ export const modiInsightsAdapter: PosAdapter = {
         const amount = num(r.Sales); // report "Sales" column; can be negative (e.g. LOTTO P\O)
         if (amount === 0) continue;
         const refundTotal = num(r.Refund);
-        for (const [pay, amt] of splitAmount(amount, cashRatio)) {
+        const ratio = deptRatio.get(name.trim().toUpperCase()) ?? overallRatio;
+        for (const [pay, amt] of splitAmount(amount, ratio)) {
           out.push({
             date: day,
             category,
@@ -78,21 +103,23 @@ export const modiInsightsAdapter: PosAdapter = {
         }
       }
 
-      // ---- Fuel sales (635) ----
+      // ---- Fuel sales (635 totals, 545 per-grade split) ----
       for (const raw of fuel) {
         const r = raw as Record<string, unknown>;
-        const grade = mapFuelType(String(r.FuelType ?? "Regular"));
+        const fuelType = String(r.FuelType ?? "Regular");
+        const grade = mapFuelType(fuelType);
         const gallons = num(r.Volume);
         const price = num(r.RptRetail) || num(r.Retail);
         const amount = num(r.Amount);
         if (amount === 0 && gallons === 0) continue;
-        for (const [pay, amt] of splitAmount(amount, cashRatio)) {
+        const ratio = fuelRatio.get(fuelType.trim().toUpperCase()) ?? fuelOverall;
+        for (const [pay, amt] of splitAmount(amount, ratio)) {
           out.push({
             date: day,
             category: "FUEL",
             paymentType: pay,
             amount: amt,
-            note: `Modisoft ${String(r.FuelType ?? "")}`.trim(),
+            note: `Modisoft ${fuelType}`.trim(),
             fuel: { grade, gallons: share(gallons, amt, amount), pricePerGallon: price, taxPerGallon: 0 },
           });
         }
@@ -139,19 +166,6 @@ export const modiInsightsAdapter: PosAdapter = {
     return out;
   },
 };
-
-/** Overall cash share from the Card & Cash Closing report rows (0..1, or null). */
-function computeCashRatio(rows: unknown[]): number | null {
-  let cash = 0;
-  let card = 0;
-  for (const raw of rows) {
-    const r = raw as Record<string, unknown>;
-    cash += num(r.SalesCash);
-    card += num(r.SalesCreditDebit);
-  }
-  const tot = cash + card;
-  return tot > 0 ? cash / tot : null;
-}
 
 /** Split a (possibly negative) amount into CASH/CARD by ratio; CARD-only if unknown. */
 function splitAmount(amount: number, cashRatio: number | null): ["CASH" | "CARD", number][] {
