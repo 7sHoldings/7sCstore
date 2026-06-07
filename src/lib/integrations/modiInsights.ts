@@ -12,6 +12,12 @@ import { mapFuelType, mapDeptToCategory } from "./modiMap";
  */
 const BASE = "https://insights1.modisoft.com";
 
+// Cloudflare's cf_clearance cookie is bound to the browser's User-Agent, so we
+// send a matching one. Override with MODI_USER_AGENT if your browser differs.
+const UA =
+  process.env.MODI_USER_AGENT ||
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36";
+
 export const modiInsightsAdapter: PosAdapter = {
   id: "POS_MODI",
   label: "Modisoft (Insights session)",
@@ -92,6 +98,7 @@ async function changeStore(cookie: string, id: string, ccode: string): Promise<v
       cookie,
       "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
       "x-requested-with": "XMLHttpRequest",
+      "user-agent": UA,
       accept: "*/*",
       origin: BASE,
       referer: BASE + "/Home/SelectStore",
@@ -115,6 +122,7 @@ async function post(cookie: string, path: string, body: Record<string, string>):
       cookie,
       "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
       "x-requested-with": "XMLHttpRequest",
+      "user-agent": UA,
       accept: "application/json, text/javascript, */*; q=0.01",
       origin: BASE,
       referer: BASE + "/",
