@@ -2,16 +2,17 @@
 // Designed for a single location now (A2) but every operational record carries a
 // locationId so additional sites can be added later with no schema redesign.
 //
-// SQLite is used for Phase-1 local development. The provider can be switched to
-// "postgresql" for production without model changes (env-driven DATABASE_URL).
+// Postgres (Supabase). DATABASE_URL uses the pooled connection for the app;
+// DIRECT_URL uses the direct/session connection for migrations & db push.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------------------------------------------------------------------------
