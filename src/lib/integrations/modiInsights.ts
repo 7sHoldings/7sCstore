@@ -24,6 +24,10 @@ export const modiInsightsAdapter: PosAdapter = {
   isConfigured: () => Boolean(process.env.MODI_COOKIE),
 
   async fetchSince(since: Date): Promise<NormalizedSale[]> {
+    return this.fetchRange!(since, new Date());
+  },
+
+  async fetchRange(from: Date, to: Date): Promise<NormalizedSale[]> {
     const cookie = process.env.MODI_COOKIE!;
     const storeId = process.env.MODI_STORE_ID || "16";
     const ccode = process.env.MODI_CCODE || "854388";
@@ -33,7 +37,7 @@ export const modiInsightsAdapter: PosAdapter = {
     // so the report endpoints return this store's data.
     await changeStore(cookie, storeId, ccode);
 
-    for (const day of daysFrom(since)) {
+    for (const day of daysBetween(from, to)) {
       const FromDate = `${fmtDate(day)} 12:00 AM`;
       const ToDate = `${fmtDate(day)} 11:59 PM`;
 
@@ -143,14 +147,14 @@ async function post(cookie: string, path: string, body: Record<string, string>):
   return Array.isArray(data.Data) ? data.Data : [];
 }
 
-/** Whole days from `since` (inclusive) up to today, capped at 31. */
-function daysFrom(since: Date): Date[] {
+/** Whole days from `from` to `to` (inclusive), capped at 60 per call. */
+function daysBetween(from: Date, to: Date): Date[] {
   const out: Date[] = [];
-  const start = new Date(since); start.setHours(0, 0, 0, 0);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const start = new Date(from); start.setHours(0, 0, 0, 0);
+  const end = new Date(to); end.setHours(0, 0, 0, 0);
   const cur = new Date(start);
   let guard = 0;
-  while (cur <= today && guard < 31) {
+  while (cur <= end && guard < 60) {
     out.push(new Date(cur));
     cur.setDate(cur.getDate() + 1);
     guard++;

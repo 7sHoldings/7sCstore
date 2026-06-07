@@ -5,7 +5,7 @@ import { money, perGallon } from "../calc";
 import { modiAdapter } from "./modi";
 import { modiInsightsAdapter } from "./modiInsights";
 import { mockModiAdapter } from "./mockModi";
-import type { PosAdapter } from "./types";
+import type { PosAdapter, NormalizedSale } from "./types";
 
 /**
  * Pick the active adapter: official API (MODI_API_URL+KEY) → Insights session
@@ -17,13 +17,95 @@ export function activeAdapter(): { adapter: PosAdapter; live: boolean } {
   return { adapter: mockModiAdapter, live: false };
 }
 
+function startOfDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+/** Insert normalized POS rows; fuel rows also create the FuelSale detail. */
+async function insertRows(
+  tx: Pick<typeof prisma, "sale">,
+  locationId: string,
+  rows: NormalizedSale[]
+): Promise<number> {
+  let n = 0;
+  for (const s of rows) {
+    if (s.category === "FUEL" && s.fuel) {
+      await tx.sale.create({
+        data: {
+          date: s.date,
+          locationId,
+          category: "FUEL",
+          paymentType: s.paymentType,
+          amount: money(s.amount),
+          taxCollected: 0,
+          note: s.note,
+          source: "POS_MODI",
+          fuelSale: {
+            create: {
+              date: s.date,
+              locationId,
+              grade: s.fuel.grade,
+              gallons: s.fuel.gallons,
+              pricePerGallon: perGallon(s.fuel.pricePerGallon),
+              total: money(s.amount),
+              taxPerGallon: perGallon(s.fuel.taxPerGallon ?? 0),
+              costPerGallon: perGallon(s.fuel.costPerGallon ?? 0),
+            },
+          },
+        },
+      });
+    } else {
+      await tx.sale.create({
+        data: {
+          date: s.date,
+          locationId,
+          category: s.category,
+          paymentType: s.paymentType,
+          amount: money(s.amount),
+          taxCollected: money(s.taxCollected ?? 0),
+          refund: money(s.refund ?? 0),
+          note: s.note,
+          source: "POS_MODI",
+        },
+      });
+    }
+    n++;
+  }
+  return n;
+}
+
 /**
- * Run a POS sync for a location: pull sales since the last successful sync,
- * persist them with source = POS_MODI, and record a SyncLog row. On failure the
- * log is marked FAILED and an alert is raised (FR-43).
+ * Idempotently sync a [from, to] day range: fetch from the POS, delete existing
+ * POS_MODI rows in that window, then insert the fresh data. Safe to re-run for
+ * the same dates (no double-counting). Does NOT write a SyncLog — callers decide.
+ */
+export async function syncRange(locationId: string, from: Date, to: Date): Promise<number> {
+  const { adapter } = activeAdapter();
+  const rows = adapter.fetchRange
+    ? await adapter.fetchRange(from, to)
+    : await adapter.fetchSince(from);
+
+  const windowStart = startOfDay(from);
+  const windowEnd = startOfDay(to);
+  windowEnd.setDate(windowEnd.getDate() + 1); // exclusive upper bound (whole `to` day)
+
+  return prisma.$transaction(async (tx) => {
+    await tx.sale.deleteMany({
+      where: { source: "POS_MODI", locationId, date: { gte: windowStart, lt: windowEnd } },
+    });
+    return insertRows(tx, locationId, rows);
+  });
+}
+
+/**
+ * Incremental sync (the "Sync now" button): pulls from the last successful sync
+ * (or the last 7 days on first run) up to now, logs the run, and alerts on
+ * failure (FR-43).
  */
 export async function runSync(locationId: string): Promise<{ imported: number; live: boolean }> {
-  const { adapter, live } = activeAdapter();
+  const { live } = activeAdapter();
 
   const lastSuccess = await prisma.syncLog.findFirst({
     where: { status: "SUCCESS", locationId },
@@ -31,7 +113,7 @@ export async function runSync(locationId: string): Promise<{ imported: number; l
   });
   const since = lastSuccess?.finishedAt ?? (() => {
     const d = new Date();
-    d.setDate(d.getDate() - 7); // first run: last 7 days
+    d.setDate(d.getDate() - 7);
     return d;
   })();
 
@@ -40,53 +122,7 @@ export async function runSync(locationId: string): Promise<{ imported: number; l
   });
 
   try {
-    const rows = await adapter.fetchSince(since);
-    let imported = 0;
-
-    for (const s of rows) {
-      if (s.category === "FUEL" && s.fuel) {
-        await prisma.sale.create({
-          data: {
-            date: s.date,
-            locationId,
-            category: "FUEL",
-            paymentType: s.paymentType,
-            amount: money(s.amount),
-            taxCollected: 0,
-            note: s.note,
-            source: "POS_MODI",
-            fuelSale: {
-              create: {
-                date: s.date,
-                locationId,
-                grade: s.fuel.grade,
-                gallons: s.fuel.gallons,
-                pricePerGallon: perGallon(s.fuel.pricePerGallon),
-                total: money(s.amount),
-                taxPerGallon: perGallon(s.fuel.taxPerGallon ?? 0),
-                costPerGallon: perGallon(s.fuel.costPerGallon ?? 0),
-              },
-            },
-          },
-        });
-      } else {
-        await prisma.sale.create({
-          data: {
-            date: s.date,
-            locationId,
-            category: s.category,
-            paymentType: s.paymentType,
-            amount: money(s.amount),
-            taxCollected: money(s.taxCollected ?? 0),
-            refund: money(s.refund ?? 0),
-            note: s.note,
-            source: "POS_MODI",
-          },
-        });
-      }
-      imported++;
-    }
-
+    const imported = await syncRange(locationId, since, new Date());
     await prisma.syncLog.update({
       where: { id: log.id },
       data: {
@@ -111,4 +147,18 @@ export async function runSync(locationId: string): Promise<{ imported: number; l
     });
     throw e;
   }
+}
+
+/** Write a one-line SyncLog summarizing a completed backfill. */
+export async function logBackfill(locationId: string, imported: number, fromISO: string, toISO: string): Promise<void> {
+  await prisma.syncLog.create({
+    data: {
+      source: "POS_MODI",
+      status: "SUCCESS",
+      locationId,
+      finishedAt: new Date(),
+      recordsImported: imported,
+      message: `Backfill ${fromISO} → ${toISO}.`,
+    },
+  });
 }

@@ -29,4 +29,6 @@ export interface PosAdapter {
   isConfigured(): boolean;
   /** Pull sales recorded at/after `since`. */
   fetchSince(since: Date): Promise<NormalizedSale[]>;
+  /** Pull sales for an explicit [from, to] day range (used for backfill). */
+  fetchRange?(from: Date, to: Date): Promise<NormalizedSale[]>;
 }

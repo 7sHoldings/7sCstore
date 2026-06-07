@@ -6,6 +6,7 @@ import { activeAdapter } from "@/lib/integrations/sync";
 import { fmtDateTime } from "@/lib/format";
 import { Card, PageHeader, Badge, EmptyState, Icon } from "@/components/ui";
 import SyncButton from "./SyncButton";
+import Backfill from "./Backfill";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,10 @@ export default async function IntegrationsPage() {
           <SyncButton />
         </div>
       </Card>
+
+      <div className="mb-6">
+        <Backfill defaultFrom={`${new Date().getFullYear()}-01-01`} />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <InfoCard icon="dataset" title="Integration layer" body="All sources (manual, CSV, POS) write the same Sale records with a source tag, so reports never change as feeds are added." />
