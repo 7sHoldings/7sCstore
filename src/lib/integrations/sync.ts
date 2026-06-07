@@ -98,22 +98,6 @@ export async function syncRange(locationId: string, from: Date, to: Date): Promi
     return insertRows(tx, locationId, rows);
   });
 
-  // Best-effort: store the per-day customer/transaction count (Setting table).
-  if (adapter.fetchCustomers) {
-    try {
-      const counts = await adapter.fetchCustomers(from, to);
-      for (const c of counts) {
-        await prisma.setting.upsert({
-          where: { key: `customers:${locationId}:${c.date}` },
-          create: { key: `customers:${locationId}:${c.date}`, value: String(c.customers) },
-          update: { value: String(c.customers) },
-        });
-      }
-    } catch {
-      // customer count is optional
-    }
-  }
-
   return imported;
 }
 
