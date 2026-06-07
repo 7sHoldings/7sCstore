@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "7sCstore — Gas Station Business Reporting Application (Phase 1)",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
@@ -12,6 +15,7 @@
     "prisma:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:bootstrap": "tsx prisma/bootstrap.ts",
     "postinstall": "prisma generate"
   },
   "prisma": {
