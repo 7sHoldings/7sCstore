@@ -72,16 +72,16 @@ export default async function DailySalesPage({
             <CountCard label="Customers" count={customers ?? 0} sub={customers ? `${fmtMoney(avgBasket)} avg basket` : "count not synced"} icon="groups" />
           </div>
 
-          <SalesSection title="Daily Sales — Merchandise" s={view.merch.split} className="mb-6">
-            <DeptTable rows={view.merch.depts} total={view.merch.split.total} refundTotal={view.merch.refund} />
+          <SalesSection title="Fuel Sales" s={view.fuel.split} extra={`${fmtNumber(view.fuel.gallons)} gal`} className="mb-6">
+            <FuelTable byGrade={view.fuel.byGrade} gallons={view.fuel.gallons} total={view.fuel.split.total} />
           </SalesSection>
 
           <SalesSection title="Lottery / Lotto Sales & Payouts" s={view.lotto.split} className="mb-6">
             <DeptTable rows={view.lotto.depts} total={view.lotto.split.total} refundTotal={0} allowNegative />
           </SalesSection>
 
-          <SalesSection title="Fuel Sales" s={view.fuel.split} extra={`${fmtNumber(view.fuel.gallons)} gal`}>
-            <FuelTable byGrade={view.fuel.byGrade} gallons={view.fuel.gallons} total={view.fuel.split.total} />
+          <SalesSection title="Daily Sales — Merchandise" s={view.merch.split}>
+            <DeptTable rows={view.merch.depts} total={view.merch.split.total} refundTotal={view.merch.refund} />
           </SalesSection>
         </>
       )}
