@@ -1,0 +1,341 @@
+// FuelTrack data model — implements SRS Section 5 (key entities).
+// Designed for a single location now (A2) but every operational record carries a
+// locationId so additional sites can be added later with no schema redesign.
+//
+// SQLite is used for Phase-1 local development. The provider can be switched to
+// "postgresql" for production without model changes (env-driven DATABASE_URL).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  OWNER // Owner / Admin — full access
+  MANAGER
+  ACCOUNTANT
+  EMPLOYEE
+}
+
+enum SaleCategory {
+  FUEL
+  STORE // Store / grocery
+  LOTTERY
+  TOBACCO
+  FOOD_DRINK
+  OTHER
+}
+
+enum PaymentType {
+  CASH
+  CARD
+  OTHER
+}
+
+enum FuelGrade {
+  REGULAR
+  MID
+  PREMIUM
+  DIESEL
+}
+
+// Every transactional record records where it came from. This is the
+// "integration layer" seam (FR-41): manual + CSV today, Modi POS API later,
+// without touching reports or calculations.
+enum DataSource {
+  MANUAL
+  CSV_IMPORT
+  POS_MODI
+}
+
+enum ExpenseCategory {
+  RENT_MORTGAGE
+  PAYROLL
+  UTILITIES
+  INTERNET_PHONE
+  REPAIRS_MAINTENANCE
+  INSURANCE
+  VENDOR_PAYMENT
+  FUEL_PURCHASE
+  PRODUCT_PURCHASE
+  BANK_FEES
+  CARD_PROCESSING_FEES
+  OTHER
+}
+
+// ---------------------------------------------------------------------------
+// Core / identity
+// ---------------------------------------------------------------------------
+
+model Location {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  createdAt DateTime @default(now())
+
+  users          User[]
+  sales          Sale[]
+  fuelSales      FuelSale[]
+  expenses       Expense[]
+  purchases      Purchase[]
+  shifts         Shift[]
+  fuelInventory  FuelInventory[]
+  products       Product[]
+  fuelDeliveries FuelDelivery[]
+  alerts         Alert[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(EMPLOYEE)
+  active       Boolean  @default(true)
+  locationId   String?
+  location     Location? @relation(fields: [locationId], references: [id])
+  createdAt    DateTime @default(now())
+
+  sales     Sale[]
+  expenses  Expense[]
+  purchases Purchase[]
+  shifts    Shift[]
+  auditLogs AuditLog[]
+
+  @@index([locationId])
+}
+
+// ---------------------------------------------------------------------------
+// Sales
+// ---------------------------------------------------------------------------
+
+model Sale {
+  id           String       @id @default(cuid())
+  date         DateTime
+  locationId   String
+  location     Location     @relation(fields: [locationId], references: [id])
+  category     SaleCategory
+  paymentType  PaymentType
+  amount       Float // Gross sale value, excluding sales tax (Section 3)
+  taxCollected Float        @default(0) // Tracked separately — liability, not revenue (FR-13)
+  refund       Float        @default(0) // Refunds/voids reduce net sales (FR-14)
+  // Lottery is commission income only (FR-32). For LOTTERY rows, `amount`
+  // holds the commission earned; face value/payouts are pass-through and excluded.
+  note         String?
+  source       DataSource   @default(MANUAL)
+  shiftId      String?
+  shift        Shift?       @relation(fields: [shiftId], references: [id])
+  enteredById  String?
+  enteredBy    User?        @relation(fields: [enteredById], references: [id])
+  fuelSale     FuelSale?
+  createdAt    DateTime     @default(now())
+
+  @@index([locationId, date])
+  @@index([category])
+  @@index([paymentType])
+}
+
+// Fuel sale detail (FR-9). One-to-one with a FUEL-category Sale so that fuel
+// rolls up into the same sales totals while keeping per-grade volume/price.
+model FuelSale {
+  id            String    @id @default(cuid())
+  saleId        String    @unique
+  sale          Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  date          DateTime
+  locationId    String
+  location      Location  @relation(fields: [locationId], references: [id])
+  grade         FuelGrade
+  gallons       Float
+  pricePerGallon Float // pump price, 4-decimal precision (NFR-2)
+  total         Float
+  taxPerGallon  Float    @default(0) // fuel taxes embedded in pump price (Section 3)
+  costPerGallon Float    @default(0) // cost basis for margin; defaults from latest delivery
+
+  @@index([locationId, date])
+  @@index([grade])
+}
+
+// ---------------------------------------------------------------------------
+// Expenses
+// ---------------------------------------------------------------------------
+
+model Expense {
+  id            String          @id @default(cuid())
+  date          DateTime
+  locationId    String
+  location      Location        @relation(fields: [locationId], references: [id])
+  category      ExpenseCategory
+  amount        Float
+  payee         String?
+  paymentMethod PaymentType     @default(CASH)
+  note          String?
+  receiptUrl    String? // optional receipt attachment (FR-18)
+  recurring     Boolean         @default(false) // recurring flag for reminders (FR-21)
+  source        DataSource      @default(MANUAL)
+  enteredById   String?
+  enteredBy     User?           @relation(fields: [enteredById], references: [id])
+  createdAt     DateTime        @default(now())
+
+  @@index([locationId, date])
+  @@index([category])
+}
+
+// ---------------------------------------------------------------------------
+// Products, purchases, vendors, inventory
+// ---------------------------------------------------------------------------
+
+model Product {
+  id           String       @id @default(cuid())
+  locationId   String
+  location     Location     @relation(fields: [locationId], references: [id])
+  name         String
+  category     SaleCategory @default(STORE)
+  currentCost  Float        @default(0) // Average cost basis (Section 3, Average Cost)
+  sellingPrice Float        @default(0)
+  qtyOnHand    Float        @default(0)
+  lowThreshold Float? // low-inventory threshold (FR-28)
+  createdAt    DateTime     @default(now())
+
+  purchases Purchase[]
+
+  @@index([locationId])
+}
+
+model Vendor {
+  id          String     @id @default(cuid())
+  name        String
+  contact     String?
+  terms       String? // payment terms (FR-23)
+  balanceOwed Float      @default(0) // outstanding balance (FR-25)
+  createdAt   DateTime   @default(now())
+  purchases   Purchase[]
+}
+
+model Purchase {
+  id          String   @id @default(cuid())
+  locationId  String
+  location    Location @relation(fields: [locationId], references: [id])
+  vendorId    String?
+  vendor      Vendor?  @relation(fields: [vendorId], references: [id])
+  invoiceNo   String?
+  date        DateTime
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id])
+  productName String
+  qty         Float
+  costEach    Float
+  total       Float
+  sellPrice   Float    @default(0)
+  paid        Boolean  @default(false)
+  source      DataSource @default(MANUAL)
+  enteredById String?
+  enteredBy   User?    @relation(fields: [enteredById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([locationId, date])
+  @@index([vendorId])
+}
+
+// Fuel deliveries tracked separately from store purchases (FR-24).
+model FuelDelivery {
+  id            String    @id @default(cuid())
+  locationId    String
+  location      Location  @relation(fields: [locationId], references: [id])
+  vendorId      String?
+  date          DateTime
+  grade         FuelGrade
+  gallons       Float
+  costPerGallon Float
+  taxPerGallon  Float     @default(0)
+  total         Float
+  invoiceNo     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([locationId, date])
+  @@index([grade])
+}
+
+model Shift {
+  id           String    @id @default(cuid())
+  locationId   String
+  location     Location  @relation(fields: [locationId], references: [id])
+  date         DateTime
+  userId       String?
+  user         User?     @relation(fields: [userId], references: [id])
+  startTime    DateTime?
+  endTime      DateTime?
+  openCash     Float     @default(0)
+  closeCash    Float     @default(0)
+  expectedCash Float     @default(0) // sales - card - payouts (FR-16)
+  variance     Float     @default(0) // closeCash - expectedCash; +over / -short
+  cashDrop     Float     @default(0) // cash drops to safe/bank (FR-17)
+  note         String?
+  createdAt    DateTime  @default(now())
+
+  sales Sale[]
+
+  @@index([locationId, date])
+}
+
+model FuelInventory {
+  id             String    @id @default(cuid())
+  locationId     String
+  location       Location  @relation(fields: [locationId], references: [id])
+  grade          FuelGrade
+  date           DateTime
+  gallonsBook    Float // computed book figure
+  gallonsPhysical Float // physical tank reading
+  variance       Float    @default(0) // physical - book
+  createdAt      DateTime  @default(now())
+
+  @@index([locationId, date])
+  @@index([grade])
+}
+
+// ---------------------------------------------------------------------------
+// Audit + alerts
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String // CREATE / UPDATE / DELETE / LOGIN ...
+  entity    String // e.g. "Sale", "Expense"
+  entityId  String?
+  before    String? // JSON snapshot
+  after     String? // JSON snapshot
+  timestamp DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([timestamp])
+}
+
+model Alert {
+  id         String    @id @default(cuid())
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id])
+  type       String // MISSING_SALES / LOW_PROFIT / HIGH_EXPENSE / LOW_INVENTORY ...
+  severity   String    @default("info") // info | warning | error
+  message    String
+  read       Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+
+  @@index([locationId, read])
+}
+
+// Owner-configurable alert thresholds (FR-39).
+model AlertSetting {
+  id        String  @id @default(cuid())
+  key       String  @unique // e.g. "lowProfitDay", "highExpense"
+  value     Float
+  enabled   Boolean @default(true)
+}
