@@ -33,66 +33,124 @@ export const modiInsightsAdapter: PosAdapter = {
     const ccode = process.env.MODI_CCODE || "854388";
     const out: NormalizedSale[] = [];
 
-    // Select the store in the session first (mirrors /Home/ChangeStore in the UI)
-    // so the report endpoints return this store's data.
+    // Select the store in the session first so the report endpoints scope to it.
     await changeStore(cookie, storeId, ccode);
 
     for (const day of daysBetween(from, to)) {
       const FromDate = `${fmtDate(day)} 12:00 AM`;
       const ToDate = `${fmtDate(day)} 11:59 PM`;
 
-      // ---- Fuel (ReportID 545) ----
-      const fuel = await post(cookie, "/Sales/_SelectCurrentFuelSales", {
-        sort: "", group: "", filter: "", ReportID: "545", FromDate, ToDate,
+      // Establish the POS-Closing (report 635) context for this day + store.
+      await setupReport(cookie, "/ebreports/report635html", {
+        FromDate, ToDate, DeptID: "-1", Stores: storeId,
       });
+
+      // Authoritative daily totals come from the POS-Closing report (635), which
+      // matches what the owner sees on screen. It has no cash/card split, so we
+      // derive a cash ratio from the Card & Cash Closing report (554).
+      const [grocery, fuel, currentDept] = await Promise.all([
+        post(cookie, "/Sales/_SelectGroceryDeptSales", { sort: "", group: "", filter: "", ReportID: "635", DeptID: "-1", FromDate, ToDate }),
+        post(cookie, "/Sales/_SelectFuelSales", { sort: "", group: "", filter: "", ReportID: "635", DeptID: "-1", FromDate, ToDate }),
+        post(cookie, "/Sales/_SelectCurrentPOSDeptSales", { sort: "", group: "", filter: "", ReportID: "554", FromDate, ToDate }).catch(() => [] as unknown[]),
+      ]);
+
+      const cashRatio = computeCashRatio(currentDept);
+
+      // ---- Store / department sales (635) ----
+      for (const raw of grocery) {
+        const r = raw as Record<string, unknown>;
+        const name = String(r.DeptName ?? "");
+        const category = mapDeptToCategory(name);
+        const amount = num(r.Sales); // report "Sales" column; can be negative (e.g. LOTTO P\O)
+        if (amount === 0) continue;
+        const refundTotal = num(r.Refund);
+        for (const [pay, amt] of splitAmount(amount, cashRatio)) {
+          out.push({
+            date: day,
+            category,
+            paymentType: pay,
+            amount: amt,
+            refund: amount !== 0 ? round2((refundTotal * amt) / amount) : 0,
+            note: `Modisoft ${name}`.trim(),
+          });
+        }
+      }
+
+      // ---- Fuel sales (635) ----
       for (const raw of fuel) {
         const r = raw as Record<string, unknown>;
         const grade = mapFuelType(String(r.FuelType ?? "Regular"));
         const gallons = num(r.Volume);
-        const price = num(r.Retail) || num(r.RptRetail);
-        const cash = num(r.AmountCash);
-        const card = num(r.AmountCreditDebit);
-        const total = num(r.Amount) || cash + card;
-        for (const [pay, amt] of splits(cash, card, total)) {
+        const price = num(r.RptRetail) || num(r.Retail);
+        const amount = num(r.Amount);
+        if (amount === 0 && gallons === 0) continue;
+        for (const [pay, amt] of splitAmount(amount, cashRatio)) {
           out.push({
             date: day,
             category: "FUEL",
             paymentType: pay,
             amount: amt,
             note: `Modisoft ${String(r.FuelType ?? "")}`.trim(),
-            fuel: { grade, gallons: share(gallons, amt, total), pricePerGallon: price, taxPerGallon: 0 },
+            fuel: { grade, gallons: share(gallons, amt, amount), pricePerGallon: price, taxPerGallon: 0 },
           });
         }
       }
 
-      // ---- Store / departments (ReportID 554) ----
-      const dept = await post(cookie, "/Sales/_SelectCurrentPOSDeptSales", {
-        sort: "", group: "", filter: "", ReportID: "554", FromDate, ToDate,
-      });
-      for (const raw of dept) {
-        const r = raw as Record<string, unknown>;
-        const name = String(r.DeptName ?? "");
-        const category = mapDeptToCategory(name);
-        const cash = num(r.SalesCash);
-        const card = num(r.SalesCreditDebit);
-        const total = num(r.NetSales) || num(r.Sales) || cash + card;
-        const refundTotal = num(r.Refund);
-        for (const [pay, amt] of splits(cash, card, total)) {
-          out.push({
-            date: day,
-            category,
-            paymentType: pay,
-            amount: amt,
-            refund: total > 0 ? round2((refundTotal * amt) / total) : 0,
-            note: `Modisoft ${name}`.trim(),
-          });
-        }
-      }
+      await sleep(120); // be gentle on Cloudflare during long backfills
     }
 
     return out;
   },
 };
+
+/** Overall cash share from the Card & Cash Closing report rows (0..1, or null). */
+function computeCashRatio(rows: unknown[]): number | null {
+  let cash = 0;
+  let card = 0;
+  for (const raw of rows) {
+    const r = raw as Record<string, unknown>;
+    cash += num(r.SalesCash);
+    card += num(r.SalesCreditDebit);
+  }
+  const tot = cash + card;
+  return tot > 0 ? cash / tot : null;
+}
+
+/** Split a (possibly negative) amount into CASH/CARD by ratio; CARD-only if unknown. */
+function splitAmount(amount: number, cashRatio: number | null): ["CASH" | "CARD", number][] {
+  if (cashRatio === null) return [["CARD", round2(amount)]];
+  const cash = round2(amount * cashRatio);
+  const card = round2(amount - cash);
+  const out: ["CASH" | "CARD", number][] = [];
+  if (cash !== 0) out.push(["CASH", cash]);
+  if (card !== 0) out.push(["CARD", card]);
+  return out.length ? out : [["CARD", 0]];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Fire a report-setup POST (HTML response); validates the session is alive. */
+async function setupReport(cookie: string, path: string, body: Record<string, string>): Promise<void> {
+  const res = await fetch(BASE + path, {
+    method: "POST",
+    headers: {
+      cookie,
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "x-requested-with": "XMLHttpRequest",
+      "user-agent": UA,
+      accept: "text/html, */*; q=0.01",
+      origin: BASE,
+      referer: BASE + "/",
+    },
+    body: new URLSearchParams(body).toString(),
+    cache: "no-store",
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
+  }
+}
 
 /** Set the active store in the session (POST /Home/ChangeStore). */
 async function changeStore(cookie: string, id: string, ccode: string): Promise<void> {
@@ -174,16 +232,7 @@ function num(v: unknown): number {
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
-function splits(cash: number, card: number, total: number): ["CASH" | "CARD", number][] {
-  if (cash > 0 || card > 0) {
-    const r: ["CASH" | "CARD", number][] = [];
-    if (cash > 0) r.push(["CASH", round2(cash)]);
-    if (card > 0) r.push(["CARD", round2(card)]);
-    return r;
-  }
-  return total > 0 ? [["CARD", round2(total)]] : [];
-}
 function share(totalGallons: number, sliceAmount: number, totalAmount: number): number {
-  if (totalAmount <= 0) return round2(totalGallons);
+  if (totalAmount === 0) return round2(totalGallons);
   return round2((totalGallons * sliceAmount) / totalAmount);
 }
