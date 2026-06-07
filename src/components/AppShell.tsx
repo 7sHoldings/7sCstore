@@ -65,15 +65,15 @@ export default function AppShell({
         </div>
       </header>
 
-      {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-50 hidden md:flex flex-col w-72 bg-primary text-on-primary px-4 py-5 no-print">
+      {/* Desktop sidebar (light, teal accents) */}
+      <aside className="fixed inset-y-0 left-0 z-50 hidden md:flex flex-col w-72 bg-surface-container-low text-on-surface border-r border-outline-variant px-4 py-5 no-print">
         <div className="flex items-center gap-3 px-2 mb-8">
-          <div className="w-10 h-10 rounded-lg bg-on-primary/10 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
             <Icon name="local_gas_station" className="text-on-primary" />
           </div>
           <div>
-            <p className="font-bold text-body-lg">7sCstores</p>
-            <p className="text-label-caps uppercase text-on-primary-container">Reporting Suite</p>
+            <p className="font-bold text-body-lg text-primary">7sCstores</p>
+            <p className="text-label-caps uppercase text-on-surface-variant">Reporting Suite</p>
           </div>
         </div>
 
@@ -84,23 +84,23 @@ export default function AppShell({
               href={item.href}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-body-md ${
                 isActive(item.href)
-                  ? "bg-on-primary/15 font-semibold"
-                  : "text-on-primary-container hover:bg-on-primary/10"
+                  ? "text-primary font-bold bg-surface-container border-r-2 border-primary"
+                  : "text-on-surface-variant hover:bg-surface-container-high"
               }`}
             >
-              <Icon name={item.icon} className="text-[20px]" />
+              <Icon name={item.icon} className="text-[20px]" filled={isActive(item.href)} />
               {item.label}
             </Link>
           ))}
         </nav>
 
-        <div className="border-t border-on-primary/15 pt-3 mt-3">
+        <div className="border-t border-outline-variant pt-3 mt-3">
           <div className="px-3 py-1 mb-1">
-            <div className="text-body-sm font-semibold truncate">{email}</div>
-            <div className="text-label-caps uppercase text-on-primary-container">{ROLE_LABELS[role]}</div>
+            <div className="text-body-sm font-semibold truncate text-on-surface">{email}</div>
+            <div className="text-label-caps uppercase text-on-surface-variant">{ROLE_LABELS[role]}</div>
           </div>
           <form action={logout}>
-            <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-on-primary-container hover:bg-on-primary/10 transition-colors text-body-md">
+            <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-on-surface-variant hover:bg-surface-container-high transition-colors text-body-md">
               <Icon name="logout" className="text-[20px]" />
               Sign out
             </button>

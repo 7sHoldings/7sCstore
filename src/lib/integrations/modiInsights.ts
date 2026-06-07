@@ -1,5 +1,7 @@
-import type { PosAdapter, NormalizedSale } from "./types";
+import type { PosAdapter, NormalizedSale, DailyHourly } from "./types";
 import { mapFuelType, mapDeptToCategory } from "./modiMap";
+
+const HOUR_LABELS = ["12 AM","1 AM","2 AM","3 AM","4 AM","5 AM","6 AM","7 AM","8 AM","9 AM","10 AM","11 AM","12 PM","1 PM","2 PM","3 PM","4 PM","5 PM","6 PM","7 PM","8 PM","9 PM","10 PM","11 PM"];
 
 /**
  * Interim Modisoft adapter that replays a logged-in **Insights session cookie**
@@ -99,6 +101,35 @@ export const modiInsightsAdapter: PosAdapter = {
       await sleep(120); // be gentle on Cloudflare during long backfills
     }
 
+    return out;
+  },
+
+  async fetchHourly(from: Date, to: Date): Promise<DailyHourly[]> {
+    const cookie = process.env.MODI_COOKIE!;
+    const storeId = process.env.MODI_STORE_ID || "16";
+    const ccode = process.env.MODI_CCODE || "854388";
+    await changeStore(cookie, storeId, ccode);
+
+    const out: DailyHourly[] = [];
+    for (const day of daysBetween(from, to)) {
+      const FromDate = `${fmtDate(day)} 12:00 AM`;
+      const ToDate = `${fmtDate(day)} 11:59 PM`;
+      try {
+        const rows = await postArray(cookie, "/SnapShot/GroceryHourlySales", {
+          sort: "", group: "", filter: "", ReportID: "635", DeptID: "-1", FromDate, ToDate,
+        });
+        const hours = new Array(24).fill(0);
+        for (const raw of rows) {
+          const r = raw as Record<string, unknown>;
+          const idx = HOUR_LABELS.indexOf(String(r.TimeString ?? ""));
+          if (idx >= 0) hours[idx] = round2(num(r.Sales));
+        }
+        out.push({ date: day.toISOString().slice(0, 10), hours });
+      } catch {
+        // hourly is best-effort; skip the day on error
+      }
+      await sleep(80);
+    }
     return out;
   },
 };
@@ -203,6 +234,29 @@ async function post(cookie: string, path: string, body: Record<string, string>):
   }
   const data = (await res.json()) as { Data?: unknown[] };
   return Array.isArray(data.Data) ? data.Data : [];
+}
+
+/** POST that returns a top-level JSON array (e.g. GroceryHourlySales). */
+async function postArray(cookie: string, path: string, body: Record<string, string>): Promise<unknown[]> {
+  const res = await fetch(BASE + path, {
+    method: "POST",
+    headers: {
+      cookie,
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "x-requested-with": "XMLHttpRequest",
+      "user-agent": UA,
+      accept: "application/json, text/javascript, */*; q=0.01",
+      origin: BASE,
+      referer: BASE + "/",
+    },
+    body: new URLSearchParams(body).toString(),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Modisoft ${path} responded ${res.status}`);
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("json")) throw new Error("non-json");
+  const data = await res.json();
+  return Array.isArray(data) ? data : Array.isArray(data?.Data) ? data.Data : [];
 }
 
 /** Whole days from `from` to `to` (inclusive), capped at 60 per call. */

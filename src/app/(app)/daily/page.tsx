@@ -4,9 +4,11 @@ import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { money, pctChange } from "@/lib/calc";
 import { fmtMoney, fmtMoney4, fmtNumber, fmtDate, gradeLabel } from "@/lib/format";
-import { Card, PageHeader, EmptyState, Icon, TrendChip } from "@/components/ui";
-import { CategoryBars } from "@/components/charts";
+import { Card, PageHeader, EmptyState, TrendChip } from "@/components/ui";
+import { getHourly } from "@/lib/integrations/sync";
 import DayNav from "./DayNav";
+
+const HOUR_LABELS = ["12a","1","2","3","4a","5","6","7","8a","9","10","11","12p","1","2","3","4p","5","6","7","8p","9","10","11p"];
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +92,7 @@ export default async function DailySalesPage({
   const deptTotal = money(departments.reduce((s, d) => s + d.sales, 0));
   const deptRefund = money(departments.reduce((s, d) => s + d.refund, 0));
 
+  const hourly = loc ? await getHourly(loc, dateISO) : null;
   const empty = sales.length === 0 && fuelSales.length === 0;
 
   return (
@@ -119,13 +122,15 @@ export default async function DailySalesPage({
           </div>
 
           <div className="grid grid-cols-12 gap-4 mb-6">
-            {/* Sales by department (chart) */}
+            {/* Hourly sales performance */}
             <Card className="col-span-12 lg:col-span-8 p-5">
-              <h3 className="font-semibold text-on-surface mb-4">Sales by Department</h3>
-              {departments.length === 0 ? (
-                <div className="text-on-surface-variant text-body-sm py-8 text-center">No store sales this day.</div>
+              <h3 className="font-semibold text-on-surface mb-4">Hourly Sales Performance</h3>
+              {hourly ? (
+                <HourlyBars hours={hourly} />
               ) : (
-                <CategoryBars items={departments.slice(0, 10).map((d) => ({ label: d.name, value: d.sales }))} />
+                <div className="text-on-surface-variant text-body-sm py-12 text-center">
+                  Hourly data isn&apos;t synced for this day yet. Run a sync/backfill for this date on Integrations.
+                </div>
               )}
             </Card>
 
@@ -200,6 +205,31 @@ export default async function DailySalesPage({
           </Card>
         </>
       )}
+    </div>
+  );
+}
+
+function HourlyBars({ hours }: { hours: number[] }) {
+  const max = Math.max(1, ...hours);
+  const peak = hours.indexOf(Math.max(...hours));
+  return (
+    <div>
+      <div className="flex items-end justify-between gap-1 h-56">
+        {hours.map((v, i) => (
+          <div key={i} className="flex-1 flex flex-col justify-end h-full group relative">
+            <div className="absolute -top-1 left-1/2 -translate-x-1/2 -translate-y-full opacity-0 group-hover:opacity-100 transition-opacity bg-inverse-surface text-inverse-on-surface text-[10px] rounded px-1.5 py-0.5 whitespace-nowrap z-10 pointer-events-none">
+              {HOUR_LABELS[i]}: {fmtMoney(v)}
+            </div>
+            <div
+              className={`w-full rounded-t-sm ${i === peak ? "bg-primary" : "bg-primary/40"}`}
+              style={{ height: `${(v / max) * 100}%` }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-between mt-2 text-label-caps text-on-surface-variant">
+        <span>12 AM</span><span>4 AM</span><span>8 AM</span><span>12 PM</span><span>4 PM</span><span>8 PM</span><span>11 PM</span>
+      </div>
     </div>
   );
 }

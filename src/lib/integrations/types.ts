@@ -31,4 +31,11 @@ export interface PosAdapter {
   fetchSince(since: Date): Promise<NormalizedSale[]>;
   /** Pull sales for an explicit [from, to] day range (used for backfill). */
   fetchRange?(from: Date, to: Date): Promise<NormalizedSale[]>;
+  /** Pull per-hour sales totals per day (24 values, index 0=12AM…23=11PM). */
+  fetchHourly?(from: Date, to: Date): Promise<DailyHourly[]>;
+}
+
+export interface DailyHourly {
+  date: string; // YYYY-MM-DD
+  hours: number[]; // length 24
 }

@@ -91,12 +91,42 @@ export async function syncRange(locationId: string, from: Date, to: Date): Promi
   const windowEnd = startOfDay(to);
   windowEnd.setDate(windowEnd.getDate() + 1); // exclusive upper bound (whole `to` day)
 
-  return prisma.$transaction(async (tx) => {
+  const imported = await prisma.$transaction(async (tx) => {
     await tx.sale.deleteMany({
       where: { source: "POS_MODI", locationId, date: { gte: windowStart, lt: windowEnd } },
     });
     return insertRows(tx, locationId, rows);
   });
+
+  // Best-effort: store per-day hourly sales in the Setting table (no schema change).
+  if (adapter.fetchHourly) {
+    try {
+      const hourly = await adapter.fetchHourly(from, to);
+      for (const h of hourly) {
+        await prisma.setting.upsert({
+          where: { key: `hourly:${locationId}:${h.date}` },
+          create: { key: `hourly:${locationId}:${h.date}`, value: JSON.stringify(h.hours) },
+          update: { value: JSON.stringify(h.hours) },
+        });
+      }
+    } catch {
+      // hourly is optional; ignore failures
+    }
+  }
+
+  return imported;
+}
+
+/** Read stored per-hour sales for a day (24 values) or null if not synced. */
+export async function getHourly(locationId: string, dateISO: string): Promise<number[] | null> {
+  const row = await prisma.setting.findUnique({ where: { key: `hourly:${locationId}:${dateISO}` } });
+  if (!row) return null;
+  try {
+    const arr = JSON.parse(row.value);
+    return Array.isArray(arr) ? arr : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
