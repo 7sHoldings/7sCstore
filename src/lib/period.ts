@@ -3,7 +3,7 @@
  * dashboard and reports depend on (FR-1, FR-12). Weeks start on Monday.
  */
 
-export type PeriodKey = "today" | "wtd" | "mtd" | "ytd" | "custom";
+export type PeriodKey = "today" | "wtd" | "mtd" | "qtd" | "ytd" | "custom";
 
 export interface Range {
   start: Date;
@@ -33,6 +33,11 @@ export function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
 
+export function startOfQuarter(d: Date): Date {
+  const q = Math.floor(d.getMonth() / 3) * 3;
+  return new Date(d.getFullYear(), q, 1);
+}
+
 export function startOfYear(d: Date): Date {
   return new Date(d.getFullYear(), 0, 1);
 }
@@ -48,6 +53,8 @@ export function rangeFor(key: PeriodKey, now = new Date()): Range {
       return { start: startOfWeek(now), end: tomorrow, label: "Week to date" };
     case "mtd":
       return { start: startOfMonth(now), end: tomorrow, label: "Month to date" };
+    case "qtd":
+      return { start: startOfQuarter(now), end: tomorrow, label: "Quarter to date" };
     case "ytd":
       return { start: startOfYear(now), end: tomorrow, label: "Year to date" };
     default:

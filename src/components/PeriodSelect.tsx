@@ -7,6 +7,7 @@ const OPTIONS: { key: string; label: string }[] = [
   { key: "today", label: "Today" },
   { key: "wtd", label: "Week" },
   { key: "mtd", label: "Month" },
+  { key: "qtd", label: "Quarter" },
   { key: "ytd", label: "Year" },
 ];
 
