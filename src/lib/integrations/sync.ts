@@ -98,29 +98,6 @@ export async function syncRange(locationId: string, from: Date, to: Date): Promi
     return insertRows(tx, locationId, rows);
   });
 
-  // Best-effort: store per-day hourly sales in the Setting table (no schema change).
-  if (adapter.fetchHourly) {
-    try {
-      const hourly = await adapter.fetchHourly(from, to);
-      for (const h of hourly) {
-        await prisma.setting.upsert({
-          where: { key: `hourly:${locationId}:${h.date}` },
-          create: { key: `hourly:${locationId}:${h.date}`, value: JSON.stringify(h.hours) },
-          update: { value: JSON.stringify(h.hours) },
-        });
-        if (h.customers != null) {
-          await prisma.setting.upsert({
-            where: { key: `customers:${locationId}:${h.date}` },
-            create: { key: `customers:${locationId}:${h.date}`, value: String(h.customers) },
-            update: { value: String(h.customers) },
-          });
-        }
-      }
-    } catch {
-      // hourly is optional; ignore failures
-    }
-  }
-
   return imported;
 }
 
