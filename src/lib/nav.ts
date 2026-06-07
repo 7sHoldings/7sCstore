@@ -17,6 +17,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/purchases", label: "Purchases", icon: "local_shipping", perm: "enterPurchases" },
   { href: "/vendors", label: "Vendors", icon: "store", perm: "enterPurchases" },
   { href: "/inventory", label: "Inventory", icon: "inventory_2", perm: "viewAll" },
+  { href: "/import", label: "Import", icon: "upload_file", perm: "enterSales" },
   { href: "/reports", label: "Reports", icon: "assessment", perm: "viewProfit", mobile: true },
   { href: "/users", label: "Users", icon: "group", perm: "manageUsers" },
 ];
