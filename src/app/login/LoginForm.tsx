@@ -19,15 +19,26 @@ export default function LoginForm() {
         </div>
         <div className="z-10 max-w-md">
           <h1 className="text-3xl lg:text-4xl font-bold leading-tight">
-            Know your station's profit — every day.
+            Your station's numbers, in real time.
           </h1>
           <p className="mt-4 text-on-primary-container text-body-lg">
-            Sales, fuel margins, expenses, and net profit in one place. Daily,
-            weekly, monthly, and yearly.
+            Daily POS-closing reports, fuel margins by grade, expenses, and net
+            profit — synced straight from your POS.
           </p>
+          <ul className="mt-6 space-y-2 text-on-primary-container text-body-md">
+            <li className="flex items-center gap-2">
+              <Icon name="check_circle" className="text-[18px]" /> Daily sales &amp; department breakdowns
+            </li>
+            <li className="flex items-center gap-2">
+              <Icon name="check_circle" className="text-[18px]" /> Fuel volume, margins &amp; hourly trends
+            </li>
+            <li className="flex items-center gap-2">
+              <Icon name="check_circle" className="text-[18px]" /> Profit, expenses &amp; PDF/Excel reports
+            </li>
+          </ul>
         </div>
         <p className="z-10 text-on-primary-container text-body-sm">
-          Gas Station Business Reporting
+          Gas Station Business Reporting · Powered by your POS
         </p>
         <div className="absolute -top-20 -right-20 w-96 h-96 bg-on-primary/5 rounded-full blur-3xl" />
         <div className="absolute -bottom-24 -left-10 w-80 h-80 bg-on-primary/5 rounded-full blur-3xl" />

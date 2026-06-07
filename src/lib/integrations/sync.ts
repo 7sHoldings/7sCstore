@@ -108,6 +108,13 @@ export async function syncRange(locationId: string, from: Date, to: Date): Promi
           create: { key: `hourly:${locationId}:${h.date}`, value: JSON.stringify(h.hours) },
           update: { value: JSON.stringify(h.hours) },
         });
+        if (h.customers != null) {
+          await prisma.setting.upsert({
+            where: { key: `customers:${locationId}:${h.date}` },
+            create: { key: `customers:${locationId}:${h.date}`, value: String(h.customers) },
+            update: { value: String(h.customers) },
+          });
+        }
       }
     } catch {
       // hourly is optional; ignore failures
@@ -127,6 +134,14 @@ export async function getHourly(locationId: string, dateISO: string): Promise<nu
   } catch {
     return null;
   }
+}
+
+/** Read the stored customer/transaction count for a day, or null. */
+export async function getCustomers(locationId: string, dateISO: string): Promise<number | null> {
+  const row = await prisma.setting.findUnique({ where: { key: `customers:${locationId}:${dateISO}` } });
+  if (!row) return null;
+  const n = Number(row.value);
+  return isFinite(n) && n > 0 ? n : null;
 }
 
 /**

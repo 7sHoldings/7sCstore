@@ -115,16 +115,22 @@ export const modiInsightsAdapter: PosAdapter = {
       const FromDate = `${fmtDate(day)} 12:00 AM`;
       const ToDate = `${fmtDate(day)} 11:59 PM`;
       try {
-        const rows = await postArray(cookie, "/SnapShot/GroceryHourlySales", {
-          sort: "", group: "", filter: "", ReportID: "635", DeptID: "-1", FromDate, ToDate,
-        });
+        const [rows, cashiers] = await Promise.all([
+          postArray(cookie, "/SnapShot/GroceryHourlySales", {
+            sort: "", group: "", filter: "", ReportID: "635", DeptID: "-1", FromDate, ToDate,
+          }),
+          post(cookie, "/Sales/_SelectCurrentCashRegister", {
+            sort: "", group: "", filter: "", ReportID: "635", DeptID: "-1", FromDate, ToDate,
+          }).catch(() => [] as unknown[]),
+        ]);
         const hours = new Array(24).fill(0);
         for (const raw of rows) {
           const r = raw as Record<string, unknown>;
           const idx = HOUR_LABELS.indexOf(String(r.TimeString ?? ""));
           if (idx >= 0) hours[idx] = round2(num(r.Sales));
         }
-        out.push({ date: day.toISOString().slice(0, 10), hours });
+        const customers = cashiers.reduce<number>((s, raw) => s + num((raw as Record<string, unknown>).NoOfCustomer), 0);
+        out.push({ date: day.toISOString().slice(0, 10), hours, customers });
       } catch {
         // hourly is best-effort; skip the day on error
       }

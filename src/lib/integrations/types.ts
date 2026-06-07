@@ -38,4 +38,5 @@ export interface PosAdapter {
 export interface DailyHourly {
   date: string; // YYYY-MM-DD
   hours: number[]; // length 24
+  customers?: number; // transaction/customer count for the day
 }

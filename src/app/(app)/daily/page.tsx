@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { money, pctChange } from "@/lib/calc";
 import { fmtMoney, fmtMoney4, fmtNumber, fmtDate, gradeLabel } from "@/lib/format";
 import { Card, PageHeader, EmptyState, TrendChip } from "@/components/ui";
-import { getHourly } from "@/lib/integrations/sync";
+import { getHourly, getCustomers } from "@/lib/integrations/sync";
 import DayNav from "./DayNav";
 
 const HOUR_LABELS = ["12a","1","2","3","4a","5","6","7","8a","9","10","11","12p","1","2","3","4p","5","6","7","8p","9","10","11p"];
@@ -92,7 +92,10 @@ export default async function DailySalesPage({
   const deptTotal = money(departments.reduce((s, d) => s + d.sales, 0));
   const deptRefund = money(departments.reduce((s, d) => s + d.refund, 0));
 
-  const hourly = loc ? await getHourly(loc, dateISO) : null;
+  const [hourly, customers] = loc
+    ? await Promise.all([getHourly(loc, dateISO), getCustomers(loc, dateISO)])
+    : [null, null];
+  const avgTransaction = customers && customers > 0 ? money(totalSales / customers) : null;
   const empty = sales.length === 0 && fuelSales.length === 0;
 
   return (
@@ -117,8 +120,13 @@ export default async function DailySalesPage({
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <Kpi label="Total Sales" value={fmtMoney(totalSales)} trend={pctChange(totalSales, prevTotal)} hint="vs previous day" barPct={100} />
             <Kpi label="Fuel Volume" value={`${fmtNumber(gallons)} G`} hint={fmtMoney(fuelTotal) + " in fuel"} barPct={totalSales ? (fuelTotal / totalSales) * 100 : 0} />
-            <Kpi label="Store Sales" value={fmtMoney(storeTotal)} hint={`${departments.length} departments`} barPct={totalSales ? (storeTotal / totalSales) * 100 : 0} />
             <Kpi label="Refunds" value={fmtMoney(refunds)} accent="error" barPct={totalSales ? Math.min(100, (refunds / totalSales) * 100 * 10) : 0} />
+            <Kpi
+              label="Avg Transaction"
+              value={avgTransaction != null ? fmtMoney(avgTransaction) : "—"}
+              hint={customers ? `${fmtNumber(customers)} transactions` : "count not synced"}
+              barPct={totalSales ? (storeTotal / totalSales) * 100 : 0}
+            />
           </div>
 
           <div className="grid grid-cols-12 gap-4 mb-6">
