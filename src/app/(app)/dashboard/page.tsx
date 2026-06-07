@@ -1,12 +1,14 @@
 import { getSession } from "@/lib/auth";
 import { getActiveLocationId } from "@/lib/location";
+import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { money, pctChange } from "@/lib/calc";
-import { fmtNumber } from "@/lib/format";
+import { fmtMoney, fmtNumber } from "@/lib/format";
 import { rangeFor, customRange, previousRange, type PeriodKey } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
+import { getReportData } from "@/lib/reports";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, SalesSection, DeptTable, FuelTable } from "@/components/SalesSections";
+import { MetricCard, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import PeriodSelect from "@/components/PeriodSelect";
 import RangePicker from "@/components/RangePicker";
 
@@ -24,8 +26,15 @@ export default async function DashboardPage({
   const prev = previousRange(range);
   const loc = await getActiveLocationId();
   const locWhere = loc ? { locationId: loc } : {};
+  const showProfit = can(session.role, "viewProfit");
 
-  const [sales, fuelSales, prevSales] = await Promise.all([
+  // Trend window: per-day totals across the range, capped at 31 bars (most recent).
+  const dayMs = 86400000;
+  const trendDays = Math.min(31, Math.max(1, Math.round((range.end.getTime() - range.start.getTime()) / dayMs)));
+  const trendStart = new Date(range.end.getTime() - trendDays * dayMs);
+  trendStart.setHours(0, 0, 0, 0);
+
+  const [sales, fuelSales, prevSales, trendRows, report, vendorOwed, openAlerts] = await Promise.all([
     prisma.sale.findMany({
       where: { ...locWhere, date: { gte: range.start, lt: range.end } },
       select: { paymentType: true, amount: true, refund: true, category: true, note: true },
@@ -35,17 +44,32 @@ export default async function DashboardPage({
       select: { grade: true, gallons: true, total: true, pricePerGallon: true },
     }),
     prisma.sale.findMany({ where: { ...locWhere, date: { gte: prev.start, lt: prev.end } }, select: { amount: true } }),
+    prisma.sale.findMany({ where: { ...locWhere, date: { gte: trendStart, lt: range.end } }, select: { amount: true, date: true } }),
+    showProfit ? getReportData(range, loc) : Promise.resolve(null),
+    prisma.vendor.aggregate({ _sum: { balanceOwed: true } }),
+    prisma.alert.count({ where: { read: false, ...(loc ? { locationId: loc } : {}) } }),
   ]);
 
   const view = buildSalesView(sales, fuelSales);
   const prevTotal = money(prevSales.reduce((s, x) => s + x.amount, 0));
+
+  const trend: { label: string; value: number; date: string }[] = [];
+  for (let i = 0; i < trendDays; i++) {
+    const d = new Date(trendStart);
+    d.setDate(d.getDate() + i);
+    const next = new Date(d);
+    next.setDate(next.getDate() + 1);
+    const sum = trendRows.reduce((s, x) => (x.date >= d && x.date < next ? s + x.amount : s), 0);
+    trend.push({ label: String(d.getDate()), value: money(sum), date: d.toISOString().slice(0, 10) });
+  }
+
   const empty = sales.length === 0 && fuelSales.length === 0;
 
   return (
     <div>
       <PageHeader
         title="Dashboard"
-        subtitle={`Sales overview · ${range.label}`}
+        subtitle={`Store overview · ${range.label}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <PeriodSelect value={period} />
@@ -60,26 +84,72 @@ export default async function DashboardPage({
         </Card>
       ) : (
         <>
+          {/* Sales summary (clickable to sections) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <MetricCard label="Daily Sales" sub="Merchandise only" s={view.merch.split} icon="shopping_bag" />
-            <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" />
-            <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" />
+            <MetricCard label="Daily Sales" sub="Merchandise only" s={view.merch.split} icon="shopping_bag" href="#merch" />
+            <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" href="#fuel" />
+            <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" href="#lottery" />
             <MetricCard label="Total Sales" sub="vs previous period" s={view.total} icon="payments" trend={pctChange(view.total.total, prevTotal)} highlight />
           </div>
 
-          <SalesSection title="Fuel Sales" s={view.fuel.split} extra={`${fmtNumber(view.fuel.gallons)} gal`} className="mb-6">
+          {/* Store health: profit / expenses / vendor dues / alerts */}
+          {report && (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+              <Stat label="Net Sales" value={fmtMoney(report.pnl.netSales)} />
+              <Stat label="COGS" value={fmtMoney(report.pnl.cogs)} />
+              <Stat label="Gross Profit" value={fmtMoney(report.pnl.grossProfit)} tone="good" />
+              <Stat label="Expenses" value={fmtMoney(report.pnl.operatingExpenses)} tone="bad" href="/expenses" />
+              <Stat label="Net Profit" value={fmtMoney(report.pnl.netProfit)} tone={report.pnl.netProfit >= 0 ? "good" : "bad"} />
+              <Stat label="Sales Tax" value={fmtMoney(report.pnl.salesTaxCollected)} sub="liability" />
+            </div>
+          )}
+
+          {/* Quick ops row */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            <Stat label="Owed to Vendors" value={fmtMoney(vendorOwed._sum.balanceOwed ?? 0)} tone="bad" href="/vendors" />
+            <Stat label="Open Alerts" value={String(openAlerts)} tone={openAlerts > 0 ? "warn" : undefined} href="/alerts" />
+            <Stat label="Refunds" value={fmtMoney(view.merch.refund)} tone={view.merch.refund > 0 ? "bad" : undefined} />
+            <Stat label="Fuel Volume" value={`${fmtNumber(view.fuel.gallons)} gal`} />
+          </div>
+
+          {/* Trend */}
+          <Card className="p-5 mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-on-surface">Total Sales — daily trend</h3>
+              <span className="text-body-sm text-on-surface-variant">Tap a bar to open that day</span>
+            </div>
+            <SalesTrend data={trend} />
+          </Card>
+
+          <SalesSection id="merch" title="Merchandise Sales" s={view.merch.split} className="mb-6">
+            <DeptTable rows={view.merch.depts} total={view.merch.split.total} refundTotal={view.merch.refund} />
+          </SalesSection>
+
+          <SalesSection id="fuel" title="Fuel Sales" s={view.fuel.split} extra={`${fmtNumber(view.fuel.gallons)} gal`} className="mb-6">
             <FuelTable byGrade={view.fuel.byGrade} gallons={view.fuel.gallons} total={view.fuel.split.total} />
           </SalesSection>
 
-          <SalesSection title="Lottery / Lotto Sales & Payouts" s={view.lotto.split} className="mb-6">
+          <SalesSection id="lottery" title="Lottery / Lotto Sales & Payouts" s={view.lotto.split}>
             <DeptTable rows={view.lotto.depts} total={view.lotto.split.total} refundTotal={0} allowNegative />
-          </SalesSection>
-
-          <SalesSection title="Merchandise Sales" s={view.merch.split}>
-            <DeptTable rows={view.merch.depts} total={view.merch.split.total} refundTotal={view.merch.refund} />
           </SalesSection>
         </>
       )}
     </div>
   );
+}
+
+function Stat({
+  label, value, sub, tone, href,
+}: {
+  label: string; value: string; sub?: string; tone?: "good" | "bad" | "warn"; href?: string;
+}) {
+  const color = tone === "good" ? "text-secondary" : tone === "bad" ? "text-error" : tone === "warn" ? "text-tertiary" : "text-on-surface";
+  const card = (
+    <Card className={`p-4 h-full ${href ? "hover:shadow-floating cursor-pointer transition-shadow" : ""}`}>
+      <div className="text-label-caps uppercase text-on-surface-variant">{label}</div>
+      <div className={`tabular text-lg font-bold mt-1 ${color}`}>{value}</div>
+      {sub && <div className="text-body-sm text-on-surface-variant">{sub}</div>}
+    </Card>
+  );
+  return href ? <a href={href} className="block">{card}</a> : card;
 }

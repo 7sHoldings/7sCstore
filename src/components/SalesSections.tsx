@@ -2,14 +2,14 @@ import { Card, TrendChip, Icon } from "./ui";
 import { fmtMoney, fmtMoney4, fmtNumber, gradeLabel } from "@/lib/format";
 import type { Split, Dept, FuelGrade } from "@/lib/salesView";
 
-/** Summary card: big total + Cash / Credit-Debit sub-cells. */
+/** Summary card: big total + Cash / Credit-Debit sub-cells. Optionally a link. */
 export function MetricCard({
-  label, sub, s, icon, trend, highlight,
+  label, sub, s, icon, trend, highlight, href,
 }: {
-  label: string; sub?: string; s: Split; icon: string; trend?: number | null; highlight?: boolean;
+  label: string; sub?: string; s: Split; icon: string; trend?: number | null; highlight?: boolean; href?: string;
 }) {
-  return (
-    <Card className={`p-5 ${highlight ? "ring-1 ring-primary/30" : ""}`}>
+  const card = (
+    <Card className={`p-5 h-full transition-shadow ${highlight ? "ring-1 ring-primary/30" : ""} ${href ? "hover:shadow-floating cursor-pointer" : ""}`}>
       <div className="flex items-center justify-between mb-1">
         <span className="text-label-caps uppercase text-on-surface-variant">{label}</span>
         <Icon name={icon} className="text-[20px] text-primary opacity-70" />
@@ -30,6 +30,44 @@ export function MetricCard({
         </div>
       </div>
     </Card>
+  );
+  return href ? <a href={href} className="block">{card}</a> : card;
+}
+
+function shortMoney(v: number): string {
+  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
+  return `$${v.toFixed(0)}`;
+}
+
+/** Per-day total-sales trend; each bar links to that day's Daily Sales. */
+export function SalesTrend({ data }: { data: { label: string; value: number; date: string }[] }) {
+  const max = Math.max(1, ...data.map((d) => d.value));
+  return (
+    <div>
+      <div className="flex items-end justify-between gap-1.5 h-32">
+        {data.map((d, i) => (
+          <a
+            key={i}
+            href={`/daily?date=${d.date}`}
+            className="flex-1 flex flex-col justify-end h-full group relative"
+            title={`${d.date}: ${fmtMoney(d.value)}`}
+          >
+            <span className="absolute -top-1 left-1/2 -translate-x-1/2 -translate-y-full opacity-0 group-hover:opacity-100 transition-opacity bg-inverse-surface text-inverse-on-surface text-[10px] rounded px-1.5 py-0.5 whitespace-nowrap z-10 pointer-events-none">
+              {shortMoney(d.value)}
+            </span>
+            <span
+              className={`w-full rounded-t-sm transition-colors ${i === data.length - 1 ? "bg-primary" : "bg-primary/40 group-hover:bg-primary/70"}`}
+              style={{ height: `${Math.max(2, (d.value / max) * 100)}%` }}
+            />
+          </a>
+        ))}
+      </div>
+      <div className="flex justify-between gap-1.5 mt-2">
+        {data.map((d, i) => (
+          <div key={i} className="flex-1 text-center text-[11px] text-on-surface-variant">{d.label}</div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -57,12 +95,12 @@ function Pill({ label, value, strong }: { label: string; value: string; strong?:
 }
 
 export function SalesSection({
-  title, s, extra, className, children,
+  title, s, extra, className, children, id,
 }: {
-  title: string; s: Split; extra?: string; className?: string; children: React.ReactNode;
+  title: string; s: Split; extra?: string; className?: string; children: React.ReactNode; id?: string;
 }) {
   return (
-    <Card className={`overflow-hidden ${className ?? ""}`}>
+    <Card id={id} className={`overflow-hidden scroll-mt-20 ${className ?? ""}`}>
       <div className="px-5 py-4 border-b border-outline-variant/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <h3 className="font-semibold text-on-surface">{title}</h3>
         <div className="flex items-center gap-2 text-body-sm">

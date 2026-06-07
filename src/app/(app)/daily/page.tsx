@@ -7,7 +7,7 @@ import { fmtNumber, fmtDate } from "@/lib/format";
 import { customRange, previousRange } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, SalesSection, DeptTable, FuelTable } from "@/components/SalesSections";
+import { MetricCard, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import RangePicker from "@/components/RangePicker";
 import DayNav from "./DayNav";
 import DailyActions from "./DailyActions";
@@ -78,14 +78,14 @@ export default async function DailySalesPage({
   const prevView = buildSalesView(prevSales, prevFuel);
 
   // Per-day total-sales trend across the trend window (oldest → newest).
-  const trend7: { label: string; value: number }[] = [];
+  const trend7: { label: string; value: number; date: string }[] = [];
   for (let i = 0; i < trendDays; i++) {
     const d = new Date(trendStart);
     d.setDate(d.getDate() + i);
     const next = new Date(d);
     next.setDate(next.getDate() + 1);
     const sum = trendRows.reduce((s, x) => (x.date >= d && x.date < next ? s + x.amount : s), 0);
-    trend7.push({ label: String(d.getDate()), value: money(sum) });
+    trend7.push({ label: String(d.getDate()), value: money(sum), date: d.toISOString().slice(0, 10) });
   }
 
   const empty = sales.length === 0 && fuelSales.length === 0;
@@ -112,64 +112,33 @@ export default async function DailySalesPage({
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <MetricCard label="Daily Sales" sub="Merchandise only" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} />
-            <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)} />
-            <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} />
+            <MetricCard label="Daily Sales" sub="Merchandise only" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} href="#merch" />
+            <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} href="#fuel" />
+            <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)} href="#lottery" />
             <MetricCard label="Total Sales" sub={comparisonSub} s={view.total} icon="payments" trend={pctChange(view.total.total, prevView.total.total)} highlight />
           </div>
 
           <Card className="p-5 mb-6">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-on-surface">{isRange ? "Daily Total Sales" : "Last 7 days — Total Sales"}</h3>
-              <span className="text-body-sm text-on-surface-variant">{label}</span>
+              <span className="text-body-sm text-on-surface-variant">Tap a bar to open that day · {label}</span>
             </div>
-            <Trend7 data={trend7} />
+            <SalesTrend data={trend7} />
           </Card>
 
-          <SalesSection title="Fuel Sales" s={view.fuel.split} extra={`${fmtNumber(view.fuel.gallons)} gal`} className="mb-6">
+          <SalesSection id="merch" title="Daily Sales — Merchandise" s={view.merch.split} className="mb-6">
+            <DeptTable rows={view.merch.depts} total={view.merch.split.total} refundTotal={view.merch.refund} />
+          </SalesSection>
+
+          <SalesSection id="fuel" title="Fuel Sales" s={view.fuel.split} extra={`${fmtNumber(view.fuel.gallons)} gal`} className="mb-6">
             <FuelTable byGrade={view.fuel.byGrade} gallons={view.fuel.gallons} total={view.fuel.split.total} />
           </SalesSection>
 
-          <SalesSection title="Lottery / Lotto Sales & Payouts" s={view.lotto.split} className="mb-6">
+          <SalesSection id="lottery" title="Lottery / Lotto Sales & Payouts" s={view.lotto.split}>
             <DeptTable rows={view.lotto.depts} total={view.lotto.split.total} refundTotal={0} allowNegative />
-          </SalesSection>
-
-          <SalesSection title="Daily Sales — Merchandise" s={view.merch.split}>
-            <DeptTable rows={view.merch.depts} total={view.merch.split.total} refundTotal={view.merch.refund} />
           </SalesSection>
         </>
       )}
     </div>
   );
-}
-
-function Trend7({ data }: { data: { label: string; value: number }[] }) {
-  const max = Math.max(1, ...data.map((d) => d.value));
-  return (
-    <div>
-      <div className="flex items-end justify-between gap-2 h-32">
-        {data.map((d, i) => (
-          <div key={i} className="flex-1 flex flex-col justify-end h-full group relative">
-            <div className="absolute -top-1 left-1/2 -translate-x-1/2 -translate-y-full opacity-0 group-hover:opacity-100 transition-opacity bg-inverse-surface text-inverse-on-surface text-[10px] rounded px-1.5 py-0.5 whitespace-nowrap z-10 pointer-events-none">
-              {fmtMoneyShort(d.value)}
-            </div>
-            <div
-              className={`w-full rounded-t-sm ${i === data.length - 1 ? "bg-primary" : "bg-primary/40"}`}
-              style={{ height: `${Math.max(2, (d.value / max) * 100)}%` }}
-            />
-          </div>
-        ))}
-      </div>
-      <div className="flex justify-between gap-2 mt-2">
-        {data.map((d, i) => (
-          <div key={i} className="flex-1 text-center text-[11px] text-on-surface-variant">{d.label}</div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function fmtMoneyShort(v: number): string {
-  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
-  return `$${v.toFixed(0)}`;
 }

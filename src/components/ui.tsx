@@ -24,12 +24,15 @@ export function Icon({
 export function Card({
   children,
   className = "",
+  id,
 }: {
   children: ReactNode;
   className?: string;
+  id?: string;
 }) {
   return (
     <div
+      id={id}
       className={`bg-surface-container-lowest border border-outline-variant/60 rounded-lg shadow-card ${className}`}
     >
       {children}
