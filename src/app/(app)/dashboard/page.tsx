@@ -1,4 +1,5 @@
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { rangeFor, type PeriodKey } from "@/lib/period";
 import { getDashboard, getPeriodTotals } from "@/lib/reports";
@@ -20,9 +21,10 @@ export default async function DashboardPage({
   const period = (sp.period as PeriodKey) || "mtd";
   const range = rangeFor(period);
 
+  const loc = await getActiveLocationId();
   const [data, totals] = await Promise.all([
-    getDashboard(range, session.locationId ?? undefined),
-    getPeriodTotals(session.locationId ?? undefined),
+    getDashboard(range, loc),
+    getPeriodTotals(loc),
   ]);
 
   const showProfit = can(session.role, "viewProfit");

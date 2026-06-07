@@ -1,4 +1,5 @@
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { rangeFor, customRange, type PeriodKey } from "@/lib/period";
 import { buildReport, REPORT_META, type ReportType } from "@/lib/reportBuilder";
@@ -27,7 +28,7 @@ export default async function ReportsPage({
   const type = (sp.type as ReportType) && REPORT_META[sp.type as ReportType] ? (sp.type as ReportType) : "monthly_pl";
   const range = sp.from && sp.to ? customRange(sp.from, sp.to) : rangeFor(period);
 
-  const doc = await buildReport(type, range, session.locationId ?? undefined);
+  const doc = await buildReport(type, range, (await getActiveLocationId()) ?? undefined);
 
   const exportQs = new URLSearchParams();
   if (sp.from && sp.to) {

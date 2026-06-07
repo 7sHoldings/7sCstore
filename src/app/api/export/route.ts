@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { rangeFor, customRange, type PeriodKey } from "@/lib/period";
 import { buildReport, REPORT_META, type ReportType } from "@/lib/reportBuilder";
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
   const to = sp.get("to");
   const range = from && to ? customRange(from, to) : rangeFor(period);
 
-  const doc = await buildReport(type, range, session.locationId ?? undefined);
+  const doc = await buildReport(type, range, (await getActiveLocationId()) ?? undefined);
   const filenameBase = `${type}_${new Date().toISOString().slice(0, 10)}`;
 
   await logAudit({

@@ -340,3 +340,89 @@ model AlertSetting {
   value     Float
   enabled   Boolean @default(true)
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2/3 — integrations, notifications, payroll, banking
+// ---------------------------------------------------------------------------
+
+enum SyncStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+// Generic key/value settings store for misc config (notification recipients,
+// POS endpoint, AI/email/SMS toggles). String-typed so it complements the
+// numeric AlertSetting table.
+model Setting {
+  id      String  @id @default(cuid())
+  key     String  @unique
+  value   String
+  enabled Boolean @default(true)
+}
+
+// One row per POS / import sync run — powers the sync-status log and the
+// failure alert (FR-43). The integration layer (FR-41) writes Sales with
+// source = POS_MODI; reports never change.
+model SyncLog {
+  id              String     @id @default(cuid())
+  source          DataSource @default(POS_MODI)
+  status          SyncStatus @default(RUNNING)
+  locationId      String?
+  startedAt       DateTime   @default(now())
+  finishedAt      DateTime?
+  recordsImported Int        @default(0)
+  message         String?
+
+  @@index([startedAt])
+}
+
+// Payroll *tracking* (recording hours/wages), not processing — within scope of
+// the SRS which excludes payroll processing.
+model Employee {
+  id         String   @id @default(cuid())
+  locationId String
+  name       String
+  position   String?
+  hourlyRate Float    @default(0)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  payroll PayrollEntry[]
+
+  @@index([locationId])
+}
+
+model PayrollEntry {
+  id          String   @id @default(cuid())
+  locationId  String
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  periodStart DateTime
+  periodEnd   DateTime
+  hours       Float    @default(0)
+  grossPay    Float    @default(0)
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([locationId, periodStart])
+  @@index([employeeId])
+}
+
+// Imported bank-statement lines, matched against recorded expenses (Phase 3).
+model BankTransaction {
+  id              String     @id @default(cuid())
+  locationId      String
+  date            DateTime
+  description     String
+  amount          Float // positive number; `kind` gives direction
+  kind            String     @default("DEBIT") // DEBIT (money out) | CREDIT (money in)
+  matched         Boolean    @default(false)
+  matchedExpenseId String?
+  source          DataSource @default(CSV_IMPORT)
+  createdAt       DateTime   @default(now())
+
+  @@index([locationId, date])
+  @@index([matched])
+}
+

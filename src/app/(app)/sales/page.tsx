@@ -1,4 +1,5 @@
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { dateWhere } from "@/lib/filters";
@@ -27,8 +28,9 @@ export default async function SalesPage({
   const session = (await getSession())!;
   const sp = await searchParams;
 
+  const loc = await getActiveLocationId();
   const where: Record<string, unknown> = { ...dateWhere(sp) };
-  if (session.locationId) where.locationId = session.locationId;
+  if (loc) where.locationId = loc;
   if (sp.category) where.category = sp.category;
   if (sp.payment) where.paymentType = sp.payment;
 

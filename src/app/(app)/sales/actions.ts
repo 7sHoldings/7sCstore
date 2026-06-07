@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { money, perGallon } from "@/lib/calc";
@@ -37,7 +38,7 @@ export async function createSale(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
   const v = parsed.data;
-  const locationId = session.locationId;
+  const locationId = await getActiveLocationId();
   if (!locationId) return { error: "No location assigned to your account." };
 
   const date = new Date(v.date);

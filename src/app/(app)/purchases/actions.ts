@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { money, perGallon } from "@/lib/calc";
@@ -26,7 +27,8 @@ export async function createPurchase(
   const session = await getSession();
   if (!session) return { error: "Not authenticated." };
   if (!can(session.role, "enterPurchases")) return { error: "You don't have permission to enter purchases." };
-  if (!session.locationId) return { error: "No location assigned." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
 
   const parsed = purchaseSchema.safeParse({ ...Object.fromEntries(formData), paid: formData.get("paid") === "on" });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
@@ -36,7 +38,7 @@ export async function createPurchase(
   try {
     const p = await prisma.purchase.create({
       data: {
-        locationId: session.locationId,
+        locationId,
         vendorId: v.vendorId || null,
         invoiceNo: v.invoiceNo,
         date: new Date(v.date),
@@ -84,7 +86,8 @@ export async function createFuelDelivery(
   const session = await getSession();
   if (!session) return { error: "Not authenticated." };
   if (!can(session.role, "enterPurchases")) return { error: "You don't have permission." };
-  if (!session.locationId) return { error: "No location assigned." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
 
   const parsed = deliverySchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
@@ -94,7 +97,7 @@ export async function createFuelDelivery(
   try {
     const d = await prisma.fuelDelivery.create({
       data: {
-        locationId: session.locationId,
+        locationId,
         vendorId: v.vendorId || null,
         date: new Date(v.date),
         grade: v.grade,

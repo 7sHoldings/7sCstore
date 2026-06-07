@@ -1,4 +1,5 @@
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { evaluateAlerts } from "@/lib/alerts";
@@ -16,7 +17,7 @@ const SEVERITY: Record<string, { tone: "info" | "warning" | "error"; icon: strin
 
 export default async function AlertsPage() {
   const session = (await getSession())!;
-  const loc = session.locationId ?? undefined;
+  const loc = (await getActiveLocationId()) ?? undefined;
 
   const [alerts, settings] = await Promise.all([
     evaluateAlerts(loc),

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { parseCSV, SALES_TEMPLATE_HEADERS } from "@/lib/csv";
@@ -43,7 +44,8 @@ export async function importSales(
   const session = await getSession();
   if (!session) return { error: "Not authenticated." };
   if (!can(session.role, "enterSales")) return { error: "You don't have permission to import sales." };
-  if (!session.locationId) return { error: "No location assigned." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
 
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) return { error: "Choose a CSV file to import." };
@@ -117,13 +119,13 @@ export async function importSales(
       for (const p of parsed) {
         if (p.category === "FUEL") {
           const lastDelivery = await tx.fuelDelivery.findFirst({
-            where: { locationId: session.locationId!, grade: p.grade as never },
+            where: { locationId: locationId, grade: p.grade as never },
             orderBy: { date: "desc" },
           });
           await tx.sale.create({
             data: {
               date: p.date,
-              locationId: session.locationId!,
+              locationId: locationId,
               category: "FUEL",
               paymentType: p.paymentType as never,
               amount: p.amount,
@@ -134,7 +136,7 @@ export async function importSales(
               fuelSale: {
                 create: {
                   date: p.date,
-                  locationId: session.locationId!,
+                  locationId: locationId,
                   grade: p.grade as never,
                   gallons: p.gallons!,
                   pricePerGallon: perGallon(p.pricePerGallon!),
@@ -149,7 +151,7 @@ export async function importSales(
           await tx.sale.create({
             data: {
               date: p.date,
-              locationId: session.locationId!,
+              locationId: locationId,
               category: p.category as never,
               paymentType: p.paymentType as never,
               amount: money(p.amount),

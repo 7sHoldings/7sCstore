@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { money } from "@/lib/calc";
@@ -34,13 +35,14 @@ export async function createExpense(
   const parsed = schema.safeParse({ ...raw, recurring: formData.get("recurring") === "on" });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   const v = parsed.data;
-  if (!session.locationId) return { error: "No location assigned to your account." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned to your account." };
 
   try {
     const exp = await prisma.expense.create({
       data: {
         date: new Date(v.date),
-        locationId: session.locationId,
+        locationId,
         category: v.category,
         amount: money(v.amount),
         payee: v.payee,

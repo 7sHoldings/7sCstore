@@ -1,4 +1,5 @@
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { dateWhere } from "@/lib/filters";
@@ -21,7 +22,7 @@ export default async function PurchasesPage({
   const session = (await getSession())!;
   if (!can(session.role, "enterPurchases") && !can(session.role, "viewAll")) return <NoAccess />;
   const sp = await searchParams;
-  const loc = session.locationId ?? undefined;
+  const loc = await getActiveLocationId();
 
   const baseWhere: Record<string, unknown> = { ...dateWhere(sp) };
   if (loc) baseWhere.locationId = loc;

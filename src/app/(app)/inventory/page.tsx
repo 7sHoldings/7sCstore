@@ -1,10 +1,12 @@
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { fmtMoney, fmtNumber, fmtDate, catLabel, gradeLabel } from "@/lib/format";
 import { money } from "@/lib/calc";
 import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
 import { FuelReadingForm, ProductForm } from "./InventoryForms";
+import { reorderSuggestions } from "@/lib/reorder";
 import { toISODate } from "@/lib/period";
 
 export const dynamic = "force-dynamic";
@@ -14,11 +16,12 @@ export default async function InventoryPage() {
   if (!can(session.role, "viewAll")) {
     return <Card className="p-8"><EmptyState icon="lock" title="No access" hint="Your role can't view inventory." /></Card>;
   }
-  const loc = session.locationId ?? undefined;
+  const loc = await getActiveLocationId();
 
-  const [products, fuelReadings] = await Promise.all([
+  const [products, fuelReadings, suggestions] = await Promise.all([
     prisma.product.findMany({ where: loc ? { locationId: loc } : {}, orderBy: { name: "asc" } }),
     prisma.fuelInventory.findMany({ where: loc ? { locationId: loc } : {}, orderBy: { date: "desc" }, take: 40 }),
+    reorderSuggestions(loc),
   ]);
 
   const inventoryValue = money(products.reduce((s, p) => s + p.qtyOnHand * p.currentCost, 0));
@@ -53,6 +56,41 @@ export default async function InventoryPage() {
         <Tile label="Low Stock" value={String(lowStock.length)} accent={lowStock.length ? "warning" : undefined} />
         <Tile label="Fuel Grades Tracked" value={String(latestByGrade.size)} />
       </div>
+
+      {/* Reorder suggestions */}
+      {suggestions.length > 0 && (
+        <Card className="overflow-hidden mb-6 border-tertiary/40">
+          <div className="px-4 py-3 border-b border-outline-variant/60 font-semibold text-on-surface flex items-center gap-2">
+            <span className="material-symbols-outlined text-tertiary text-[20px]">shopping_cart</span>
+            Reorder Suggestions
+            <Badge tone="warning">{suggestions.length}</Badge>
+          </div>
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-left text-body-sm">
+              <thead>
+                <tr className="bg-surface-container-low text-label-caps uppercase text-on-surface-variant">
+                  <th className="px-4 py-3">Product</th>
+                  <th className="px-4 py-3 text-right">On Hand</th>
+                  <th className="px-4 py-3 text-right">Threshold</th>
+                  <th className="px-4 py-3 text-right">Suggested Order</th>
+                  <th className="px-4 py-3 text-right">Est. Cost</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline-variant/40">
+                {suggestions.map((s) => (
+                  <tr key={s.productId} className="hover:bg-surface-container-low/50">
+                    <td className="px-4 py-3 font-medium text-on-surface">{s.name}</td>
+                    <td className="px-4 py-3 text-right tabular text-error">{fmtNumber(s.qtyOnHand)}</td>
+                    <td className="px-4 py-3 text-right tabular text-on-surface-variant">{fmtNumber(s.threshold)}</td>
+                    <td className="px-4 py-3 text-right tabular font-semibold text-primary">{fmtNumber(s.suggestedQty)}</td>
+                    <td className="px-4 py-3 text-right tabular">{fmtMoney(s.estimatedCost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {/* Fuel reconciliation */}
       <Card className="overflow-hidden mb-6">

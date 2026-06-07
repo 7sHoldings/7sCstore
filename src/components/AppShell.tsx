@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Icon } from "./ui";
+import LocationSwitcher from "./LocationSwitcher";
 import { NAV_ITEMS } from "@/lib/nav";
 import { can, type Role, ROLE_LABELS } from "@/lib/rbac";
 
@@ -13,12 +14,18 @@ export default function AppShell({
   name,
   email,
   logout,
+  locations = [],
+  activeLocationId,
+  switchLocation,
 }: {
   children: React.ReactNode;
   role: Role;
   name: string;
   email: string;
   logout: () => void;
+  locations?: { id: string; name: string }[];
+  activeLocationId?: string;
+  switchLocation?: (id: string) => Promise<void>;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -39,6 +46,9 @@ export default function AppShell({
         </div>
         <div className="hidden md:block" />
         <div className="flex items-center gap-2">
+          {switchLocation && (
+            <LocationSwitcher locations={locations} activeId={activeLocationId} onSwitch={switchLocation} />
+          )}
           <Link href="/alerts" className="ft-btn-ghost p-2 rounded-full relative" aria-label="Alerts">
             <Icon name="notifications" />
             <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full" />

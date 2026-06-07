@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { money } from "@/lib/calc";
@@ -22,7 +23,8 @@ export async function recordFuelReading(
   const session = await getSession();
   if (!session) return { error: "Not authenticated." };
   if (!can(session.role, "enterPurchases")) return { error: "You don't have permission." };
-  if (!session.locationId) return { error: "No location assigned." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
 
   const parsed = readingSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
@@ -31,7 +33,7 @@ export async function recordFuelReading(
   try {
     const reading = await prisma.fuelInventory.create({
       data: {
-        locationId: session.locationId,
+        locationId,
         grade: v.grade,
         date: new Date(v.date),
         gallonsBook: v.gallonsBook,
@@ -64,7 +66,8 @@ export async function createProduct(
   const session = await getSession();
   if (!session) return { error: "Not authenticated." };
   if (!can(session.role, "enterPurchases")) return { error: "You don't have permission." };
-  if (!session.locationId) return { error: "No location assigned." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
 
   const parsed = productSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
@@ -73,7 +76,7 @@ export async function createProduct(
   try {
     const product = await prisma.product.create({
       data: {
-        locationId: session.locationId,
+        locationId,
         name: v.name,
         category: v.category,
         currentCost: money(v.currentCost),
