@@ -4,9 +4,11 @@ import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { money, pctChange } from "@/lib/calc";
 import { fmtNumber, fmtDate } from "@/lib/format";
+import { customRange, previousRange } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, SalesSection, DeptTable, FuelTable } from "@/components/SalesSections";
+import RangePicker from "@/components/RangePicker";
 import DayNav from "./DayNav";
 import DailyActions from "./DailyActions";
 
@@ -23,7 +25,7 @@ function dayBounds(dateISO: string) {
 export default async function DailySalesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; from?: string; to?: string }>;
 }) {
   const session = (await getSession())!;
   if (!can(session.role, "viewProfit") && !can(session.role, "viewAll")) {
@@ -32,51 +34,73 @@ export default async function DailySalesPage({
   const loc = await getActiveLocationId();
   const locWhere = loc ? { locationId: loc } : {};
   const sp = await searchParams;
+  const isRange = Boolean(sp.from && sp.to);
 
-  const latest = await prisma.sale.findFirst({ where: locWhere, orderBy: { date: "desc" }, select: { date: true } });
-  const dateISO = sp.date || (latest?.date ?? new Date()).toISOString().slice(0, 10);
-  const { start, end } = dayBounds(dateISO);
-  const prev = dayBounds(new Date(start.getTime() - 86400000).toISOString().slice(0, 10));
+  // Resolve the active window: a date range, a single date, or the latest day.
+  let range: { start: Date; end: Date; label: string };
+  let exportQs: string;
+  let navDate: string;
+  if (isRange) {
+    range = customRange(sp.from!, sp.to!);
+    exportQs = `from=${sp.from}&to=${sp.to}`;
+    navDate = sp.to!;
+  } else {
+    const latest = await prisma.sale.findFirst({ where: locWhere, orderBy: { date: "desc" }, select: { date: true } });
+    const dateISO = sp.date || (latest?.date ?? new Date()).toISOString().slice(0, 10);
+    const b = dayBounds(dateISO);
+    range = { start: b.start, end: b.end, label: fmtDate(b.start) };
+    exportQs = `date=${dateISO}`;
+    navDate = dateISO;
+  }
+  const label = range.label;
+  const prev = previousRange(range);
 
-  const trendStart = new Date(start);
-  trendStart.setDate(trendStart.getDate() - 6); // 7-day window ending on `start`
+  // Trend window: the range's own days (capped) for a range, else last 7 days.
+  const dayMs = 86400000;
+  const trendDays = isRange
+    ? Math.min(31, Math.max(1, Math.round((range.end.getTime() - range.start.getTime()) / dayMs)))
+    : 7;
+  const trendStart = new Date(range.end.getTime() - trendDays * dayMs);
+  trendStart.setHours(0, 0, 0, 0);
 
-  const [sales, fuelSales, prevSales, prevFuel, last7] = await Promise.all([
+  const [sales, fuelSales, prevSales, prevFuel, trendRows] = await Promise.all([
     prisma.sale.findMany({
-      where: { ...locWhere, date: { gte: start, lt: end } },
+      where: { ...locWhere, date: { gte: range.start, lt: range.end } },
       select: { paymentType: true, amount: true, refund: true, category: true, note: true },
     }),
-    prisma.fuelSale.findMany({ where: { ...locWhere, date: { gte: start, lt: end } }, select: { grade: true, gallons: true, total: true, pricePerGallon: true } }),
+    prisma.fuelSale.findMany({ where: { ...locWhere, date: { gte: range.start, lt: range.end } }, select: { grade: true, gallons: true, total: true, pricePerGallon: true } }),
     prisma.sale.findMany({ where: { ...locWhere, date: { gte: prev.start, lt: prev.end } }, select: { paymentType: true, amount: true, refund: true, category: true, note: true } }),
     prisma.fuelSale.findMany({ where: { ...locWhere, date: { gte: prev.start, lt: prev.end } }, select: { grade: true, gallons: true, total: true, pricePerGallon: true } }),
-    prisma.sale.findMany({ where: { ...locWhere, date: { gte: trendStart, lt: end } }, select: { amount: true, date: true } }),
+    prisma.sale.findMany({ where: { ...locWhere, date: { gte: trendStart, lt: range.end } }, select: { amount: true, date: true } }),
   ]);
 
   const view = buildSalesView(sales, fuelSales);
   const prevView = buildSalesView(prevSales, prevFuel);
 
-  // 7-day total-sales trend (oldest → current day).
+  // Per-day total-sales trend across the trend window (oldest → newest).
   const trend7: { label: string; value: number }[] = [];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < trendDays; i++) {
     const d = new Date(trendStart);
     d.setDate(d.getDate() + i);
     const next = new Date(d);
     next.setDate(next.getDate() + 1);
-    const sum = last7.reduce((s, x) => (x.date >= d && x.date < next ? s + x.amount : s), 0);
+    const sum = trendRows.reduce((s, x) => (x.date >= d && x.date < next ? s + x.amount : s), 0);
     trend7.push({ label: String(d.getDate()), value: money(sum) });
   }
 
   const empty = sales.length === 0 && fuelSales.length === 0;
+  const comparisonSub = isRange ? "vs previous period" : "vs previous day";
 
   return (
     <div>
       <PageHeader
         title="Daily Sales"
-        subtitle={`POS closing summary · ${fmtDate(start)}`}
+        subtitle={`POS closing summary · ${label}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <DailyActions date={dateISO} canExport={can(session.role, "exportReports")} />
-            <DayNav date={dateISO} />
+            <DailyActions query={exportQs} canExport={can(session.role, "exportReports")} />
+            <RangePicker from={sp.from} to={sp.to} path="/daily" />
+            <DayNav date={navDate} />
           </div>
         }
       />
@@ -91,13 +115,13 @@ export default async function DailySalesPage({
             <MetricCard label="Daily Sales" sub="Merchandise only" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} />
             <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)} />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} />
-            <MetricCard label="Total Sales" sub="vs previous day" s={view.total} icon="payments" trend={pctChange(view.total.total, prevView.total.total)} highlight />
+            <MetricCard label="Total Sales" sub={comparisonSub} s={view.total} icon="payments" trend={pctChange(view.total.total, prevView.total.total)} highlight />
           </div>
 
           <Card className="p-5 mb-6">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-on-surface">Last 7 days — Total Sales</h3>
-              <span className="text-body-sm text-on-surface-variant">through {fmtDate(start)}</span>
+              <h3 className="font-semibold text-on-surface">{isRange ? "Daily Total Sales" : "Last 7 days — Total Sales"}</h3>
+              <span className="text-body-sm text-on-surface-variant">{label}</span>
             </div>
             <Trend7 data={trend7} />
           </Card>

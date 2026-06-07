@@ -4,21 +4,21 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "./ui";
 
-/** Custom from/to range selector. Navigates to ?from=YYYY-MM-DD&to=YYYY-MM-DD. */
-export default function RangePicker({ from, to }: { from?: string; to?: string }) {
+/** Custom from/to range selector. Navigates to {path}?from=…&to=…. */
+export default function RangePicker({ from, to, path = "/dashboard" }: { from?: string; to?: string; path?: string }) {
   const router = useRouter();
   const [f, setF] = useState(from ?? "");
   const [t, setT] = useState(to ?? "");
 
   function apply() {
     if (!f || !t) return;
-    router.push(`/dashboard?from=${f}&to=${t}`);
+    router.push(`${path}?from=${f}&to=${t}`);
   }
   function thisMonth() {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
     const end = now.toISOString().slice(0, 10);
-    router.push(`/dashboard?from=${start}&to=${end}`);
+    router.push(`${path}?from=${start}&to=${end}`);
   }
 
   return (
