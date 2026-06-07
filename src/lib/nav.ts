@@ -12,6 +12,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: "dashboard", mobile: true },
+  { href: "/daily", label: "Daily Sales", icon: "event_note", perm: "viewProfit" },
   { href: "/sales", label: "Sales", icon: "payments", perm: "enterSales", mobile: true },
   { href: "/expenses", label: "Expenses", icon: "receipt_long", perm: "enterExpenses" },
   { href: "/purchases", label: "Purchases", icon: "local_shipping", perm: "enterPurchases" },
