@@ -99,8 +99,40 @@ writing rows with `source = POS_MODI`; **no report or calculation changes.**
 Money is rounded to 2 decimals; $/gallon to 4 (NFR-2). These are covered by the
 checks in the development notes and re-run easily with `tsx`.
 
-## Out of scope (Phase 1)
+## Phase 2 — Automation
 
-Modi POS auto-sync, email/SMS delivery, multi-location UI, bank import, payroll,
-and tax filing are explicitly deferred (SRS §1.3, §7, §8). The data model and
-integration seam are already prepared for them.
+| Capability | Where |
+|---|---|
+| Shift & cash reconciliation UI | `app/(app)/shifts` |
+| POS sync framework + sync log + failure alerts | `lib/integrations/*`, `app/(app)/integrations` |
+| Modi POS adapter (live, env-gated) + sandbox adapter | `lib/integrations/modi.ts`, `mockModi.ts` |
+| Email / SMS notification dispatch | `lib/notify.ts`, settings on `app/(app)/alerts` |
+| Full audit history | `app/(app)/users` (audit log) |
+
+## Phase 3 — Growth
+
+| Capability | Where |
+|---|---|
+| Multiple locations + switcher | `lib/location.ts`, `app/(app)/locations`, top-bar switcher |
+| Reorder suggestions | `lib/reorder.ts`, on `app/(app)/inventory` |
+| Tax report | `reportBuilder.ts` (`tax`), on `app/(app)/reports` |
+| Bank-statement import + matching | `app/(app)/bank` |
+| Payroll tracking | `app/(app)/payroll` |
+| AI insights (Anthropic, with rule-based fallback) | `lib/ai.ts`, `app/(app)/insights` |
+| Installable PWA | `public/manifest.webmanifest`, `public/sw.js` |
+
+### Going live on the gated integrations
+
+These features run today with safe fallbacks; add the env vars (see
+`.env.example`) to make them live:
+
+- **Modi POS** — `MODI_API_URL`, `MODI_API_KEY` (otherwise the sandbox adapter runs)
+- **AI insights** — `ANTHROPIC_API_KEY` (otherwise rule-based insights)
+- **Email** — `RESEND_API_KEY` (+ `NOTIFY_EMAIL_FROM`)
+- **SMS** — `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
+
+## Still out of scope
+
+Native mobile app (the PWA is the installable stand-in), fuel-tank hardware
+monitoring, and automatic invoice scanning / OCR (SRS §8) remain parked — they
+need device/OCR integrations.

@@ -26,7 +26,8 @@ export type ReportType =
   | "purchase"
   | "vendor"
   | "inventory"
-  | "sales_by_category";
+  | "sales_by_category"
+  | "tax";
 
 export const REPORT_META: Record<ReportType, { title: string; icon: string; desc: string }> = {
   daily: { title: "Daily Business Report", icon: "today", desc: "Sales, expenses, and profit for the day" },
@@ -38,6 +39,7 @@ export const REPORT_META: Record<ReportType, { title: string; icon: string; desc
   vendor: { title: "Vendor Report", icon: "store", desc: "Vendor balances and terms" },
   inventory: { title: "Inventory Cost Report", icon: "inventory_2", desc: "Stock value on hand" },
   sales_by_category: { title: "Sales by Category", icon: "category", desc: "Net sales split by category" },
+  tax: { title: "Sales Tax Report", icon: "account_balance", desc: "Sales tax collected (liability)" },
 };
 
 export interface ReportSection {
@@ -125,6 +127,41 @@ export async function buildReport(
           { label: "Sales count", value: String(data.counts.sales) },
         ],
         sections: [categorySection, paymentSection],
+      };
+    }
+
+    case "tax": {
+      // Sales tax collected, grouped by category. This is a liability owed,
+      // tracked separately from revenue (Section 3).
+      const sales = await prisma.sale.findMany({
+        where: {
+          date: { gte: range.start, lt: range.end },
+          ...(locationId ? { locationId } : {}),
+        },
+        select: { category: true, taxCollected: true },
+      });
+      const byCat = new Map<string, number>();
+      let totalTax = 0;
+      for (const s of sales) {
+        byCat.set(s.category, (byCat.get(s.category) ?? 0) + s.taxCollected);
+        totalTax += s.taxCollected;
+      }
+      return {
+        ...base,
+        summary: [
+          { label: "Total Sales Tax Collected", value: fmtMoney(totalTax) },
+          { label: "Status", value: "Liability — remit to authority" },
+        ],
+        sections: [
+          {
+            heading: "Sales Tax by Category",
+            columns: ["Category", "Tax Collected"],
+            align: ["left", "right"],
+            rows: [...byCat.entries()]
+              .filter(([, v]) => v > 0)
+              .map(([k, v]) => [catLabel(k), fmtMoney(v)]),
+          },
+        ],
       };
     }
 

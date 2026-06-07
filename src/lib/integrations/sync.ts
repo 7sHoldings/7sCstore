@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "../db";
+import { dispatchAlert } from "../notify";
 import { money, perGallon } from "../calc";
 import { modiAdapter } from "./modi";
 import { mockModiAdapter } from "./mockModi";
@@ -96,13 +97,11 @@ export async function runSync(locationId: string): Promise<{ imported: number; l
       where: { id: log.id },
       data: { status: "FAILED", finishedAt: new Date(), message },
     });
-    await prisma.alert.create({
-      data: {
-        locationId,
-        type: "POS_SYNC_FAILURE",
-        severity: "error",
-        message: `POS sync failed: ${message}`,
-      },
+    await dispatchAlert({
+      locationId,
+      type: "POS_SYNC_FAILURE",
+      severity: "error",
+      message: `POS sync failed: ${message}`,
     });
     throw e;
   }

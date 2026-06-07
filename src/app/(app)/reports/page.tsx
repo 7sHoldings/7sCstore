@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 const ORDER: ReportType[] = [
   "daily", "weekly", "monthly_pl", "yearly",
-  "expense", "purchase", "vendor", "inventory", "sales_by_category",
+  "expense", "purchase", "vendor", "inventory", "sales_by_category", "tax",
 ];
 
 export default async function ReportsPage({

@@ -7,6 +7,7 @@ import { getSession } from "@/lib/auth";
 import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
+import { dispatchAlert } from "@/lib/notify";
 import { shiftReconciliation } from "@/lib/calc";
 
 const schema = z.object({
@@ -67,13 +68,11 @@ export async function createShift(
 
     // Flag a material cash discrepancy (FR-16).
     if (Math.abs(variance) >= 5) {
-      await prisma.alert.create({
-        data: {
-          locationId,
-          type: "CASH_VARIANCE",
-          severity: variance < 0 ? "warning" : "info",
-          message: `Shift on ${v.date} had a cash ${variance < 0 ? "shortage" : "overage"} of $${Math.abs(variance).toFixed(2)}.`,
-        },
+      await dispatchAlert({
+        locationId,
+        type: "CASH_VARIANCE",
+        severity: variance < 0 ? "warning" : "info",
+        message: `Shift on ${v.date} had a cash ${variance < 0 ? "shortage" : "overage"} of $${Math.abs(variance).toFixed(2)}.`,
       });
     }
   } catch (e) {

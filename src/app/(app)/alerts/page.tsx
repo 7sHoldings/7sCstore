@@ -3,9 +3,12 @@ import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { evaluateAlerts } from "@/lib/alerts";
+import { getSettings } from "@/lib/settings";
+import { providerStatus } from "@/lib/notify";
 import { Card, PageHeader, Badge, EmptyState, Icon } from "@/components/ui";
 import { updateThresholds } from "./actions";
 import DismissButton from "./DismissButton";
+import NotificationSettings from "./NotificationSettings";
 
 export const dynamic = "force-dynamic";
 
@@ -19,12 +22,14 @@ export default async function AlertsPage() {
   const session = (await getSession())!;
   const loc = (await getActiveLocationId()) ?? undefined;
 
-  const [alerts, settings] = await Promise.all([
+  const [alerts, settings, notify] = await Promise.all([
     evaluateAlerts(loc),
     prisma.alertSetting.findMany(),
+    getSettings(["notifyEmail", "notifyPhone", "emailEnabled", "smsEnabled"]),
   ]);
   const setting = (key: string) => settings.find((s) => s.key === key)?.value ?? 0;
   const canConfig = can(session.role, "viewAll");
+  const providers = providerStatus();
 
   return (
     <div>
@@ -89,12 +94,16 @@ export default async function AlertsPage() {
               <p className="text-body-sm text-on-surface-variant">Your role can't change thresholds.</p>
             )}
 
-            <div className="mt-6 pt-4 border-t border-outline-variant/60">
-              <h4 className="text-label-caps uppercase text-on-surface-variant mb-2">Delivery channels</h4>
-              <ChannelRow icon="notifications" label="In-app alerts" status="On" tone="success" />
-              <ChannelRow icon="mail" label="Email alerts" status="Phase 2" tone="neutral" />
-              <ChannelRow icon="sms" label="SMS alerts" status="Phase 2" tone="neutral" />
-            </div>
+            {canConfig && (
+              <NotificationSettings
+                email={notify.notifyEmail ?? ""}
+                phone={notify.notifyPhone ?? ""}
+                emailEnabled={notify.emailEnabled === "true"}
+                smsEnabled={notify.smsEnabled === "true"}
+                emailProvider={providers.emailProvider}
+                smsProvider={providers.smsProvider}
+              />
+            )}
           </Card>
         </div>
       </div>
@@ -107,17 +116,6 @@ function Threshold({ name, label, value }: { name: string; label: string; value:
     <div>
       <label className="ft-label" htmlFor={name}>{label}</label>
       <input id={name} name={name} type="number" step="0.01" min="0" defaultValue={value} className="ft-input" />
-    </div>
-  );
-}
-
-function ChannelRow({ icon, label, status, tone }: { icon: string; label: string; status: string; tone: "success" | "neutral" }) {
-  return (
-    <div className="flex items-center justify-between py-1.5">
-      <span className="flex items-center gap-2 text-body-md text-on-surface">
-        <Icon name={icon} className="text-[18px] text-primary" /> {label}
-      </span>
-      <Badge tone={tone}>{status}</Badge>
     </div>
   );
 }

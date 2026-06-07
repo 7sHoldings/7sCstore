@@ -270,6 +270,75 @@ async function main() {
     ],
   });
 
+  // ---- Phase 2/3 demo data ----
+  console.log("Creating a second location (for the location switcher)…");
+  await prisma.location.create({
+    data: { name: "Highway 9 Express", address: "9 Interstate Rd, Springfield" },
+  });
+
+  console.log("Creating employees & payroll…");
+  const employees = await Promise.all([
+    prisma.employee.create({ data: { locationId: location.id, name: "Dana Cashier", position: "Cashier", hourlyRate: 15.5 } }),
+    prisma.employee.create({ data: { locationId: location.id, name: "Sam Attendant", position: "Attendant", hourlyRate: 16.0 } }),
+    prisma.employee.create({ data: { locationId: location.id, name: "Priya Lead", position: "Shift Lead", hourlyRate: 19.0 } }),
+  ]);
+  for (let w = 0; w < 4; w++) {
+    const end = new Date(today);
+    end.setDate(end.getDate() - w * 7);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 6);
+    for (const emp of employees) {
+      const hours = +rand(28, 40).toFixed(1);
+      await prisma.payrollEntry.create({
+        data: {
+          locationId: location.id,
+          employeeId: emp.id,
+          periodStart: start,
+          periodEnd: end,
+          hours,
+          grossPay: +(hours * emp.hourlyRate).toFixed(2),
+        },
+      });
+    }
+  }
+
+  console.log("Creating bank transactions…");
+  for (let i = 0; i < 12; i++) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i * 3);
+    const debit = Math.random() < 0.7;
+    await prisma.bankTransaction.create({
+      data: {
+        locationId: location.id,
+        date,
+        description: debit ? pick(["Card processing fee", "Utility autopay", "Vendor ACH", "Bank service charge"]) : "Card settlement deposit",
+        amount: +rand(50, 1800).toFixed(2),
+        kind: debit ? "DEBIT" : "CREDIT",
+      },
+    });
+  }
+
+  console.log("Creating a sync log entry…");
+  await prisma.syncLog.create({
+    data: {
+      source: "POS_MODI",
+      status: "SUCCESS",
+      locationId: location.id,
+      finishedAt: today,
+      recordsImported: 0,
+      message: "Initial sandbox sync.",
+    },
+  });
+
+  await prisma.setting.createMany({
+    data: [
+      { key: "emailEnabled", value: "false" },
+      { key: "smsEnabled", value: "false" },
+      { key: "notifyEmail", value: "owner@7scstore.com" },
+      { key: "notifyPhone", value: "" },
+    ],
+  });
+
   console.log("✅ Seed complete.");
   console.log("   Login: owner@7scstore.com / password123 (and manager@, accountant@, employee@)");
 }
