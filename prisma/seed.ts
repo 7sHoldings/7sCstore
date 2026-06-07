@@ -1,5 +1,5 @@
 /**
- * Seed FuelTrack with a single location (A2), the four user roles, fuel grades
+ * Seed 7sCstore with a single location (A2), the four user roles, fuel grades
  * (A7), vendors, products, and ~60 days of realistic sales / fuel / expense /
  * purchase history so the dashboard and reports are immediately meaningful.
  */
@@ -56,10 +56,10 @@ async function main() {
   const pw = await bcrypt.hash("password123", 10);
   await prisma.user.createMany({
     data: [
-      { name: "Olivia Owner", email: "owner@fueltrack.app", passwordHash: pw, role: "OWNER", locationId: location.id },
-      { name: "Marcus Manager", email: "manager@fueltrack.app", passwordHash: pw, role: "MANAGER", locationId: location.id },
-      { name: "Aisha Accountant", email: "accountant@fueltrack.app", passwordHash: pw, role: "ACCOUNTANT", locationId: location.id },
-      { name: "Eli Employee", email: "employee@fueltrack.app", passwordHash: pw, role: "EMPLOYEE", locationId: location.id },
+      { name: "Olivia Owner", email: "owner@7scstore.com", passwordHash: pw, role: "OWNER", locationId: location.id },
+      { name: "Marcus Manager", email: "manager@7scstore.com", passwordHash: pw, role: "MANAGER", locationId: location.id },
+      { name: "Aisha Accountant", email: "accountant@7scstore.com", passwordHash: pw, role: "ACCOUNTANT", locationId: location.id },
+      { name: "Eli Employee", email: "employee@7scstore.com", passwordHash: pw, role: "EMPLOYEE", locationId: location.id },
     ],
   });
   const owner = await prisma.user.findFirstOrThrow({ where: { role: "OWNER" } });
@@ -271,7 +271,7 @@ async function main() {
   });
 
   console.log("✅ Seed complete.");
-  console.log("   Login: owner@fueltrack.app / password123 (and manager@, accountant@, employee@)");
+  console.log("   Login: owner@7scstore.com / password123 (and manager@, accountant@, employee@)");
 }
 
 main()

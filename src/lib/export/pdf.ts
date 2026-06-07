@@ -20,7 +20,7 @@ export async function reportToPdf(doc: ReportDoc): Promise<Buffer> {
 
       // Header band
       pdf.rect(0, 0, pdf.page.width, 70).fill(NAVY);
-      pdf.fillColor("#ffffff").fontSize(20).font("Helvetica-Bold").text("FuelTrack", left, 22);
+      pdf.fillColor("#ffffff").fontSize(20).font("Helvetica-Bold").text("7sCstore", left, 22);
       pdf.fontSize(10).font("Helvetica").fillColor("#b0c8eb").text("Gas Station Business Reporting", left, 46);
       pdf.moveDown(2);
 
@@ -53,7 +53,7 @@ export async function reportToPdf(doc: ReportDoc): Promise<Buffer> {
 
       // Footer
       pdf.fontSize(8).fillColor(GREY).font("Helvetica").text(
-        "Confidential — FuelTrack reporting suite",
+        "Confidential — 7sCstore reporting suite",
         left,
         pdf.page.height - 40,
         { width: pageW, align: "center" }

@@ -1,8 +1,8 @@
 {
-  "name": "fueltrack",
+  "name": "7scstore",
   "version": "0.1.0",
   "private": true,
-  "description": "FuelTrack — Gas Station Business Reporting Application (Phase 1)",
+  "description": "7sCstore — Gas Station Business Reporting Application (Phase 1)",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",

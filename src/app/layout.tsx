@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FuelTrack — Gas Station Business Reporting",
+  title: "7sCstore — Gas Station Business Reporting",
   description:
     "Record and understand the financial performance of your gas station — sales, expenses, purchases, and profit.",
 };

@@ -1,4 +1,4 @@
-# FuelTrack — Gas Station Business Reporting
+# 7sCstore — Gas Station Business Reporting
 
 A single web application where a gas-station owner can record and understand the
 financial performance of the station — **sales, expenses, product purchases, and
@@ -34,10 +34,10 @@ npm run dev          # http://localhost:3000
 
 | Role | Email |
 |---|---|
-| Owner / Admin | `owner@fueltrack.app` |
-| Manager | `manager@fueltrack.app` |
-| Accountant | `accountant@fueltrack.app` |
-| Employee | `employee@fueltrack.app` |
+| Owner / Admin | `owner@7scstore.com` |
+| Manager | `manager@7scstore.com` |
+| Accountant | `accountant@7scstore.com` |
+| Employee | `employee@7scstore.com` |
 
 ## Architecture
 

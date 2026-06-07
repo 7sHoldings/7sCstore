@@ -41,7 +41,7 @@ export default async function UsersPage() {
     <div>
       <PageHeader
         title="Users & Permissions"
-        subtitle="Manage who can access FuelTrack and what they can do"
+        subtitle="Manage who can access 7sCstore and what they can do"
         actions={<UserForm />}
       />
 

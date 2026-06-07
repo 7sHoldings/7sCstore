@@ -1,5 +1,5 @@
 /**
- * FuelTrack calculation engine.
+ * 7sCstore calculation engine.
  *
  * Implements the financial definitions in SRS Section 3 *exactly as written*.
  * All money is rounded to 2 decimals; $/gallon figures keep 4 decimals (NFR-2).

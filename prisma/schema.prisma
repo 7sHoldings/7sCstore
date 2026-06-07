@@ -1,4 +1,4 @@
-// FuelTrack data model — implements SRS Section 5 (key entities).
+// 7sCstore data model — implements SRS Section 5 (key entities).
 // Designed for a single location now (A2) but every operational record carries a
 // locationId so additional sites can be added later with no schema redesign.
 //
