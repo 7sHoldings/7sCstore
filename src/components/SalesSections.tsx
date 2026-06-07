@@ -33,6 +33,20 @@ export function MetricCard({
   );
 }
 
+/** Simple count card (e.g. Customers) with an optional sub-line. */
+export function CountCard({ label, count, sub, icon }: { label: string; count: number; sub?: string; icon: string }) {
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-label-caps uppercase text-on-surface-variant">{label}</span>
+        <Icon name={icon} className="text-[20px] text-primary opacity-70" />
+      </div>
+      <div className="text-2xl font-bold tabular text-primary">{fmtNumber(count)}</div>
+      {sub && <p className="text-body-sm text-on-surface-variant mt-0.5">{sub}</p>}
+    </Card>
+  );
+}
+
 function Pill({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <span className={`inline-flex flex-col items-end rounded-md px-2.5 py-1 ${strong ? "bg-primary text-on-primary" : "bg-surface-container-low"}`}>

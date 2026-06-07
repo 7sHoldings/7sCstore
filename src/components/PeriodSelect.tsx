@@ -5,6 +5,7 @@ import { Icon } from "./ui";
 
 const OPTIONS: { key: string; label: string }[] = [
   { key: "today", label: "Today" },
+  { key: "yest", label: "Yesterday" },
   { key: "wtd", label: "Week" },
   { key: "mtd", label: "Month" },
   { key: "qtd", label: "Quarter" },
@@ -20,8 +21,12 @@ export default function PeriodSelect({ value }: { value: string }) {
   function select(key: string) {
     const next = new URLSearchParams(params.toString());
     next.set("period", key);
+    next.delete("from"); // a preset clears any custom range
+    next.delete("to");
     router.push(`${pathname}?${next.toString()}`);
   }
+
+  const hasCustom = Boolean(params.get("from") && params.get("to"));
 
   return (
     <div className="inline-flex items-center bg-surface-container-low rounded-md p-0.5 border border-outline-variant/60">
@@ -31,7 +36,7 @@ export default function PeriodSelect({ value }: { value: string }) {
           key={o.key}
           onClick={() => select(o.key)}
           className={`px-3 py-1.5 rounded text-body-sm font-semibold transition-colors ${
-            value === o.key
+            value === o.key && !hasCustom
               ? "bg-primary text-on-primary"
               : "text-on-surface-variant hover:text-primary"
           }`}

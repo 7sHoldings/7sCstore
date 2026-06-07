@@ -33,6 +33,8 @@ export interface PosAdapter {
   fetchRange?(from: Date, to: Date): Promise<NormalizedSale[]>;
   /** Pull per-hour sales totals per day (24 values, index 0=12AM…23=11PM). */
   fetchHourly?(from: Date, to: Date): Promise<DailyHourly[]>;
+  /** Pull the customer/transaction count per day. */
+  fetchCustomers?(from: Date, to: Date): Promise<{ date: string; customers: number }[]>;
 }
 
 export interface DailyHourly {

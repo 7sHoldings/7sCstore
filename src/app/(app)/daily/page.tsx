@@ -5,8 +5,10 @@ import { prisma } from "@/lib/db";
 import { money, pctChange } from "@/lib/calc";
 import { fmtNumber, fmtDate } from "@/lib/format";
 import { buildSalesView } from "@/lib/salesView";
+import { getCustomers } from "@/lib/integrations/sync";
+import { fmtMoney } from "@/lib/format";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, SalesSection, DeptTable, FuelTable } from "@/components/SalesSections";
+import { MetricCard, CountCard, SalesSection, DeptTable, FuelTable } from "@/components/SalesSections";
 import DayNav from "./DayNav";
 
 export const dynamic = "force-dynamic";
@@ -37,17 +39,19 @@ export default async function DailySalesPage({
   const { start, end } = dayBounds(dateISO);
   const prev = dayBounds(new Date(start.getTime() - 86400000).toISOString().slice(0, 10));
 
-  const [sales, fuelSales, prevSales] = await Promise.all([
+  const [sales, fuelSales, prevSales, customers] = await Promise.all([
     prisma.sale.findMany({
       where: { ...locWhere, date: { gte: start, lt: end } },
       select: { paymentType: true, amount: true, refund: true, category: true, note: true },
     }),
     prisma.fuelSale.findMany({ where: { ...locWhere, date: { gte: start, lt: end } }, select: { grade: true, gallons: true, total: true, pricePerGallon: true } }),
     prisma.sale.findMany({ where: { ...locWhere, date: { gte: prev.start, lt: prev.end } }, select: { amount: true } }),
+    loc ? getCustomers(loc, dateISO) : Promise.resolve(null),
   ]);
 
   const view = buildSalesView(sales, fuelSales);
   const prevTotal = money(prevSales.reduce((s, x) => s + x.amount, 0));
+  const avgBasket = customers && customers > 0 ? money(view.total.total / customers) : 0;
   const empty = sales.length === 0 && fuelSales.length === 0;
 
   return (
@@ -60,11 +64,12 @@ export default async function DailySalesPage({
         </Card>
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-6">
             <MetricCard label="Daily Sales" sub="Merchandise only" s={view.merch.split} icon="shopping_bag" />
             <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" />
             <MetricCard label="Total Sales" sub="all sources" s={view.total} icon="payments" trend={pctChange(view.total.total, prevTotal)} highlight />
+            <CountCard label="Customers" count={customers ?? 0} sub={customers ? `${fmtMoney(avgBasket)} avg basket` : "count not synced"} icon="groups" />
           </div>
 
           <SalesSection title="Daily Sales — Merchandise" s={view.merch.split} className="mb-6">

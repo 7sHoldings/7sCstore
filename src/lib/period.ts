@@ -3,7 +3,7 @@
  * dashboard and reports depend on (FR-1, FR-12). Weeks start on Monday.
  */
 
-export type PeriodKey = "today" | "wtd" | "mtd" | "qtd" | "ytd" | "custom";
+export type PeriodKey = "today" | "yest" | "wtd" | "mtd" | "qtd" | "ytd" | "custom";
 
 export interface Range {
   start: Date;
@@ -49,6 +49,8 @@ export function rangeFor(key: PeriodKey, now = new Date()): Range {
   switch (key) {
     case "today":
       return { start: todayStart, end: tomorrow, label: "Today" };
+    case "yest":
+      return { start: addDays(todayStart, -1), end: todayStart, label: "Yesterday" };
     case "wtd":
       return { start: startOfWeek(now), end: tomorrow, label: "Week to date" };
     case "mtd":

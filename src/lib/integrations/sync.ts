@@ -98,6 +98,22 @@ export async function syncRange(locationId: string, from: Date, to: Date): Promi
     return insertRows(tx, locationId, rows);
   });
 
+  // Best-effort: store the per-day customer/transaction count (Setting table).
+  if (adapter.fetchCustomers) {
+    try {
+      const counts = await adapter.fetchCustomers(from, to);
+      for (const c of counts) {
+        await prisma.setting.upsert({
+          where: { key: `customers:${locationId}:${c.date}` },
+          create: { key: `customers:${locationId}:${c.date}`, value: String(c.customers) },
+          update: { value: String(c.customers) },
+        });
+      }
+    } catch {
+      // customer count is optional
+    }
+  }
+
   return imported;
 }
 
@@ -119,6 +135,18 @@ export async function getCustomers(locationId: string, dateISO: string): Promise
   if (!row) return null;
   const n = Number(row.value);
   return isFinite(n) && n > 0 ? n : null;
+}
+
+/** Sum stored customer counts across a [start, end) date range. */
+export async function getCustomersRange(locationId: string, start: Date, end: Date): Promise<number> {
+  const rows = await prisma.setting.findMany({ where: { key: { startsWith: `customers:${locationId}:` } } });
+  let total = 0;
+  for (const r of rows) {
+    const dateISO = r.key.split(":").pop()!;
+    const d = new Date(dateISO + "T00:00:00");
+    if (d >= start && d < end) total += Number(r.value) || 0;
+  }
+  return total;
 }
 
 /**
