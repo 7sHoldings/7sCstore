@@ -155,6 +155,58 @@ export function LotteryReconcileStrip({
   );
 }
 
+/** Owner-side panel showing the employee's manual credit entry (EBT / other credit / payout / house accounts). */
+export function ManualCreditPanel({
+  data, entryHref, className,
+}: {
+  data: { ebt: number; otherCredit: number; payoutCash: number; house: { account: string; amount: number }[] } | null;
+  entryHref?: string;
+  className?: string;
+}) {
+  const houseTotal = data ? data.house.reduce((s, h) => s + h.amount, 0) : 0;
+  const Cell = ({ label, value, tone }: { label: string; value: number; tone?: "error" }) => (
+    <div className="bg-surface-container-low rounded-md px-3 py-2">
+      <div className="text-label-caps uppercase text-on-surface-variant">{label}</div>
+      <div className={`tabular font-semibold text-base ${tone === "error" ? "text-error" : ""}`}>{value < 0 ? `-${fmtMoney(-value)}` : fmtMoney(value)}</div>
+    </div>
+  );
+  return (
+    <Card className={`overflow-hidden ${className ?? ""}`}>
+      <div className="px-5 py-4 border-b border-outline-variant/60 flex items-center justify-between gap-3">
+        <h3 className="font-semibold text-on-surface">Employee Manual Entry — Credit &amp; Payouts</h3>
+        {entryHref && <a href={entryHref} className="text-primary text-body-sm font-medium underline">{data ? "Edit entry" : "Add entry"}</a>}
+      </div>
+      {data ? (
+        <div className="p-5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Cell label="EBT" value={data.ebt} />
+            <Cell label="Other Credit Card" value={data.otherCredit} />
+            <Cell label="Payout in Cash" value={data.payoutCash} tone="error" />
+            <Cell label="House Account" value={houseTotal} />
+          </div>
+          {data.house.length > 0 && (
+            <div className="mt-4">
+              <div className="text-label-caps uppercase text-on-surface-variant mb-1.5">House accounts</div>
+              <div className="flex flex-wrap gap-2">
+                {data.house.map((h) => (
+                  <span key={h.account} className="inline-flex items-center gap-2 rounded-md bg-surface-container-low px-3 py-1.5 text-body-sm">
+                    <span className="text-on-surface-variant">{h.account}</span>
+                    <span className="tabular font-semibold">{fmtMoney(h.amount)}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="px-5 py-8 text-center text-body-sm text-on-surface-variant">
+          No manual credit entry yet.{entryHref && <> <a href={entryHref} className="text-primary font-medium underline">Add</a></>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /** Hero card for Total Sales: big total, the component breakdown (the formula), and cash/credit. */
 export function TotalSalesBar({
   s, parts, trend, sub, partsLabel,

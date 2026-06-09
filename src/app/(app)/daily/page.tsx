@@ -9,8 +9,9 @@ import { buildSalesView } from "@/lib/salesView";
 import { getTaxRate } from "@/lib/settings";
 import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
 import { getLotteryManual, getLotteryManualRange } from "@/lib/lottery";
+import { getCreditManual, getCreditManualRange } from "@/lib/credit";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
+import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import RangePicker from "@/components/RangePicker";
 import DayNav from "./DayNav";
 import DailyActions from "./DailyActions";
@@ -127,6 +128,11 @@ export default async function DailySalesPage({
     : null;
   const lottoOver = manualLotto ? money(systemLotto.net - manualLotto.net) : 0;
 
+  // Employee's manual credit entry (EBT / other credit / cash payout / house accounts).
+  const creditManual = isRange
+    ? await getCreditManualRange(loc ?? "", range.start, range.end)
+    : await getCreditManual(loc ?? "", navDate);
+
   // Per-day total-sales trend across the trend window (oldest → newest).
   const trend7: { label: string; value: number; date: string }[] = [];
   for (let i = 0; i < trendDays; i++) {
@@ -191,6 +197,8 @@ export default async function DailySalesPage({
               { label: "Sales Tax", value: salesTax },
             ]}
           />
+
+          <ManualCreditPanel className="mb-6" data={creditManual} entryHref={`/credit-entry?date=${navDate}`} />
 
           <Card className="p-5 mb-6">
             <div className="flex items-center justify-between mb-3">

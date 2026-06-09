@@ -23,6 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
   // Manage — data entry / admin
   { href: "/sales", label: "Sales", icon: "payments", perm: "enterSales", section: "manage" },
   { href: "/lottery", label: "Lottery Entry", icon: "confirmation_number", perm: "enterSales", section: "manage" },
+  { href: "/credit-entry", label: "Credit Entry", icon: "credit_card", perm: "enterSales", section: "manage" },
   { href: "/expenses", label: "Expenses", icon: "receipt_long", perm: "enterExpenses", section: "manage" },
   { href: "/purchases", label: "Purchases", icon: "local_shipping", perm: "enterPurchases", section: "manage" },
   { href: "/vendors", label: "Vendors", icon: "store", perm: "enterPurchases", section: "manage" },

@@ -10,8 +10,9 @@ import { getReportData } from "@/lib/reports";
 import { getTaxRate } from "@/lib/settings";
 import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
 import { getLotteryManualRange } from "@/lib/lottery";
+import { getCreditManualRange } from "@/lib/credit";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
+import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import PeriodSelect from "@/components/PeriodSelect";
 import RangePicker from "@/components/RangePicker";
 
@@ -92,6 +93,7 @@ export default async function DashboardPage({
     ? { sales: manualRaw.sales, payout: manualRaw.payout, net: money(manualRaw.sales - manualRaw.payout) }
     : null;
   const lottoOver = manualLotto ? money(systemLotto.net - manualLotto.net) : 0;
+  const creditManual = await getCreditManualRange(loc ?? "", range.start, range.end);
 
   const trend: { label: string; value: number; date: string }[] = [];
   for (let i = 0; i < trendDays; i++) {
@@ -148,6 +150,8 @@ export default async function DashboardPage({
               { label: "Sales Tax", value: salesTax },
             ]}
           />
+
+          <ManualCreditPanel className="mb-6" data={creditManual} entryHref="/credit-entry" />
 
           {/* Store health: profit / expenses / vendor dues / alerts */}
           {report && (
