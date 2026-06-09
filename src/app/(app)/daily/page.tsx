@@ -125,7 +125,7 @@ export default async function DailySalesPage({
   const manualLotto = manualRaw
     ? { sales: manualRaw.sales, payout: manualRaw.payout, net: money(manualRaw.sales - manualRaw.payout) }
     : null;
-  const lottoOver = manualLotto ? money(manualLotto.net - systemLotto.net) : 0;
+  const lottoOver = manualLotto ? money(systemLotto.net - manualLotto.net) : 0;
 
   // Per-day total-sales trend across the trend window (oldest → newest).
   const trend7: { label: string; value: number; date: string }[] = [];
