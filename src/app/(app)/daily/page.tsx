@@ -106,6 +106,16 @@ export default async function DailySalesPage({
       };
   const prevTotalWithTax = prevTender ? money(prevTender.cash + prevTender.card) : prevView.total.total;
 
+  // Lottery breakdown: gross lottery sales (positive depts), lotto payout
+  // (negative depts), and the difference (net = what feeds Total Sales).
+  let lottoSales = 0, lottoPayout = 0;
+  for (const d of view.lotto.depts) {
+    if (d.sales >= 0) lottoSales += d.sales;
+    else lottoPayout += -d.sales;
+  }
+  lottoSales = money(lottoSales);
+  lottoPayout = money(lottoPayout);
+
   // Per-day total-sales trend across the trend window (oldest → newest).
   const trend7: { label: string; value: number; date: string }[] = [];
   for (let i = 0; i < trendDays; i++) {
@@ -145,7 +155,11 @@ export default async function DailySalesPage({
               cells={[{ label: "Promotions", value: promo.merch > 0 ? `-${fmtMoney(promo.merch)}` : fmtMoney(0), tone: "error" }]} />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} href="#fuel"
               cells={[{ label: "Promotions", value: promo.fuel > 0 ? `-${fmtMoney(promo.fuel)}` : fmtMoney(0), tone: "error" }]} />
-            <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)} href="#lottery" cells={[]} />
+            <MetricCard label="Lottery / Lotto" sub="net = lottery − payout" s={view.lotto.split} icon="confirmation_number" trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)} href="#lottery"
+              cells={[
+                { label: "Lottery", value: fmtMoney(lottoSales) },
+                { label: "Payout", value: lottoPayout > 0 ? `-${fmtMoney(lottoPayout)}` : fmtMoney(0), tone: "error" },
+              ]} />
             <InfoCard label="Sales Tax" value={fmtMoney(salesTax)} sub={taxIsReal ? "from POS closing" : `est. @ ${taxRate}% (sync for actual)`} icon="receipt_long" href="#merch" />
           </div>
 
