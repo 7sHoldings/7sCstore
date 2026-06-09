@@ -132,6 +132,22 @@ export default async function DailySalesPage({
   const creditManual = isRange
     ? await getCreditManualRange(loc ?? "", range.start, range.end)
     : await getCreditManual(loc ?? "", navDate);
+  const houseTotal = creditManual ? creditManual.house.reduce((s, h) => s + h.amount, 0) : 0;
+
+  // Short/Over: POS sales (expected) less everything actually collected/paid, with
+  // the lottery short/over rolled in. Each part is a signed contribution.
+  const posSales = money(view.merch.split.total + view.fuel.split.total + view.lotto.split.total + salesTax);
+  const reconParts = [
+    { label: "POS sales", value: posSales },
+    { label: "Credit card", value: -totalSplit.card },
+    { label: "Safe drop", value: -totalSplit.cash },
+    { label: "EBT", value: -(creditManual?.ebt ?? 0) },
+    { label: "Other credit", value: -(creditManual?.otherCredit ?? 0) },
+    { label: "Payout in cash", value: -(creditManual?.payoutCash ?? 0) },
+    { label: "House account", value: -houseTotal },
+    { label: "Lottery short/over", value: -lottoOver },
+  ];
+  const shortOver = money(reconParts.reduce((s, p) => s + p.value, 0));
 
   // Per-day total-sales trend across the trend window (oldest → newest).
   const trend7: { label: string; value: number; date: string }[] = [];
@@ -196,6 +212,7 @@ export default async function DailySalesPage({
               { label: "Lottery", value: view.lotto.split.total },
               { label: "Sales Tax", value: salesTax },
             ]}
+            reconcile={tender ? { parts: reconParts, shortOver } : undefined}
           />
 
           <ManualCreditPanel className="mb-6" data={creditManual} entryHref={`/credit-entry?date=${navDate}`} />

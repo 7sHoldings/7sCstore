@@ -94,6 +94,22 @@ export default async function DashboardPage({
     : null;
   const lottoOver = manualLotto ? money(systemLotto.net - manualLotto.net) : 0;
   const creditManual = await getCreditManualRange(loc ?? "", range.start, range.end);
+  const houseTotal = creditManual ? creditManual.house.reduce((s, h) => s + h.amount, 0) : 0;
+
+  // Short/Over: POS sales (expected) less everything actually collected/paid, plus
+  // the lottery short/over. Each part is a signed contribution to the short/over.
+  const posSales = money(view.merch.split.total + view.fuel.split.total + view.lotto.split.total + salesTax);
+  const reconParts = [
+    { label: "POS sales", value: posSales },
+    { label: "Credit card", value: -totalSplit.card },
+    { label: "Safe drop", value: -totalSplit.cash },
+    { label: "EBT", value: -(creditManual?.ebt ?? 0) },
+    { label: "Other credit", value: -(creditManual?.otherCredit ?? 0) },
+    { label: "Payout in cash", value: -(creditManual?.payoutCash ?? 0) },
+    { label: "House account", value: -houseTotal },
+    { label: "Lottery short/over", value: -lottoOver },
+  ];
+  const shortOver = money(reconParts.reduce((s, p) => s + p.value, 0));
 
   const trend: { label: string; value: number; date: string }[] = [];
   for (let i = 0; i < trendDays; i++) {
@@ -149,6 +165,7 @@ export default async function DashboardPage({
               { label: "Lottery", value: view.lotto.split.total },
               { label: "Sales Tax", value: salesTax },
             ]}
+            reconcile={tender ? { parts: reconParts, shortOver } : undefined}
           />
 
           <ManualCreditPanel className="mb-6" data={creditManual} entryHref="/credit-entry" />

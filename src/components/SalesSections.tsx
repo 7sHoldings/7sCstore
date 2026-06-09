@@ -209,15 +209,18 @@ export function ManualCreditPanel({
 
 /** Hero card for Total Sales: big total, the component breakdown (the formula), and cash/credit. */
 export function TotalSalesBar({
-  s, parts, trend, sub, partsLabel,
+  s, parts, trend, sub, partsLabel, reconcile,
 }: {
   s: Split;
   parts: { label: string; value: number; op?: "+" | "−" }[];
   trend?: number | null;
   sub?: string;
   partsLabel?: string;
+  /** Optional Short/Over reconciliation. Each part is a signed contribution to the short/over. */
+  reconcile?: { parts: { label: string; value: number }[]; shortOver: number };
 }) {
   const partsSum = parts.reduce((acc, p) => (p.op === "−" ? acc - p.value : acc + p.value), 0);
+  const signed = (v: number) => (v < 0 ? `-${fmtMoney(-v)}` : fmtMoney(v));
   return (
     <Card className="p-5 mb-6 ring-1 ring-primary/30 bg-gradient-to-br from-primary/[0.04] to-transparent">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -256,6 +259,28 @@ export function TotalSalesBar({
           </div>
         </div>
       </div>
+      {reconcile && (
+        <div className="mt-4 pt-4 border-t border-outline-variant/60">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-label-caps uppercase text-on-surface-variant">Short / Over</span>
+            <span className={`tabular text-xl font-bold ${reconcile.shortOver === 0 ? "text-secondary" : "text-error"}`}>
+              {reconcile.shortOver > 0 ? "+" : ""}{signed(reconcile.shortOver)}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm">
+            {reconcile.parts.map((p, i) => (
+              <span key={p.label} className="inline-flex items-center gap-1.5">
+                {i > 0 && <span className="text-on-surface-variant font-semibold">{p.value >= 0 ? "+" : "−"}</span>}
+                <span className="text-on-surface-variant">
+                  {p.label} <span className="tabular font-semibold text-on-surface">{p.value < 0 ? fmtMoney(-p.value) : fmtMoney(p.value)}</span>
+                </span>
+              </span>
+            ))}
+            <span className="text-on-surface-variant font-semibold">=</span>
+            <span className="tabular font-bold text-on-surface">{signed(reconcile.shortOver)}</span>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }
