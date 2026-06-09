@@ -122,6 +122,39 @@ export function LotteryReconcileCard({
   );
 }
 
+/** Compact strip showing the employee's manual lottery entry + short/over, for the detailed section. */
+export function LotteryReconcileStrip({
+  manual, over, entryHref,
+}: {
+  manual: Lotto | null;
+  over: number;
+  entryHref?: string;
+}) {
+  const signed = (v: number) => (v < 0 ? `-${fmtMoney(-v)}` : fmtMoney(v));
+  return (
+    <div className="px-5 py-4 border-t border-outline-variant/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-body-sm">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="text-label-caps uppercase text-on-surface-variant">Manual (employee)</span>
+        {manual ? (
+          <span className="text-on-surface-variant">
+            Lottery <span className="tabular font-semibold text-on-surface">{fmtMoney(manual.sales)}</span>
+            {" · "}Payout <span className="tabular font-semibold text-error">{manual.payout > 0 ? `-${fmtMoney(manual.payout)}` : fmtMoney(0)}</span>
+            {" · "}Net <span className="tabular font-bold text-on-surface">{fmtMoney(manual.net)}</span>
+          </span>
+        ) : (
+          <span className="text-on-surface-variant">No manual entry yet.{entryHref && <> <a href={entryHref} className="text-primary font-medium underline">Add</a></>}</span>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-label-caps uppercase text-on-surface-variant">Short / Over</span>
+        <span className={`tabular font-bold ${!manual ? "text-on-surface-variant" : over === 0 ? "text-secondary" : "text-error"}`}>
+          {manual ? `${over > 0 ? "+" : ""}${signed(over)}` : "—"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /** Hero card for Total Sales: big total, the component breakdown (the formula), and cash/credit. */
 export function TotalSalesBar({
   s, parts, trend, sub, partsLabel,

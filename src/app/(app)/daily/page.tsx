@@ -3,14 +3,14 @@ import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { money, pctChange } from "@/lib/calc";
-import { fmtNumber, fmtDate, fmtMoney } from "@/lib/format";
+import { fmtNumber, fmtDate, fmtMoney, gradeLabel } from "@/lib/format";
 import { customRange, previousRange } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
 import { getTaxRate } from "@/lib/settings";
 import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
 import { getLotteryManual, getLotteryManualRange } from "@/lib/lottery";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, LotteryReconcileCard, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
+import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import RangePicker from "@/components/RangePicker";
 import DayNav from "./DayNav";
 import DailyActions from "./DailyActions";
@@ -163,9 +163,12 @@ export default async function DailySalesPage({
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <MetricCard label="Daily Sales" sub="Merchandise only (net of promotions)" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} href="#merch"
-              cells={[{ label: "Promotions", value: promo.merch > 0 ? `-${fmtMoney(promo.merch)}` : fmtMoney(0), tone: "error" }]} />
+              cells={[
+                { label: "Promotions", value: promo.merch > 0 ? `-${fmtMoney(promo.merch)}` : fmtMoney(0), tone: "error" },
+                { label: "Sales Tax", value: fmtMoney(salesTax) },
+              ]} />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} href="#fuel"
-              cells={[{ label: "Promotions", value: promo.fuel > 0 ? `-${fmtMoney(promo.fuel)}` : fmtMoney(0), tone: "error" }]} />
+              cells={view.fuel.byGrade.map((g) => ({ label: gradeLabel(g.grade), value: `${fmtNumber(g.gallons)} gal` }))} />
             <LotteryReconcileCard
               className="sm:col-span-2"
               system={systemLotto}
@@ -207,6 +210,7 @@ export default async function DailySalesPage({
 
           <SalesSection id="lottery" title="Lottery / Lotto Sales & Payouts" s={view.lotto.split}>
             <DeptTable rows={view.lotto.depts} total={view.lotto.split.total} refundTotal={0} allowNegative />
+            <LotteryReconcileStrip manual={manualLotto} over={lottoOver} entryHref={`/lottery?date=${navDate}`} />
           </SalesSection>
         </>
       )}
