@@ -3,14 +3,15 @@ import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { money, pctChange } from "@/lib/calc";
-import { fmtMoney, fmtNumber } from "@/lib/format";
+import { fmtMoney, fmtNumber, gradeLabel } from "@/lib/format";
 import { rangeFor, customRange, previousRange, type PeriodKey } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
 import { getReportData } from "@/lib/reports";
 import { getTaxRate } from "@/lib/settings";
-import { getTaxRange } from "@/lib/integrations/sync";
+import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
+import { getLotteryManualRange } from "@/lib/lottery";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
+import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import PeriodSelect from "@/components/PeriodSelect";
 import RangePicker from "@/components/RangePicker";
 
@@ -62,13 +63,35 @@ export default async function DashboardPage({
   const taxIsReal = realTax > 0;
   const salesTax = taxIsReal ? money(realTax) : estTax;
 
-  // Total Sales = Merchandise + Fuel + Lottery + Sales Tax (tax split by tender ratio).
+  // Actual tender (Safe Drop = cash, Credit Card Jobber = card) drives Total Sales
+  // when synced; otherwise fall back to the sales formula with tax spread by ratio.
+  const [tender, prevTender, promo, manualRaw] = await Promise.all([
+    getTenderRange(loc ?? "", range.start, range.end),
+    getTenderRange(loc ?? "", prev.start, prev.end),
+    getPromoRange(loc ?? "", range.start, range.end),
+    getLotteryManualRange(loc ?? "", range.start, range.end),
+  ]);
   const cashRatio = view.total.total > 0 ? view.total.cash / view.total.total : 0;
-  const totalSplit = {
-    cash: money(view.total.cash + salesTax * cashRatio),
-    card: money(view.total.card + salesTax * (1 - cashRatio)),
-    total: money(view.total.total + salesTax),
-  };
+  const totalSplit = tender
+    ? { cash: money(tender.cash), card: money(tender.card), total: money(tender.cash + tender.card) }
+    : {
+        cash: money(view.total.cash + salesTax * cashRatio),
+        card: money(view.total.card + salesTax * (1 - cashRatio)),
+        total: money(view.total.total + salesTax),
+      };
+  const prevTotalForTrend = prevTender ? money(prevTender.cash + prevTender.card) : prevTotal;
+
+  // Lottery: system (POS) breakdown vs the employee's manual entry → short/over.
+  let lottoSales = 0, lottoPayout = 0;
+  for (const d of view.lotto.depts) {
+    if (d.sales >= 0) lottoSales += d.sales;
+    else lottoPayout += -d.sales;
+  }
+  const systemLotto = { sales: money(lottoSales), payout: money(lottoPayout), net: view.lotto.split.total };
+  const manualLotto = manualRaw
+    ? { sales: manualRaw.sales, payout: manualRaw.payout, net: money(manualRaw.sales - manualRaw.payout) }
+    : null;
+  const lottoOver = manualLotto ? money(systemLotto.net - manualLotto.net) : 0;
 
   const trend: { label: string; value: number; date: string }[] = [];
   for (let i = 0; i < trendDays; i++) {
@@ -102,12 +125,29 @@ export default async function DashboardPage({
       ) : (
         <>
           {/* Sales summary (clickable to sections) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <MetricCard label="Daily Sales" sub="Merchandise only" s={view.merch.split} icon="shopping_bag" href="#merch" />
-            <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" href="#fuel" />
-            <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" href="#lottery" />
-            <MetricCard label="Total Sales" sub="incl. sales tax · vs previous period" s={totalSplit} icon="payments" trend={pctChange(totalSplit.total, prevTotal)} highlight />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            <MetricCard label="Daily Sales" sub="Merchandise only (net of promotions)" s={view.merch.split} icon="shopping_bag" href="#merch"
+              cells={[
+                { label: "Promotions", value: promo.merch > 0 ? `-${fmtMoney(promo.merch)}` : fmtMoney(0), tone: "error" },
+                { label: "Sales Tax", value: fmtMoney(salesTax) },
+              ]} />
+            <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" href="#fuel"
+              cells={view.fuel.byGrade.map((g) => ({ label: gradeLabel(g.grade), value: `${fmtNumber(g.gallons)} gal` }))} />
+            <LotteryReconcileCard className="sm:col-span-2" system={systemLotto} manual={manualLotto} over={lottoOver} entryHref="/lottery" />
           </div>
+
+          <TotalSalesBar
+            s={totalSplit}
+            trend={pctChange(totalSplit.total, prevTotalForTrend)}
+            sub={tender ? "Cash = Safe Drop · Credit = card batch · vs previous period" : "incl. sales tax · vs previous period"}
+            partsLabel="POS sales"
+            parts={[
+              { label: "Daily", value: view.merch.split.total },
+              { label: "Fuel", value: view.fuel.split.total },
+              { label: "Lottery", value: view.lotto.split.total },
+              { label: "Sales Tax", value: salesTax },
+            ]}
+          />
 
           {/* Store health: profit / expenses / vendor dues / alerts */}
           {report && (
@@ -148,6 +188,7 @@ export default async function DashboardPage({
 
           <SalesSection id="lottery" title="Lottery / Lotto Sales & Payouts" s={view.lotto.split}>
             <DeptTable rows={view.lotto.depts} total={view.lotto.split.total} refundTotal={0} allowNegative />
+            <LotteryReconcileStrip manual={manualLotto} over={lottoOver} entryHref="/lottery" />
           </SalesSection>
         </>
       )}
