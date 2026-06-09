@@ -85,7 +85,10 @@ export const modiInsightsAdapter: PosAdapter = {
         const r = raw as Record<string, unknown>;
         const name = String(r.DeptName ?? "");
         const category = mapDeptToCategory(name);
-        const amount = num(r.Sales); // report "Sales" column; can be negative (e.g. LOTTO P\O)
+        // Net of discounts & promotions: prefer the report's NetSales, else
+        // Sales − Discount − Promotion. Can be negative (e.g. LOTTO P\O).
+        const amount =
+          r.NetSales != null ? num(r.NetSales) : num(r.Sales) - num(r.Discount) - num(r.Promotion);
         if (amount === 0) continue;
         const refundTotal = num(r.Refund);
         const ratio = deptRatio.get(name.trim().toUpperCase()) ?? overallRatio;
