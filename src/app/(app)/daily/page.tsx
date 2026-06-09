@@ -7,7 +7,7 @@ import { fmtNumber, fmtDate, fmtMoney } from "@/lib/format";
 import { customRange, previousRange } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
 import { getTaxRate } from "@/lib/settings";
-import { getTaxRange } from "@/lib/integrations/sync";
+import { getTaxRange, getTenderRange } from "@/lib/integrations/sync";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, InfoCard, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import RangePicker from "@/components/RangePicker";
@@ -87,15 +87,23 @@ export default async function DailySalesPage({
   const taxIsReal = realTax > 0;
   const salesTax = taxIsReal ? money(realTax) : estTax;
 
-  // Total Sales = Daily (merch) + Fuel + Lottery (net of payouts) + Sales Tax.
-  // Spread the tax across cash / credit-debit by the overall tender ratio.
+  // Actual tender from the Daily Entry (Safe Drop = cash, Credit Card Jobber =
+  // card) drives the Total Sales card when synced. The merch + fuel + lottery +
+  // tax formula is shown as the POS-sales breakdown beneath it. Until a day is
+  // synced, fall back to the sales formula with tax spread by tender ratio.
+  const [tender, prevTender] = await Promise.all([
+    getTenderRange(loc ?? "", range.start, range.end),
+    getTenderRange(loc ?? "", prev.start, prev.end),
+  ]);
   const cashRatio = view.total.total > 0 ? view.total.cash / view.total.total : 0;
-  const totalSplit = {
-    cash: money(view.total.cash + salesTax * cashRatio),
-    card: money(view.total.card + salesTax * (1 - cashRatio)),
-    total: money(view.total.total + salesTax),
-  };
-  const prevTotalWithTax = prevView.total.total; // previous period tax not tracked here
+  const totalSplit = tender
+    ? { cash: money(tender.cash), card: money(tender.card), total: money(tender.cash + tender.card) }
+    : {
+        cash: money(view.total.cash + salesTax * cashRatio),
+        card: money(view.total.card + salesTax * (1 - cashRatio)),
+        total: money(view.total.total + salesTax),
+      };
+  const prevTotalWithTax = prevTender ? money(prevTender.cash + prevTender.card) : prevView.total.total;
 
   // Per-day total-sales trend across the trend window (oldest → newest).
   const trend7: { label: string; value: number; date: string }[] = [];
@@ -141,7 +149,8 @@ export default async function DailySalesPage({
           <TotalSalesBar
             s={totalSplit}
             trend={pctChange(totalSplit.total, prevTotalWithTax)}
-            sub={`incl. sales tax · ${comparisonSub}`}
+            sub={tender ? `Cash = Safe Drop · Credit = card batch · ${comparisonSub}` : `incl. sales tax · ${comparisonSub}`}
+            partsLabel="POS sales"
             parts={[
               { label: "Daily", value: view.merch.split.total },
               { label: "Fuel", value: view.fuel.split.total },

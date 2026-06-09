@@ -57,13 +57,15 @@ export function InfoCard({
 
 /** Hero card for Total Sales: big total, the component breakdown (the formula), and cash/credit. */
 export function TotalSalesBar({
-  s, parts, trend, sub,
+  s, parts, trend, sub, partsLabel,
 }: {
   s: Split;
   parts: { label: string; value: number; op?: "+" | "−" }[];
   trend?: number | null;
   sub?: string;
+  partsLabel?: string;
 }) {
+  const partsSum = parts.reduce((acc, p) => (p.op === "−" ? acc - p.value : acc + p.value), 0);
   return (
     <Card className="p-5 mb-6 ring-1 ring-primary/30 bg-gradient-to-br from-primary/[0.04] to-transparent">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -78,6 +80,7 @@ export function TotalSalesBar({
           </div>
           {sub && <p className="text-body-sm text-on-surface-variant mt-0.5">{sub}</p>}
           <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm">
+            {partsLabel && <span className="text-on-surface-variant font-medium">{partsLabel}:</span>}
             {parts.map((p, i) => (
               <span key={p.label} className="inline-flex items-center gap-2">
                 {i > 0 && <span className="text-on-surface-variant font-semibold">{p.op ?? "+"}</span>}
@@ -86,6 +89,8 @@ export function TotalSalesBar({
                 </span>
               </span>
             ))}
+            <span className="text-on-surface-variant font-semibold">=</span>
+            <span className="tabular font-semibold text-on-surface">{fmtMoney(partsSum)}</span>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 text-body-sm lg:w-72 shrink-0">
