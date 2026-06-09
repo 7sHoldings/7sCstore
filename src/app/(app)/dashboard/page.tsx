@@ -104,14 +104,14 @@ export default async function DashboardPage({
   // Short/Over: POS sales (expected) less everything actually collected/paid, plus
   // the lottery short/over. Each part is a signed contribution to the short/over.
   const reconParts = [
-    { label: "POS sales", value: posSales },
-    { label: "Credit card", value: -totalSplit.card },
-    { label: "Safe drop", value: -totalSplit.cash },
-    { label: "EBT", value: -(creditManual?.ebt ?? 0) },
-    { label: "Other credit", value: -(creditManual?.otherCredit ?? 0) },
-    { label: "Payout in cash", value: -(creditManual?.payoutCash ?? 0) },
-    { label: "House account", value: -houseTotal },
+    { label: "Credit card", value: totalSplit.card },
+    { label: "Safe drop", value: totalSplit.cash },
+    { label: "EBT", value: creditManual?.ebt ?? 0 },
+    { label: "Other credit", value: creditManual?.otherCredit ?? 0 },
+    { label: "Payout in cash", value: creditManual?.payoutCash ?? 0 },
+    { label: "House account", value: houseTotal },
     { label: "Lottery short/over", value: -lottoOver },
+    { label: "POS sales", value: -posSales },
   ];
   const shortOver = money(reconParts.reduce((s, p) => s + p.value, 0));
 
