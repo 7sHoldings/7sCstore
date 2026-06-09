@@ -125,6 +125,29 @@ export function Badge({
   );
 }
 
+/** Inline status banner (e.g. a success confirmation after saving). */
+export function Banner({
+  tone = "success",
+  icon = "check_circle",
+  children,
+}: {
+  tone?: "success" | "error" | "info";
+  icon?: string;
+  children: ReactNode;
+}) {
+  const tones: Record<string, string> = {
+    success: "bg-secondary-container text-on-secondary-container",
+    error: "bg-error-container text-on-error-container",
+    info: "bg-surface-container-high text-primary",
+  };
+  return (
+    <div className={`flex items-center gap-2 rounded-lg px-4 py-3 mb-4 text-body-sm font-medium ${tones[tone]}`}>
+      <Icon name={icon} className="text-[20px]" />
+      {children}
+    </div>
+  );
+}
+
 export function PageHeader({
   title,
   subtitle,

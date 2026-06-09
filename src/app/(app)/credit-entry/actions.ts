@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
@@ -35,6 +36,7 @@ export async function saveCreditManual(formData: FormData): Promise<void> {
   revalidatePath("/credit-entry");
   revalidatePath("/daily");
   revalidatePath("/dashboard");
+  redirect(`/credit-entry?date=${date}&saved=1`);
 }
 
 /** Add a new house account to the dropdown list. */
@@ -42,7 +44,10 @@ export async function addHouseAccount(formData: FormData): Promise<void> {
   const session = await getSession();
   if (!session || !can(session.role, "enterSales")) return;
   const name = String(formData.get("name") || "");
+  const date = String(formData.get("date") || "");
   if (!name.trim()) return;
   await addHA(name);
   revalidatePath("/credit-entry");
+  const q = /^\d{4}-\d{2}-\d{2}$/.test(date) ? `date=${date}&` : "";
+  redirect(`/credit-entry?${q}added=${encodeURIComponent(name.trim())}`);
 }

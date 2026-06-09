@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
@@ -30,4 +31,5 @@ export async function saveLotteryManual(formData: FormData): Promise<void> {
   });
   revalidatePath("/lottery");
   revalidatePath("/daily");
+  redirect(`/lottery?date=${date}&saved=1`);
 }

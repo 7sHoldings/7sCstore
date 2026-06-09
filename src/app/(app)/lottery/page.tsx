@@ -4,7 +4,7 @@ import { getActiveLocationId } from "@/lib/location";
 import { getLotteryManual } from "@/lib/lottery";
 import { money } from "@/lib/calc";
 import { fmtMoney } from "@/lib/format";
-import { Card, PageHeader, EmptyState, Icon } from "@/components/ui";
+import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import { saveLotteryManual } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function LotteryEntryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; saved?: string }>;
 }) {
   const session = (await getSession())!;
   if (!can(session.role, "enterSales")) {
@@ -39,6 +39,8 @@ export default async function LotteryEntryPage({
           </form>
         }
       />
+
+      {sp.saved && <Banner>Lottery entry saved for {dateISO}.</Banner>}
 
       <Card className="p-5 max-w-xl">
         <form action={saveLotteryManual} className="space-y-4">

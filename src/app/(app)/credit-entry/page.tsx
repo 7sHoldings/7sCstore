@@ -2,7 +2,7 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { getCreditManual, getHouseAccounts } from "@/lib/credit";
-import { Card, PageHeader, EmptyState, Icon } from "@/components/ui";
+import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import { saveCreditManual, addHouseAccount } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ const HOUSE_ROWS = 5;
 export default async function CreditEntryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; saved?: string; added?: string }>;
 }) {
   const session = (await getSession())!;
   if (!can(session.role, "enterSales")) {
@@ -41,6 +41,9 @@ export default async function CreditEntryPage({
           </form>
         }
       />
+
+      {sp.saved && <Banner>Credit entry saved for {dateISO}.</Banner>}
+      {sp.added && <Banner>House account &ldquo;{sp.added}&rdquo; added.</Banner>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="p-5 lg:col-span-2">
@@ -95,6 +98,7 @@ export default async function CreditEntryPage({
             ))}
           </ul>
           <form action={addHouseAccount} className="flex items-end gap-2">
+            <input type="hidden" name="date" value={dateISO} />
             <div className="flex-1">
               <label className="ft-label" htmlFor="name">Add account</label>
               <input id="name" name="name" className="ft-input w-full" placeholder="e.g. ABC Church" />
