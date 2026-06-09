@@ -64,6 +64,64 @@ export function InfoCard({
   return href ? <a href={href} className="block">{card}</a> : card;
 }
 
+type Lotto = { sales: number; payout: number; net: number };
+
+/**
+ * Wide Lottery panel reconciling the POS (system) lottery/payout/net against the
+ * employee's manual entry, with the short/over between the two nets.
+ */
+export function LotteryReconcileCard({
+  system, manual, over, trend, entryHref, className,
+}: {
+  system: Lotto;
+  manual: Lotto | null;
+  over: number;
+  trend?: number | null;
+  entryHref?: string;
+  className?: string;
+}) {
+  const signed = (v: number) => (v < 0 ? `-${fmtMoney(-v)}` : fmtMoney(v));
+  const Block = ({ title, d, muted }: { title: string; d: Lotto | null; muted?: boolean }) => (
+    <div className={`rounded-md p-3 ${muted ? "bg-surface-container-low/60" : "bg-surface-container-low"}`}>
+      <div className="text-label-caps uppercase text-on-surface-variant mb-1.5">{title}</div>
+      {d ? (
+        <div className="space-y-1 text-body-sm">
+          <div className="flex justify-between"><span className="text-on-surface-variant">Lottery</span><span className="tabular font-semibold">{fmtMoney(d.sales)}</span></div>
+          <div className="flex justify-between"><span className="text-on-surface-variant">Payout</span><span className="tabular font-semibold text-error">{d.payout > 0 ? `-${fmtMoney(d.payout)}` : fmtMoney(0)}</span></div>
+          <div className="flex justify-between border-t border-outline-variant/40 pt-1"><span className="text-on-surface-variant">Net</span><span className="tabular font-bold">{fmtMoney(d.net)}</span></div>
+        </div>
+      ) : (
+        <div className="text-body-sm text-on-surface-variant py-3">
+          No manual entry yet.{entryHref && <> <a href={entryHref} className="text-primary font-medium underline">Add</a></>}
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <Card className={`p-5 h-full ${className ?? ""}`}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-label-caps uppercase text-on-surface-variant">Lottery / Lotto</span>
+        <Icon name="confirmation_number" className="text-[20px] text-primary opacity-70" />
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xl font-bold tabular text-primary">{fmtMoney(system.net)}</span>
+        {trend !== undefined && <TrendChip value={trend} />}
+        <span className="text-body-sm text-on-surface-variant">net (system)</span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Block title="System (POS)" d={system} />
+        <Block title="Manual (employee)" d={manual} muted />
+      </div>
+      <div className="mt-2 flex items-center justify-between rounded-md px-3 py-2 bg-surface-container">
+        <span className="text-label-caps uppercase text-on-surface-variant">Short / Over</span>
+        <span className={`tabular font-bold ${!manual ? "text-on-surface-variant" : over === 0 ? "text-secondary" : "text-error"}`}>
+          {manual ? `${over > 0 ? "+" : ""}${signed(over)}` : "—"}
+        </span>
+      </div>
+    </Card>
+  );
+}
+
 /** Hero card for Total Sales: big total, the component breakdown (the formula), and cash/credit. */
 export function TotalSalesBar({
   s, parts, trend, sub, partsLabel,

@@ -8,8 +8,9 @@ import { customRange, previousRange } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
 import { getTaxRate } from "@/lib/settings";
 import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
+import { getLotteryManual, getLotteryManualRange } from "@/lib/lottery";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, InfoCard, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
+import { MetricCard, LotteryReconcileCard, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import RangePicker from "@/components/RangePicker";
 import DayNav from "./DayNav";
 import DailyActions from "./DailyActions";
@@ -115,6 +116,16 @@ export default async function DailySalesPage({
   }
   lottoSales = money(lottoSales);
   lottoPayout = money(lottoPayout);
+  const systemLotto = { sales: lottoSales, payout: lottoPayout, net: view.lotto.split.total };
+
+  // Employee's manual lottery entry for the day/range → short/over vs the system.
+  const manualRaw = isRange
+    ? await getLotteryManualRange(loc ?? "", range.start, range.end)
+    : await getLotteryManual(loc ?? "", navDate);
+  const manualLotto = manualRaw
+    ? { sales: manualRaw.sales, payout: manualRaw.payout, net: money(manualRaw.sales - manualRaw.payout) }
+    : null;
+  const lottoOver = manualLotto ? money(manualLotto.net - systemLotto.net) : 0;
 
   // Per-day total-sales trend across the trend window (oldest → newest).
   const trend7: { label: string; value: number; date: string }[] = [];
@@ -155,12 +166,14 @@ export default async function DailySalesPage({
               cells={[{ label: "Promotions", value: promo.merch > 0 ? `-${fmtMoney(promo.merch)}` : fmtMoney(0), tone: "error" }]} />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} href="#fuel"
               cells={[{ label: "Promotions", value: promo.fuel > 0 ? `-${fmtMoney(promo.fuel)}` : fmtMoney(0), tone: "error" }]} />
-            <MetricCard label="Lottery / Lotto" sub="net = lottery − payout" s={view.lotto.split} icon="confirmation_number" trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)} href="#lottery"
-              cells={[
-                { label: "Lottery", value: fmtMoney(lottoSales) },
-                { label: "Payout", value: lottoPayout > 0 ? `-${fmtMoney(lottoPayout)}` : fmtMoney(0), tone: "error" },
-              ]} />
-            <InfoCard label="Sales Tax" value={fmtMoney(salesTax)} sub={taxIsReal ? "from POS closing" : `est. @ ${taxRate}% (sync for actual)`} icon="receipt_long" href="#merch" />
+            <LotteryReconcileCard
+              className="sm:col-span-2"
+              system={systemLotto}
+              manual={manualLotto}
+              over={lottoOver}
+              trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)}
+              entryHref={`/lottery?date=${navDate}`}
+            />
           </div>
 
           <TotalSalesBar
