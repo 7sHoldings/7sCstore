@@ -9,7 +9,7 @@ import { buildSalesView } from "@/lib/salesView";
 import { getTaxRate } from "@/lib/settings";
 import { getTaxRange } from "@/lib/integrations/sync";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, InfoCard, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
+import { MetricCard, InfoCard, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import RangePicker from "@/components/RangePicker";
 import DayNav from "./DayNav";
 import DailyActions from "./DailyActions";
@@ -131,13 +131,24 @@ export default async function DailySalesPage({
         </Card>
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <MetricCard label="Daily Sales" sub="Merchandise only" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} href="#merch" />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} href="#fuel" />
             <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)} href="#lottery" />
-            <InfoCard label="Sales Tax" value={fmtMoney(salesTax)} sub={taxIsReal ? "from POS closing" : `est. @ ${taxRate}%`} icon="receipt_long" href="#merch" />
-            <MetricCard label="Total Sales" sub={`incl. sales tax · ${comparisonSub}`} s={totalSplit} icon="payments" trend={pctChange(totalSplit.total, prevTotalWithTax)} highlight />
+            <InfoCard label="Sales Tax" value={fmtMoney(salesTax)} sub={taxIsReal ? "from POS closing" : `est. @ ${taxRate}% (sync for actual)`} icon="receipt_long" href="#merch" />
           </div>
+
+          <TotalSalesBar
+            s={totalSplit}
+            trend={pctChange(totalSplit.total, prevTotalWithTax)}
+            sub={`incl. sales tax · ${comparisonSub}`}
+            parts={[
+              { label: "Daily", value: view.merch.split.total },
+              { label: "Fuel", value: view.fuel.split.total },
+              { label: "Lottery", value: view.lotto.split.total },
+              { label: "Sales Tax", value: salesTax },
+            ]}
+          />
 
           <Card className="p-5 mb-6">
             <div className="flex items-center justify-between mb-3">

@@ -41,16 +41,66 @@ export function InfoCard({
   label: string; value: string; sub?: string; icon: string; highlight?: boolean; href?: string;
 }) {
   const card = (
-    <Card className={`p-5 h-full transition-shadow ${highlight ? "ring-1 ring-primary/30" : ""} ${href ? "hover:shadow-floating cursor-pointer" : ""}`}>
+    <Card className={`p-5 h-full flex flex-col transition-shadow ${highlight ? "ring-1 ring-primary/30" : ""} ${href ? "hover:shadow-floating cursor-pointer" : ""}`}>
       <div className="flex items-center justify-between mb-1">
         <span className="text-label-caps uppercase text-on-surface-variant">{label}</span>
         <Icon name={icon} className="text-[20px] text-primary opacity-70" />
       </div>
-      <div className="text-2xl font-bold tabular text-primary">{value}</div>
-      {sub && <p className="text-body-sm text-on-surface-variant mt-0.5">{sub}</p>}
+      <div className="flex-1 flex flex-col justify-center">
+        <div className="text-2xl font-bold tabular text-primary">{value}</div>
+        {sub && <p className="text-body-sm text-on-surface-variant mt-0.5">{sub}</p>}
+      </div>
     </Card>
   );
   return href ? <a href={href} className="block">{card}</a> : card;
+}
+
+/** Hero card for Total Sales: big total, the component breakdown (the formula), and cash/credit. */
+export function TotalSalesBar({
+  s, parts, trend, sub,
+}: {
+  s: Split;
+  parts: { label: string; value: number; op?: "+" | "−" }[];
+  trend?: number | null;
+  sub?: string;
+}) {
+  return (
+    <Card className="p-5 mb-6 ring-1 ring-primary/30 bg-gradient-to-br from-primary/[0.04] to-transparent">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Icon name="payments" className="text-[20px] text-primary opacity-70" />
+            <span className="text-label-caps uppercase text-on-surface-variant">Total Sales</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold tabular text-primary">{fmtMoney(s.total)}</span>
+            {trend !== undefined && <TrendChip value={trend} />}
+          </div>
+          {sub && <p className="text-body-sm text-on-surface-variant mt-0.5">{sub}</p>}
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm">
+            {parts.map((p, i) => (
+              <span key={p.label} className="inline-flex items-center gap-2">
+                {i > 0 && <span className="text-on-surface-variant font-semibold">{p.op ?? "+"}</span>}
+                <span className="text-on-surface-variant">
+                  {p.label} <span className="tabular font-semibold text-on-surface">{fmtMoney(p.value)}</span>
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-body-sm lg:w-72 shrink-0">
+          <div className="bg-surface-container-low rounded-md px-3 py-2">
+            <div className="text-label-caps uppercase text-on-surface-variant">Cash</div>
+            <div className="tabular font-semibold text-base">{fmtMoney(s.cash)}</div>
+          </div>
+          <div className="bg-surface-container-low rounded-md px-3 py-2">
+            <div className="text-label-caps uppercase text-on-surface-variant">Credit/Debit</div>
+            <div className="tabular font-semibold text-base">{fmtMoney(s.card)}</div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 function shortMoney(v: number): string {
