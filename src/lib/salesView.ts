@@ -33,10 +33,15 @@ export interface FuelGrade {
 }
 
 export interface SalesView {
-  merch: { split: Split; depts: Dept[]; refund: number };
+  merch: { split: Split; depts: Dept[]; refund: number; taxable: number };
   lotto: { split: Split; depts: Dept[] };
   fuel: { split: Split; byGrade: FuelGrade[]; gallons: number };
   total: Split;
+}
+
+/** Departments that aren't subject to sales tax (e.g. "NON TAX", EBT/food stamp). */
+export function isNonTaxableDept(name: string): boolean {
+  return /non[\s-]?tax|ebt|food\s?stamp/i.test(name);
 }
 
 export function deptName(note: string | null, category: string): string {
@@ -91,8 +96,12 @@ export function buildSalesView(sales: SaleRow[], fuelSales: FuelRow[]): SalesVie
     .map(([grade, v]) => ({ grade, gallons: money(v.gallons), total: money(v.total), price: v.n ? v.priceSum / v.n : 0 }))
     .sort((a, b) => b.total - a.total);
 
+  const taxable = money(
+    merchRows.reduce((s, r) => (isNonTaxableDept(deptName(r.note, r.category)) ? s : s + r.amount), 0)
+  );
+
   return {
-    merch: { split: split(merchRows), depts: merchDepts, refund: money(merchDepts.reduce((s, d) => s + d.refund, 0)) },
+    merch: { split: split(merchRows), depts: merchDepts, refund: money(merchDepts.reduce((s, d) => s + d.refund, 0)), taxable },
     lotto: { split: split(lottoRows), depts: lottoDepts },
     fuel: { split: split(fuelRows), byGrade, gallons: money(fuelSales.reduce((s, x) => s + x.gallons, 0)) },
     total: split(sales),

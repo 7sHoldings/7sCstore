@@ -17,6 +17,7 @@ import {
 } from "./format";
 import { purchaseMargin, money } from "./calc";
 import { buildSalesView } from "./salesView";
+import { getTaxRate } from "./settings";
 
 export type ReportType =
   | "daily_closing"
@@ -85,6 +86,8 @@ export async function buildReport(
       prisma.fuelSale.findMany({ where, select: { grade: true, gallons: true, total: true, pricePerGallon: true } }),
     ]);
     const view = buildSalesView(sales, fuelSales);
+    const taxRate = await getTaxRate();
+    const estTax = money(view.merch.taxable * (taxRate / 100));
     const pct = (v: number) => (view.merch.split.total !== 0 ? `${((v / view.merch.split.total) * 100).toFixed(1)}%` : "—");
     return {
       ...base,
@@ -95,6 +98,7 @@ export async function buildReport(
         { label: "Total Sales", value: fmtMoney(view.total.total) },
         { label: "Cash", value: fmtMoney(view.total.cash) },
         { label: "Credit / Debit", value: fmtMoney(view.total.card) },
+        { label: `Est. Sales Tax (@ ${taxRate}%)`, value: fmtMoney(estTax) },
       ],
       sections: [
         {

@@ -2,9 +2,11 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { getActiveLocationId } from "@/lib/location";
+import { getTaxRate } from "@/lib/settings";
 import { Card, PageHeader, Badge, EmptyState, Icon } from "@/components/ui";
 import LocationForm from "./LocationForm";
 import LocationManager from "./LocationManager";
+import { setTaxRate } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +16,7 @@ export default async function LocationsPage() {
     return <Card className="p-8"><EmptyState icon="lock" title="No access" hint="Only owners can manage locations." /></Card>;
   }
   const activeId = await getActiveLocationId();
+  const taxRate = await getTaxRate();
 
   const locations = await prisma.location.findMany({
     orderBy: { name: "asc" },
@@ -27,6 +30,25 @@ export default async function LocationsPage() {
         subtitle="Manage your stations. Switch the active location from the top bar."
         actions={<LocationForm />}
       />
+
+      <Card className="p-5 mb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Icon name="percent" className="text-primary text-[20px]" />
+          <h3 className="font-semibold text-on-surface">Sales-tax rate</h3>
+        </div>
+        <p className="text-body-sm text-on-surface-variant mb-3">
+          Used to estimate sales tax on taxable merchandise (excludes NON-TAX departments, lottery and fuel) until the POS tax report is connected.
+        </p>
+        <form action={setTaxRate} className="flex items-end gap-2">
+          <div>
+            <label className="ft-label" htmlFor="taxRate">Rate (%)</label>
+            <input id="taxRate" name="taxRate" type="number" step="0.001" min="0" max="100" defaultValue={taxRate} className="ft-input w-32" />
+          </div>
+          <button type="submit" className="ft-btn-primary">
+            <Icon name="save" className="text-[18px]" /> Save
+          </button>
+        </form>
+      </Card>
 
       {locations.length === 0 ? (
         <Card className="p-8"><EmptyState icon="location_on" title="No locations yet" hint="Add your first station." /></Card>

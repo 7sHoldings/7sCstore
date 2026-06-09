@@ -7,6 +7,7 @@ import { fmtMoney, fmtNumber } from "@/lib/format";
 import { rangeFor, customRange, previousRange, type PeriodKey } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
 import { getReportData } from "@/lib/reports";
+import { getTaxRate } from "@/lib/settings";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import PeriodSelect from "@/components/PeriodSelect";
@@ -52,6 +53,8 @@ export default async function DashboardPage({
 
   const view = buildSalesView(sales, fuelSales);
   const prevTotal = money(prevSales.reduce((s, x) => s + x.amount, 0));
+  const taxRate = await getTaxRate();
+  const estTax = money(view.merch.taxable * (taxRate / 100));
 
   const trend: { label: string; value: number; date: string }[] = [];
   for (let i = 0; i < trendDays; i++) {
@@ -100,7 +103,7 @@ export default async function DashboardPage({
               <Stat label="Gross Profit" value={fmtMoney(report.pnl.grossProfit)} tone="good" />
               <Stat label="Expenses" value={fmtMoney(report.pnl.operatingExpenses)} tone="bad" href="/expenses" />
               <Stat label="Net Profit" value={fmtMoney(report.pnl.netProfit)} tone={report.pnl.netProfit >= 0 ? "good" : "bad"} />
-              <Stat label="Sales Tax" value={fmtMoney(report.pnl.salesTaxCollected)} sub="liability" />
+              <Stat label="Est. Sales Tax" value={fmtMoney(estTax)} sub={`@ ${taxRate}% · liability`} />
             </div>
           )}
 

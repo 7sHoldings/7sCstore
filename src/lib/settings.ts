@@ -25,3 +25,10 @@ export async function setSetting(key: string, value: string): Promise<void> {
 export async function getBoolSetting(key: string): Promise<boolean> {
   return (await getSetting(key)) === "true";
 }
+
+/** Store sales-tax rate as a percent (default Henderson, NV combined ≈ 8.375%). */
+export async function getTaxRate(): Promise<number> {
+  const v = await getSetting("taxRate");
+  const n = v ? Number(v) : NaN;
+  return isFinite(n) && n >= 0 ? n : 8.375;
+}

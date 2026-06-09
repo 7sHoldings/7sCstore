@@ -7,11 +7,25 @@ import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
+import { setSetting } from "@/lib/settings";
 
 const schema = z.object({
   name: z.string().min(1, "Location name is required."),
   address: z.string().optional(),
 });
+
+/** Save the store sales-tax rate (percent) used for estimated tax. */
+export async function setTaxRate(formData: FormData): Promise<void> {
+  const session = await getSession();
+  if (!session || !can(session.role, "manageUsers")) return;
+  const rate = Number(formData.get("taxRate"));
+  if (!isFinite(rate) || rate < 0 || rate > 100) return;
+  await setSetting("taxRate", String(rate));
+  await logAudit({ userId: session.userId, action: "UPDATE", entity: "Setting", entityId: "taxRate", after: { taxRate: rate } });
+  revalidatePath("/locations");
+  revalidatePath("/daily");
+  revalidatePath("/dashboard");
+}
 
 export async function createLocation(
   _prev: { error?: string; ok?: boolean } | undefined,

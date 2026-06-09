@@ -3,9 +3,10 @@ import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { money, pctChange } from "@/lib/calc";
-import { fmtNumber, fmtDate } from "@/lib/format";
+import { fmtNumber, fmtDate, fmtMoney } from "@/lib/format";
 import { customRange, previousRange } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
+import { getTaxRate } from "@/lib/settings";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import RangePicker from "@/components/RangePicker";
@@ -76,6 +77,8 @@ export default async function DailySalesPage({
 
   const view = buildSalesView(sales, fuelSales);
   const prevView = buildSalesView(prevSales, prevFuel);
+  const taxRate = await getTaxRate();
+  const estTax = money(view.merch.taxable * (taxRate / 100));
 
   // Per-day total-sales trend across the trend window (oldest → newest).
   const trend7: { label: string; value: number; date: string }[] = [];
@@ -126,7 +129,7 @@ export default async function DailySalesPage({
             <SalesTrend data={trend7} />
           </Card>
 
-          <SalesSection id="merch" title="Daily Sales — Merchandise" s={view.merch.split} className="mb-6">
+          <SalesSection id="merch" title="Daily Sales — Merchandise" s={view.merch.split} extra={`Est. tax @ ${taxRate}% = ${fmtMoney(estTax)}`} className="mb-6">
             <DeptTable rows={view.merch.depts} total={view.merch.split.total} refundTotal={view.merch.refund} />
           </SalesSection>
 
