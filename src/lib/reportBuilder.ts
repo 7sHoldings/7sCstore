@@ -18,6 +18,7 @@ import {
 import { purchaseMargin, money } from "./calc";
 import { buildSalesView } from "./salesView";
 import { getTaxRate } from "./settings";
+import { getTaxRange } from "./integrations/sync";
 
 export type ReportType =
   | "daily_closing"
@@ -88,6 +89,10 @@ export async function buildReport(
     const view = buildSalesView(sales, fuelSales);
     const taxRate = await getTaxRate();
     const estTax = money(view.merch.taxable * (taxRate / 100));
+    const realTax = await getTaxRange(locationId ?? "", range.start, range.end);
+    const taxIsReal = realTax > 0;
+    const salesTax = taxIsReal ? money(realTax) : estTax;
+    const totalWithTax = money(view.total.total + salesTax);
     const pct = (v: number) => (view.merch.split.total !== 0 ? `${((v / view.merch.split.total) * 100).toFixed(1)}%` : "—");
     return {
       ...base,
@@ -95,10 +100,10 @@ export async function buildReport(
         { label: "Merchandise", value: fmtMoney(view.merch.split.total) },
         { label: "Lottery / Lotto", value: fmtMoney(view.lotto.split.total) },
         { label: "Fuel", value: fmtMoney(view.fuel.split.total) },
-        { label: "Total Sales", value: fmtMoney(view.total.total) },
+        { label: taxIsReal ? "Sales Tax" : `Sales Tax (est. @ ${taxRate}%)`, value: fmtMoney(salesTax) },
+        { label: "Total Sales", value: fmtMoney(totalWithTax) },
         { label: "Cash", value: fmtMoney(view.total.cash) },
         { label: "Credit / Debit", value: fmtMoney(view.total.card) },
-        { label: `Est. Sales Tax (@ ${taxRate}%)`, value: fmtMoney(estTax) },
       ],
       sections: [
         {

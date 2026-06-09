@@ -98,7 +98,44 @@ export async function syncRange(locationId: string, from: Date, to: Date): Promi
     return insertRows(tx, locationId, rows);
   });
 
+  // Pull the real Sales Tax per day (report 36) and stash it as a per-day scalar.
+  if (adapter.fetchTax) {
+    try {
+      const taxes = await adapter.fetchTax(from, to);
+      for (const t of taxes) {
+        const key = `tax:${locationId}:${t.date}`;
+        await prisma.setting.upsert({
+          where: { key },
+          create: { key, value: String(t.tax) },
+          update: { value: String(t.tax) },
+        });
+      }
+    } catch {
+      // Sales tax is best-effort — never fail the whole sync over it.
+    }
+  }
+
   return imported;
+}
+
+/** Read the stored real Sales Tax for a day, or null if not synced. */
+export async function getTaxForDay(locationId: string, dateISO: string): Promise<number | null> {
+  const row = await prisma.setting.findUnique({ where: { key: `tax:${locationId}:${dateISO}` } });
+  if (!row) return null;
+  const n = Number(row.value);
+  return isFinite(n) ? n : null;
+}
+
+/** Sum stored real Sales Tax across a [start, end) date range (0 if none synced). */
+export async function getTaxRange(locationId: string, start: Date, end: Date): Promise<number> {
+  const rows = await prisma.setting.findMany({ where: { key: { startsWith: `tax:${locationId}:` } } });
+  let total = 0;
+  for (const r of rows) {
+    const dateISO = r.key.split(":").pop()!;
+    const d = new Date(dateISO + "T00:00:00");
+    if (d >= start && d < end) total += Number(r.value) || 0;
+  }
+  return total;
 }
 
 /** Read stored per-hour sales for a day (24 values) or null if not synced. */

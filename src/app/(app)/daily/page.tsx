@@ -7,8 +7,9 @@ import { fmtNumber, fmtDate, fmtMoney } from "@/lib/format";
 import { customRange, previousRange } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
 import { getTaxRate } from "@/lib/settings";
+import { getTaxRange } from "@/lib/integrations/sync";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
+import { MetricCard, InfoCard, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import RangePicker from "@/components/RangePicker";
 import DayNav from "./DayNav";
 import DailyActions from "./DailyActions";
@@ -80,6 +81,22 @@ export default async function DailySalesPage({
   const taxRate = await getTaxRate();
   const estTax = money(view.merch.taxable * (taxRate / 100));
 
+  // Prefer the REAL Sales Tax pulled from Modisoft (report 36); fall back to the
+  // rate estimate for days that haven't been re-synced yet.
+  const realTax = await getTaxRange(loc ?? "", range.start, range.end);
+  const taxIsReal = realTax > 0;
+  const salesTax = taxIsReal ? money(realTax) : estTax;
+
+  // Total Sales = Daily (merch) + Fuel + Lottery (net of payouts) + Sales Tax.
+  // Spread the tax across cash / credit-debit by the overall tender ratio.
+  const cashRatio = view.total.total > 0 ? view.total.cash / view.total.total : 0;
+  const totalSplit = {
+    cash: money(view.total.cash + salesTax * cashRatio),
+    card: money(view.total.card + salesTax * (1 - cashRatio)),
+    total: money(view.total.total + salesTax),
+  };
+  const prevTotalWithTax = prevView.total.total; // previous period tax not tracked here
+
   // Per-day total-sales trend across the trend window (oldest → newest).
   const trend7: { label: string; value: number; date: string }[] = [];
   for (let i = 0; i < trendDays; i++) {
@@ -114,11 +131,12 @@ export default async function DailySalesPage({
         </Card>
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-6">
             <MetricCard label="Daily Sales" sub="Merchandise only" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} href="#merch" />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} href="#fuel" />
             <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)} href="#lottery" />
-            <MetricCard label="Total Sales" sub={comparisonSub} s={view.total} icon="payments" trend={pctChange(view.total.total, prevView.total.total)} highlight />
+            <InfoCard label="Sales Tax" value={fmtMoney(salesTax)} sub={taxIsReal ? "from POS closing" : `est. @ ${taxRate}%`} icon="receipt_long" href="#merch" />
+            <MetricCard label="Total Sales" sub={`incl. sales tax · ${comparisonSub}`} s={totalSplit} icon="payments" trend={pctChange(totalSplit.total, prevTotalWithTax)} highlight />
           </div>
 
           <Card className="p-5 mb-6">
@@ -129,7 +147,7 @@ export default async function DailySalesPage({
             <SalesTrend data={trend7} />
           </Card>
 
-          <SalesSection id="merch" title="Daily Sales — Merchandise" s={view.merch.split} extra={`Est. tax @ ${taxRate}% = ${fmtMoney(estTax)}`} className="mb-6">
+          <SalesSection id="merch" title="Daily Sales — Merchandise" s={view.merch.split} extra={taxIsReal ? `Sales tax = ${fmtMoney(salesTax)}` : `Est. tax @ ${taxRate}% = ${fmtMoney(estTax)}`} className="mb-6">
             <DeptTable rows={view.merch.depts} total={view.merch.split.total} refundTotal={view.merch.refund} />
           </SalesSection>
 

@@ -34,6 +34,25 @@ export function MetricCard({
   return href ? <a href={href} className="block">{card}</a> : card;
 }
 
+/** Single-value summary card (e.g. Sales Tax) — big number, no cash/card split. */
+export function InfoCard({
+  label, value, sub, icon, highlight, href,
+}: {
+  label: string; value: string; sub?: string; icon: string; highlight?: boolean; href?: string;
+}) {
+  const card = (
+    <Card className={`p-5 h-full transition-shadow ${highlight ? "ring-1 ring-primary/30" : ""} ${href ? "hover:shadow-floating cursor-pointer" : ""}`}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-label-caps uppercase text-on-surface-variant">{label}</span>
+        <Icon name={icon} className="text-[20px] text-primary opacity-70" />
+      </div>
+      <div className="text-2xl font-bold tabular text-primary">{value}</div>
+      {sub && <p className="text-body-sm text-on-surface-variant mt-0.5">{sub}</p>}
+    </Card>
+  );
+  return href ? <a href={href} className="block">{card}</a> : card;
+}
+
 function shortMoney(v: number): string {
   if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
   return `$${v.toFixed(0)}`;

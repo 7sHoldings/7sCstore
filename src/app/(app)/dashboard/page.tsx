@@ -8,6 +8,7 @@ import { rangeFor, customRange, previousRange, type PeriodKey } from "@/lib/peri
 import { buildSalesView } from "@/lib/salesView";
 import { getReportData } from "@/lib/reports";
 import { getTaxRate } from "@/lib/settings";
+import { getTaxRange } from "@/lib/integrations/sync";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import PeriodSelect from "@/components/PeriodSelect";
@@ -56,6 +57,19 @@ export default async function DashboardPage({
   const taxRate = await getTaxRate();
   const estTax = money(view.merch.taxable * (taxRate / 100));
 
+  // Prefer the real Sales Tax from Modisoft (report 36); estimate is the fallback.
+  const realTax = await getTaxRange(loc ?? "", range.start, range.end);
+  const taxIsReal = realTax > 0;
+  const salesTax = taxIsReal ? money(realTax) : estTax;
+
+  // Total Sales = Merchandise + Fuel + Lottery + Sales Tax (tax split by tender ratio).
+  const cashRatio = view.total.total > 0 ? view.total.cash / view.total.total : 0;
+  const totalSplit = {
+    cash: money(view.total.cash + salesTax * cashRatio),
+    card: money(view.total.card + salesTax * (1 - cashRatio)),
+    total: money(view.total.total + salesTax),
+  };
+
   const trend: { label: string; value: number; date: string }[] = [];
   for (let i = 0; i < trendDays; i++) {
     const d = new Date(trendStart);
@@ -92,7 +106,7 @@ export default async function DashboardPage({
             <MetricCard label="Daily Sales" sub="Merchandise only" s={view.merch.split} icon="shopping_bag" href="#merch" />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" href="#fuel" />
             <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" href="#lottery" />
-            <MetricCard label="Total Sales" sub="vs previous period" s={view.total} icon="payments" trend={pctChange(view.total.total, prevTotal)} highlight />
+            <MetricCard label="Total Sales" sub="incl. sales tax · vs previous period" s={totalSplit} icon="payments" trend={pctChange(totalSplit.total, prevTotal)} highlight />
           </div>
 
           {/* Store health: profit / expenses / vendor dues / alerts */}
@@ -103,7 +117,7 @@ export default async function DashboardPage({
               <Stat label="Gross Profit" value={fmtMoney(report.pnl.grossProfit)} tone="good" />
               <Stat label="Expenses" value={fmtMoney(report.pnl.operatingExpenses)} tone="bad" href="/expenses" />
               <Stat label="Net Profit" value={fmtMoney(report.pnl.netProfit)} tone={report.pnl.netProfit >= 0 ? "good" : "bad"} />
-              <Stat label="Est. Sales Tax" value={fmtMoney(estTax)} sub={`@ ${taxRate}% · liability`} />
+              <Stat label="Sales Tax" value={fmtMoney(salesTax)} sub={taxIsReal ? "from POS closing" : `est. @ ${taxRate}% · liability`} />
             </div>
           )}
 

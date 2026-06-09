@@ -35,6 +35,8 @@ export interface PosAdapter {
   fetchHourly?(from: Date, to: Date): Promise<DailyHourly[]>;
   /** Pull the customer/transaction count per day. */
   fetchCustomers?(from: Date, to: Date): Promise<{ date: string; customers: number }[]>;
+  /** Pull the real sales-tax collected per day (from the POS-closing report). */
+  fetchTax?(from: Date, to: Date): Promise<{ date: string; tax: number }[]>;
 }
 
 export interface DailyHourly {

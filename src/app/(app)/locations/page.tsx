@@ -37,7 +37,7 @@ export default async function LocationsPage() {
           <h3 className="font-semibold text-on-surface">Sales-tax rate</h3>
         </div>
         <p className="text-body-sm text-on-surface-variant mb-3">
-          Used to estimate sales tax on taxable merchandise (excludes NON-TAX departments, lottery and fuel) until the POS tax report is connected.
+          Fallback estimate for sales tax on taxable merchandise (excludes NON-TAX departments, lottery and fuel). Days synced from Modisoft use the real Sales Tax from the POS-closing report instead.
         </p>
         <form action={setTaxRate} className="flex items-end gap-2">
           <div>

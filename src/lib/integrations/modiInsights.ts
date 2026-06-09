@@ -155,6 +155,31 @@ export const modiInsightsAdapter: PosAdapter = {
     }
     return out;
   },
+
+  async fetchTax(from: Date, to: Date): Promise<{ date: string; tax: number }[]> {
+    const cookie = process.env.MODI_COOKIE!;
+    const storeId = process.env.MODI_STORE_ID || "16";
+    const ccode = process.env.MODI_CCODE || "854388";
+    await changeStore(cookie, storeId, ccode);
+
+    // The real Sales Tax lives in the "Sales – Daily Sales" report (ReportID 36),
+    // which returns HTML keyed by a single day (FromDate + Stores, no ToDate).
+    const out: { date: string; tax: number }[] = [];
+    for (const day of daysBetween(from, to)) {
+      try {
+        const html = await fetchHtml(cookie, "/ebreports/report36html", {
+          FromDate: fmtDateShort(day),
+          Stores: storeId,
+        });
+        const tax = parseSalesTax(html);
+        if (tax != null) out.push({ date: day.toISOString().slice(0, 10), tax });
+      } catch {
+        // best-effort; skip the day on error
+      }
+      await sleep(120);
+    }
+    return out;
+  },
 };
 
 /** Split a (possibly negative) amount into CASH/CARD by ratio; CARD-only if unknown. */
@@ -191,6 +216,38 @@ async function setupReport(cookie: string, path: string, body: Record<string, st
   if (res.status === 401 || res.status === 403) {
     throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
   }
+}
+
+/** POST a report endpoint and return the raw HTML body (report 36 = Daily Sales). */
+async function fetchHtml(cookie: string, path: string, body: Record<string, string>): Promise<string> {
+  const res = await fetch(BASE + path, {
+    method: "POST",
+    headers: {
+      cookie,
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "x-requested-with": "XMLHttpRequest",
+      "user-agent": UA,
+      accept: "text/html, */*; q=0.01",
+      origin: BASE,
+      referer: BASE + "/",
+    },
+    body: new URLSearchParams(body).toString(),
+    cache: "no-store",
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
+  }
+  if (!res.ok) throw new Error(`Modisoft ${path} responded ${res.status}`);
+  return res.text();
+}
+
+/** Pull the "Sales Tax" amount out of the report-36 HTML, or null if absent. */
+function parseSalesTax(html: string): number | null {
+  // …Sales Tax <span …></span></td><td …text-right>422.04</td>…
+  const m = html.match(/Sales Tax[\s\S]{0,200}?text-right[^>]*>\s*\$?\s*([-\d,]+\.?\d*)/i);
+  if (!m) return null;
+  const n = Number(m[1].replace(/,/g, ""));
+  return isFinite(n) ? round2(n) : null;
 }
 
 /** Set the active store in the session (POST /Home/ChangeStore). */
@@ -265,6 +322,10 @@ function fmtDate(d: Date): string {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${mm}/${dd}/${d.getFullYear()}`;
+}
+/** Report-36 wants the date without leading zeros and without a time (e.g. 5/1/2026). */
+function fmtDateShort(d: Date): string {
+  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 function num(v: unknown): number {
   const n = Number(v);
