@@ -2,12 +2,21 @@ import { Card, TrendChip, Icon } from "./ui";
 import { fmtMoney, fmtMoney4, fmtNumber, gradeLabel } from "@/lib/format";
 import type { Split, Dept, FuelGrade } from "@/lib/salesView";
 
-/** Summary card: big total + Cash / Credit-Debit sub-cells. Optionally a link. */
+/**
+ * Summary card: big total + sub-cells. By default the sub-cells show the
+ * Cash / Credit-Debit split; pass `cells` to override them (e.g. Promotions),
+ * or `cells={[]}` for no sub-cells. Optionally a link.
+ */
 export function MetricCard({
-  label, sub, s, icon, trend, highlight, href,
+  label, sub, s, icon, trend, highlight, href, cells,
 }: {
   label: string; sub?: string; s: Split; icon: string; trend?: number | null; highlight?: boolean; href?: string;
+  cells?: { label: string; value: string; tone?: "error" }[];
 }) {
+  const shown = cells ?? [
+    { label: "Cash", value: fmtMoney(s.cash) },
+    { label: "Credit/Debit", value: fmtMoney(s.card) },
+  ];
   const card = (
     <Card className={`p-5 h-full transition-shadow ${highlight ? "ring-1 ring-primary/30" : ""} ${href ? "hover:shadow-floating cursor-pointer" : ""}`}>
       <div className="flex items-center justify-between mb-1">
@@ -19,16 +28,16 @@ export function MetricCard({
         {trend !== undefined && <TrendChip value={trend} />}
       </div>
       {sub && <p className="text-body-sm text-on-surface-variant mt-0.5">{sub}</p>}
-      <div className="mt-3 grid grid-cols-2 gap-2 text-body-sm">
-        <div className="bg-surface-container-low rounded-md px-2.5 py-1.5">
-          <div className="text-label-caps uppercase text-on-surface-variant">Cash</div>
-          <div className="tabular font-semibold">{fmtMoney(s.cash)}</div>
+      {shown.length > 0 && (
+        <div className={`mt-3 grid gap-2 text-body-sm ${shown.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+          {shown.map((c) => (
+            <div key={c.label} className="bg-surface-container-low rounded-md px-2.5 py-1.5">
+              <div className="text-label-caps uppercase text-on-surface-variant">{c.label}</div>
+              <div className={`tabular font-semibold ${c.tone === "error" ? "text-error" : ""}`}>{c.value}</div>
+            </div>
+          ))}
         </div>
-        <div className="bg-surface-container-low rounded-md px-2.5 py-1.5">
-          <div className="text-label-caps uppercase text-on-surface-variant">Credit/Debit</div>
-          <div className="tabular font-semibold">{fmtMoney(s.card)}</div>
-        </div>
-      </div>
+      )}
     </Card>
   );
   return href ? <a href={href} className="block">{card}</a> : card;

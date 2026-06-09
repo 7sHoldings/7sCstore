@@ -7,7 +7,7 @@ import { fmtNumber, fmtDate, fmtMoney } from "@/lib/format";
 import { customRange, previousRange } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
 import { getTaxRate } from "@/lib/settings";
-import { getTaxRange, getTenderRange } from "@/lib/integrations/sync";
+import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, InfoCard, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import RangePicker from "@/components/RangePicker";
@@ -91,9 +91,10 @@ export default async function DailySalesPage({
   // card) drives the Total Sales card when synced. The merch + fuel + lottery +
   // tax formula is shown as the POS-sales breakdown beneath it. Until a day is
   // synced, fall back to the sales formula with tax spread by tender ratio.
-  const [tender, prevTender] = await Promise.all([
+  const [tender, prevTender, promo] = await Promise.all([
     getTenderRange(loc ?? "", range.start, range.end),
     getTenderRange(loc ?? "", prev.start, prev.end),
+    getPromoRange(loc ?? "", range.start, range.end),
   ]);
   const cashRatio = view.total.total > 0 ? view.total.cash / view.total.total : 0;
   const totalSplit = tender
@@ -140,9 +141,11 @@ export default async function DailySalesPage({
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-            <MetricCard label="Daily Sales" sub="Merchandise only" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} href="#merch" />
-            <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} href="#fuel" />
-            <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)} href="#lottery" />
+            <MetricCard label="Daily Sales" sub="Merchandise only (net of promotions)" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} href="#merch"
+              cells={[{ label: "Promotions", value: promo.merch > 0 ? `-${fmtMoney(promo.merch)}` : fmtMoney(0), tone: "error" }]} />
+            <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} href="#fuel"
+              cells={[{ label: "Promotions", value: promo.fuel > 0 ? `-${fmtMoney(promo.fuel)}` : fmtMoney(0), tone: "error" }]} />
+            <MetricCard label="Lottery / Lotto" sub="incl. payouts" s={view.lotto.split} icon="confirmation_number" trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)} href="#lottery" cells={[]} />
             <InfoCard label="Sales Tax" value={fmtMoney(salesTax)} sub={taxIsReal ? "from POS closing" : `est. @ ${taxRate}% (sync for actual)`} icon="receipt_long" href="#merch" />
           </div>
 

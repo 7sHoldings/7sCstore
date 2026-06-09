@@ -11,6 +11,8 @@ export interface NormalizedSale {
   amount: number;
   taxCollected?: number;
   refund?: number;
+  /** Promotion amount deducted from this row's gross sales (for display). */
+  promotion?: number;
   note?: string;
   fuel?: {
     grade: "REGULAR" | "MID" | "PREMIUM" | "DIESEL";

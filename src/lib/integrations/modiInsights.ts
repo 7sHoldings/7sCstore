@@ -91,6 +91,7 @@ export const modiInsightsAdapter: PosAdapter = {
           r.NetSales != null ? num(r.NetSales) : num(r.Sales) - num(r.Discount) - num(r.Promotion);
         if (amount === 0) continue;
         const refundTotal = num(r.Refund);
+        const promoTotal = num(r.Promotion);
         const ratio = deptRatio.get(name.trim().toUpperCase()) ?? overallRatio;
         for (const [pay, amt] of splitAmount(amount, ratio)) {
           out.push({
@@ -99,6 +100,7 @@ export const modiInsightsAdapter: PosAdapter = {
             paymentType: pay,
             amount: amt,
             refund: amount !== 0 ? round2((refundTotal * amt) / amount) : 0,
+            promotion: amount !== 0 ? round2((promoTotal * amt) / amount) : 0,
             note: `Modisoft ${name}`.trim(),
           });
         }
@@ -113,6 +115,7 @@ export const modiInsightsAdapter: PosAdapter = {
         const price = num(r.RptRetail) || num(r.Retail);
         const amount = num(r.Amount);
         if (amount === 0 && gallons === 0) continue;
+        const promoTotal = num(r.Promotion);
         const ratio = fuelRatio.get(fuelType.trim().toUpperCase()) ?? fuelOverall;
         for (const [pay, amt] of splitAmount(amount, ratio)) {
           out.push({
@@ -120,6 +123,7 @@ export const modiInsightsAdapter: PosAdapter = {
             category: "FUEL",
             paymentType: pay,
             amount: amt,
+            promotion: amount !== 0 ? round2((promoTotal * amt) / amount) : 0,
             note: `Modisoft ${fuelType}`.trim(),
             fuel: { grade, gallons: share(gallons, amt, amount), pricePerGallon: price, taxPerGallon: 0 },
           });

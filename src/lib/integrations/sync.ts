@@ -98,6 +98,30 @@ export async function syncRange(locationId: string, from: Date, to: Date): Promi
     return insertRows(tx, locationId, rows);
   });
 
+  // Promotions deducted per day, split merch vs fuel (from the same rows we just
+  // imported). Stored as per-day scalars to surface on the Daily Sales panels.
+  const promoByDay = new Map<string, { merch: number; fuel: number }>();
+  for (const s of rows) {
+    if (!s.promotion) continue;
+    const dISO = startOfDay(s.date).toISOString().slice(0, 10);
+    const e = promoByDay.get(dISO) ?? { merch: 0, fuel: 0 };
+    if (s.category === "FUEL") e.fuel += s.promotion;
+    else if (s.category !== "LOTTERY") e.merch += s.promotion;
+    promoByDay.set(dISO, e);
+  }
+  for (const [dISO, e] of promoByDay) {
+    await prisma.setting.upsert({
+      where: { key: `promomerch:${locationId}:${dISO}` },
+      create: { key: `promomerch:${locationId}:${dISO}`, value: String(money(e.merch)) },
+      update: { value: String(money(e.merch)) },
+    });
+    await prisma.setting.upsert({
+      where: { key: `promofuel:${locationId}:${dISO}` },
+      create: { key: `promofuel:${locationId}:${dISO}`, value: String(money(e.fuel)) },
+      update: { value: String(money(e.fuel)) },
+    });
+  }
+
   // Pull the real Sales Tax per day (report 36) and stash it as a per-day scalar.
   if (adapter.fetchTax) {
     try {
@@ -138,6 +162,24 @@ export async function syncRange(locationId: string, from: Date, to: Date): Promi
   }
 
   return imported;
+}
+
+/** Sum the stored promotions deducted (merch + fuel) over a [start, end) range. */
+export async function getPromoRange(
+  locationId: string, start: Date, end: Date
+): Promise<{ merch: number; fuel: number }> {
+  const rows = await prisma.setting.findMany({
+    where: { OR: [{ key: { startsWith: `promomerch:${locationId}:` } }, { key: { startsWith: `promofuel:${locationId}:` } }] },
+  });
+  let merch = 0, fuel = 0;
+  for (const r of rows) {
+    const dateISO = r.key.split(":").pop()!;
+    const d = new Date(dateISO + "T00:00:00");
+    if (d < start || d >= end) continue;
+    if (r.key.startsWith(`promomerch:`)) merch += Number(r.value) || 0;
+    else fuel += Number(r.value) || 0;
+  }
+  return { merch, fuel };
 }
 
 /** Sum the stored real tender (Safe Drop cash + Credit Card Jobber) over a range. */
