@@ -148,7 +148,8 @@ export default async function DailySalesPage({
     { label: "Other credit", value: creditManual?.otherCredit ?? 0 },
     { label: "Payout in cash", value: creditManual?.payoutCash ?? 0 },
     { label: "House account", value: houseTotal },
-    { label: "Lottery short/over", value: -lottoOver },
+    // Signed: lottery short (negative) subtracts, lottery over (positive) adds.
+    { label: "Lottery short/over", value: lottoOver },
     { label: "POS sales", value: -posSales },
   ];
   const shortOver = money(reconParts.reduce((s, p) => s + p.value, 0));
