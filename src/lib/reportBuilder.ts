@@ -92,11 +92,11 @@ export async function buildReport(
     const realTax = await getTaxRange(locationId ?? "", range.start, range.end);
     const taxIsReal = realTax > 0;
     const salesTax = taxIsReal ? money(realTax) : estTax;
-    // Actual tender (Safe Drop / Credit Card Jobber) drives the total when synced.
+    // Total Sales = POS sales; Cash/Credit show actual tender (Safe Drop / Credit Card Jobber).
     const tender = await getTenderRange(locationId ?? "", range.start, range.end);
     const cash = tender ? money(tender.cash) : view.total.cash;
     const card = tender ? money(tender.card) : view.total.card;
-    const totalSales = tender ? money(tender.cash + tender.card) : money(view.total.total + salesTax);
+    const totalSales = money(view.total.total + salesTax);
     const pct = (v: number) => (view.merch.split.total !== 0 ? `${((v / view.merch.split.total) * 100).toFixed(1)}%` : "—");
     return {
       ...base,

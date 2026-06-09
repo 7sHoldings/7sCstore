@@ -85,28 +85,33 @@ export default async function DailySalesPage({
 
   // Prefer the REAL Sales Tax pulled from Modisoft (report 36); fall back to the
   // rate estimate for days that haven't been re-synced yet.
-  const realTax = await getTaxRange(loc ?? "", range.start, range.end);
+  const [realTax, prevRealTax] = await Promise.all([
+    getTaxRange(loc ?? "", range.start, range.end),
+    getTaxRange(loc ?? "", prev.start, prev.end),
+  ]);
   const taxIsReal = realTax > 0;
   const salesTax = taxIsReal ? money(realTax) : estTax;
+  const prevSalesTax = prevRealTax > 0 ? money(prevRealTax) : money(prevView.merch.taxable * (taxRate / 100));
 
-  // Actual tender from the Daily Entry (Safe Drop = cash, Credit Card Jobber =
-  // card) drives the Total Sales card when synced. The merch + fuel + lottery +
-  // tax formula is shown as the POS-sales breakdown beneath it. Until a day is
-  // synced, fall back to the sales formula with tax spread by tender ratio.
-  const [tender, prevTender, promo] = await Promise.all([
+  // Total Sales = the POS sales (Daily + Fuel + Lottery + Sales Tax). Cash/Credit
+  // show the actual tender (Safe Drop / Credit Card Jobber); any gap between them
+  // and the total is the Short/Over below.
+  const posSales = money(view.total.total + salesTax);
+  const prevPosSales = money(prevView.total.total + prevSalesTax);
+
+  // Actual tender from the Daily Entry (Safe Drop = cash, Credit Card Jobber = card).
+  const [tender, promo] = await Promise.all([
     getTenderRange(loc ?? "", range.start, range.end),
-    getTenderRange(loc ?? "", prev.start, prev.end),
     getPromoRange(loc ?? "", range.start, range.end),
   ]);
   const cashRatio = view.total.total > 0 ? view.total.cash / view.total.total : 0;
   const totalSplit = tender
-    ? { cash: money(tender.cash), card: money(tender.card), total: money(tender.cash + tender.card) }
+    ? { cash: money(tender.cash), card: money(tender.card), total: posSales }
     : {
         cash: money(view.total.cash + salesTax * cashRatio),
         card: money(view.total.card + salesTax * (1 - cashRatio)),
-        total: money(view.total.total + salesTax),
+        total: posSales,
       };
-  const prevTotalWithTax = prevTender ? money(prevTender.cash + prevTender.card) : prevView.total.total;
 
   // Lottery breakdown: gross lottery sales (positive depts), lotto payout
   // (negative depts), and the difference (net = what feeds Total Sales).
@@ -136,7 +141,6 @@ export default async function DailySalesPage({
 
   // Short/Over: POS sales (expected) less everything actually collected/paid, with
   // the lottery short/over rolled in. Each part is a signed contribution.
-  const posSales = money(view.merch.split.total + view.fuel.split.total + view.lotto.split.total + salesTax);
   const reconParts = [
     { label: "POS sales", value: posSales },
     { label: "Credit card", value: -totalSplit.card },
@@ -190,7 +194,10 @@ export default async function DailySalesPage({
                 { label: "Sales Tax", value: fmtMoney(salesTax) },
               ]} />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} href="#fuel"
-              cells={view.fuel.byGrade.map((g) => ({ label: gradeLabel(g.grade), value: `${fmtNumber(g.gallons)} gal` }))} />
+              cells={[
+                { label: "Promotions", value: promo.fuel > 0 ? `-${fmtMoney(promo.fuel)}` : fmtMoney(0), tone: "error" },
+                ...view.fuel.byGrade.map((g) => ({ label: gradeLabel(g.grade), value: `${fmtNumber(g.gallons)} gal` })),
+              ]} />
             <LotteryReconcileCard
               className="sm:col-span-2"
               system={systemLotto}
@@ -203,7 +210,7 @@ export default async function DailySalesPage({
 
           <TotalSalesBar
             s={totalSplit}
-            trend={pctChange(totalSplit.total, prevTotalWithTax)}
+            trend={pctChange(posSales, prevPosSales)}
             sub={tender ? `Cash = Safe Drop · Credit = card batch · ${comparisonSub}` : `incl. sales tax · ${comparisonSub}`}
             partsLabel="POS sales"
             parts={[

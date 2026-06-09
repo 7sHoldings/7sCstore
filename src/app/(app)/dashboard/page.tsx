@@ -60,27 +60,32 @@ export default async function DashboardPage({
   const estTax = money(view.merch.taxable * (taxRate / 100));
 
   // Prefer the real Sales Tax from Modisoft (report 36); estimate is the fallback.
-  const realTax = await getTaxRange(loc ?? "", range.start, range.end);
+  const [realTax, prevRealTax] = await Promise.all([
+    getTaxRange(loc ?? "", range.start, range.end),
+    getTaxRange(loc ?? "", prev.start, prev.end),
+  ]);
   const taxIsReal = realTax > 0;
   const salesTax = taxIsReal ? money(realTax) : estTax;
 
-  // Actual tender (Safe Drop = cash, Credit Card Jobber = card) drives Total Sales
-  // when synced; otherwise fall back to the sales formula with tax spread by ratio.
-  const [tender, prevTender, promo, manualRaw] = await Promise.all([
+  // Total Sales = POS sales (Daily + Fuel + Lottery + Sales Tax). Cash/Credit show
+  // the actual tender (Safe Drop / Credit Card Jobber); the gap is the Short/Over.
+  const posSales = money(view.total.total + salesTax);
+  const prevPosSales = money(prevTotal + (prevRealTax > 0 ? money(prevRealTax) : 0));
+
+  // Actual tender (Safe Drop = cash, Credit Card Jobber = card).
+  const [tender, promo, manualRaw] = await Promise.all([
     getTenderRange(loc ?? "", range.start, range.end),
-    getTenderRange(loc ?? "", prev.start, prev.end),
     getPromoRange(loc ?? "", range.start, range.end),
     getLotteryManualRange(loc ?? "", range.start, range.end),
   ]);
   const cashRatio = view.total.total > 0 ? view.total.cash / view.total.total : 0;
   const totalSplit = tender
-    ? { cash: money(tender.cash), card: money(tender.card), total: money(tender.cash + tender.card) }
+    ? { cash: money(tender.cash), card: money(tender.card), total: posSales }
     : {
         cash: money(view.total.cash + salesTax * cashRatio),
         card: money(view.total.card + salesTax * (1 - cashRatio)),
-        total: money(view.total.total + salesTax),
+        total: posSales,
       };
-  const prevTotalForTrend = prevTender ? money(prevTender.cash + prevTender.card) : prevTotal;
 
   // Lottery: system (POS) breakdown vs the employee's manual entry → short/over.
   let lottoSales = 0, lottoPayout = 0;
@@ -98,7 +103,6 @@ export default async function DashboardPage({
 
   // Short/Over: POS sales (expected) less everything actually collected/paid, plus
   // the lottery short/over. Each part is a signed contribution to the short/over.
-  const posSales = money(view.merch.split.total + view.fuel.split.total + view.lotto.split.total + salesTax);
   const reconParts = [
     { label: "POS sales", value: posSales },
     { label: "Credit card", value: -totalSplit.card },
@@ -150,13 +154,16 @@ export default async function DashboardPage({
                 { label: "Sales Tax", value: fmtMoney(salesTax) },
               ]} />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" href="#fuel"
-              cells={view.fuel.byGrade.map((g) => ({ label: gradeLabel(g.grade), value: `${fmtNumber(g.gallons)} gal` }))} />
+              cells={[
+                { label: "Promotions", value: promo.fuel > 0 ? `-${fmtMoney(promo.fuel)}` : fmtMoney(0), tone: "error" },
+                ...view.fuel.byGrade.map((g) => ({ label: gradeLabel(g.grade), value: `${fmtNumber(g.gallons)} gal` })),
+              ]} />
             <LotteryReconcileCard className="sm:col-span-2" system={systemLotto} manual={manualLotto} over={lottoOver} entryHref="/lottery" />
           </div>
 
           <TotalSalesBar
             s={totalSplit}
-            trend={pctChange(totalSplit.total, prevTotalForTrend)}
+            trend={pctChange(posSales, prevPosSales)}
             sub={tender ? "Cash = Safe Drop · Credit = card batch · vs previous period" : "incl. sales tax · vs previous period"}
             partsLabel="POS sales"
             parts={[
