@@ -37,6 +37,8 @@ export interface PosAdapter {
   fetchCustomers?(from: Date, to: Date): Promise<{ date: string; customers: number }[]>;
   /** Pull the real sales-tax collected per day (from the POS-closing report). */
   fetchTax?(from: Date, to: Date): Promise<{ date: string; tax: number }[]>;
+  /** Pull the actual tender per day: cash = Safe Drop, card = Credit Card Jobber (Batch). */
+  fetchTender?(from: Date, to: Date): Promise<{ date: string; cash: number; card: number }[]>;
 }
 
 export interface DailyHourly {

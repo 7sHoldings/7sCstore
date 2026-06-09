@@ -180,6 +180,40 @@ export const modiInsightsAdapter: PosAdapter = {
     }
     return out;
   },
+
+  async fetchTender(from: Date, to: Date): Promise<{ date: string; cash: number; card: number }[]> {
+    const cookie = process.env.MODI_COOKIE!;
+    const storeId = process.env.MODI_STORE_ID || "16";
+    const ccode = process.env.MODI_CCODE || "854388";
+    await changeStore(cookie, storeId, ccode);
+
+    // The Daily Entry financial (EBDaily) groups the day's transactions by type.
+    // The owner reconciles cash from the "Safe Drop" total and credit-card from
+    // the "Batch" total (shown as "Credit Card Jobber" on the Daily Entry screen).
+    const out: { date: string; cash: number; card: number }[] = [];
+    for (const day of daysBetween(from, to)) {
+      try {
+        const groups = await post(cookie, "/EBDaily/_SelectPOSFinancial", {
+          sort: "", page: "1", pageSize: "100", group: "TranTypeName-asc",
+          aggregate: "Amount-sum", filter: "", COAID: "-1",
+          CTDate: fmtDateShort(day), Shift: "-1", ExpType: "1",
+        });
+        let cash = 0, card = 0;
+        for (const raw of groups) {
+          const g = raw as { Key?: unknown; Aggregates?: { Amount?: { Sum?: unknown } } };
+          const key = String(g.Key ?? "").trim().toLowerCase();
+          const sum = num(g.Aggregates?.Amount?.Sum);
+          if (key === "safe drop") cash = sum;
+          else if (key === "batch") card = sum;
+        }
+        out.push({ date: day.toISOString().slice(0, 10), cash: round2(cash), card: round2(card) });
+      } catch {
+        // best-effort; skip the day on error
+      }
+      await sleep(120);
+    }
+    return out;
+  },
 };
 
 /** Split a (possibly negative) amount into CASH/CARD by ratio; CARD-only if unknown. */

@@ -115,7 +115,48 @@ export async function syncRange(locationId: string, from: Date, to: Date): Promi
     }
   }
 
+  // Pull the actual tender per day (Daily Entry): cash = Safe Drop, card = Credit
+  // Card Jobber (Batch). Stored as per-day scalars for the Daily Sales view.
+  if (adapter.fetchTender) {
+    try {
+      const tenders = await adapter.fetchTender(from, to);
+      for (const t of tenders) {
+        await prisma.setting.upsert({
+          where: { key: `cashdrop:${locationId}:${t.date}` },
+          create: { key: `cashdrop:${locationId}:${t.date}`, value: String(t.cash) },
+          update: { value: String(t.cash) },
+        });
+        await prisma.setting.upsert({
+          where: { key: `ccjobber:${locationId}:${t.date}` },
+          create: { key: `ccjobber:${locationId}:${t.date}`, value: String(t.card) },
+          update: { value: String(t.card) },
+        });
+      }
+    } catch {
+      // Tender is best-effort — never fail the whole sync over it.
+    }
+  }
+
   return imported;
+}
+
+/** Sum the stored real tender (Safe Drop cash + Credit Card Jobber) over a range. */
+export async function getTenderRange(
+  locationId: string, start: Date, end: Date
+): Promise<{ cash: number; card: number } | null> {
+  const rows = await prisma.setting.findMany({
+    where: { OR: [{ key: { startsWith: `cashdrop:${locationId}:` } }, { key: { startsWith: `ccjobber:${locationId}:` } }] },
+  });
+  let cash = 0, card = 0, seen = false;
+  for (const r of rows) {
+    const dateISO = r.key.split(":").pop()!;
+    const d = new Date(dateISO + "T00:00:00");
+    if (d < start || d >= end) continue;
+    seen = true;
+    if (r.key.startsWith(`cashdrop:`)) cash += Number(r.value) || 0;
+    else card += Number(r.value) || 0;
+  }
+  return seen ? { cash, card } : null;
 }
 
 /** Read the stored real Sales Tax for a day, or null if not synced. */
