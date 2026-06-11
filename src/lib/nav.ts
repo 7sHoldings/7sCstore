@@ -24,6 +24,8 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/sales", label: "Sales", icon: "payments", perm: "enterSales", section: "manage" },
   { href: "/lottery", label: "Lottery Entry", icon: "confirmation_number", perm: "enterSales", section: "manage" },
   { href: "/credit-entry", label: "Credit Entry", icon: "credit_card", perm: "enterSales", section: "manage" },
+  { href: "/house-accounts", label: "House Accounts", icon: "account_balance", perm: "enterSales", section: "manage" },
+  { href: "/payouts", label: "Payouts", icon: "payments", perm: "viewProfit", section: "manage" },
   { href: "/expenses", label: "Expenses", icon: "receipt_long", perm: "enterExpenses", section: "manage" },
   { href: "/purchases", label: "Purchases", icon: "local_shipping", perm: "enterPurchases", section: "manage" },
   { href: "/vendors", label: "Vendors", icon: "store", perm: "enterPurchases", section: "manage" },

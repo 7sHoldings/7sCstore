@@ -5,8 +5,24 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
-import { setCreditManual, addHouseAccount as addHA, addPayoutCategory as addPC, type HouseCharge } from "@/lib/credit";
+import { setCreditManual, addHouseAccount as addHA, addPayoutCategory as addPC, getHouseAccounts, getPayoutCategories, type HouseCharge } from "@/lib/credit";
 import { logAudit } from "@/lib/audit";
+
+/** Add a payout category inline and return the updated list. */
+export async function addPayoutCategoryInline(name: string): Promise<string[]> {
+  const session = await getSession();
+  if (!session || !can(session.role, "enterSales")) return getPayoutCategories();
+  if (name.trim()) await addPC(name);
+  return getPayoutCategories();
+}
+
+/** Add a house account inline and return the updated list. */
+export async function addHouseAccountInline(name: string): Promise<string[]> {
+  const session = await getSession();
+  if (!session || !can(session.role, "enterSales")) return getHouseAccounts();
+  if (name.trim()) await addHA(name);
+  return getHouseAccounts();
+}
 
 /** Pair up parallel select+amount fields into positive line items. */
 function readLines(formData: FormData, nameField: string, amountField: string): HouseCharge[] {

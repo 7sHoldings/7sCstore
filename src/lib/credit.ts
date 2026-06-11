@@ -127,3 +127,87 @@ export async function getCreditManualRange(locationId: string, start: Date, end:
     [...m.entries()].map(([account, amount]) => ({ account, amount: money(amount) })).sort((a, b) => b.amount - a.amount);
   return { ebt: money(ebt), otherCredit: money(otherCredit), payouts: toLines(payoutMap), house: toLines(houseMap) };
 }
+
+/** Total charges per house account across ALL dates (for running balances). */
+export async function getHouseChargeTotals(locationId: string): Promise<Map<string, number>> {
+  const rows = await prisma.setting.findMany({ where: { key: { startsWith: `creditmanual:${locationId}:` } } });
+  const m = new Map<string, number>();
+  for (const r of rows) {
+    try {
+      const o = JSON.parse(r.value) as Record<string, unknown>;
+      for (const h of parseLines(o.house)) m.set(h.account, (m.get(h.account) || 0) + h.amount);
+    } catch { /* skip */ }
+  }
+  return m;
+}
+
+/** Total payouts per category across ALL dates. */
+export async function getPayoutTotals(locationId: string): Promise<Map<string, number>> {
+  const rows = await prisma.setting.findMany({ where: { key: { startsWith: `creditmanual:${locationId}:` } } });
+  const m = new Map<string, number>();
+  for (const r of rows) {
+    try {
+      const o = JSON.parse(r.value) as Record<string, unknown>;
+      for (const p of parsePayouts(o)) m.set(p.account, (m.get(p.account) || 0) + p.amount);
+    } catch { /* skip */ }
+  }
+  return m;
+}
+
+// ---- House-account payments (reduce the running balance when a customer pays) ----
+
+export interface HousePayment {
+  id: string;
+  account: string;
+  amount: number;
+  date: string;
+  note?: string;
+}
+
+export async function getHousePayments(locationId: string): Promise<HousePayment[]> {
+  const raw = await getSetting(`housepayments:${locationId}`);
+  if (!raw) return [];
+  try {
+    const a = JSON.parse(raw);
+    return Array.isArray(a)
+      ? a.map((p) => ({ id: String(p.id), account: String(p.account), amount: money(Number(p.amount) || 0), date: String(p.date), note: p.note ? String(p.note) : undefined }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function addHousePayment(locationId: string, account: string, amount: number, date: string, note?: string): Promise<void> {
+  const list = await getHousePayments(locationId);
+  list.push({ id: crypto.randomUUID(), account: account.trim(), amount: money(amount), date, note: note?.trim() || undefined });
+  await setSetting(`housepayments:${locationId}`, JSON.stringify(list));
+}
+
+export async function deleteHousePayment(locationId: string, id: string): Promise<void> {
+  const list = await getHousePayments(locationId);
+  await setSetting(`housepayments:${locationId}`, JSON.stringify(list.filter((p) => p.id !== id)));
+}
+
+export async function getHousePaymentTotals(locationId: string): Promise<Map<string, number>> {
+  const list = await getHousePayments(locationId);
+  const m = new Map<string, number>();
+  for (const p of list) m.set(p.account, (m.get(p.account) || 0) + p.amount);
+  return m;
+}
+
+/** Per-account running balance = total charged − total paid (incl. accounts with no charges yet). */
+export async function getHouseBalances(locationId: string): Promise<{ account: string; charged: number; paid: number; balance: number }[]> {
+  const [charges, payments, names] = await Promise.all([
+    getHouseChargeTotals(locationId),
+    getHousePaymentTotals(locationId),
+    getHouseAccounts(),
+  ]);
+  const accounts = new Set<string>([...names, ...charges.keys(), ...payments.keys()]);
+  return [...accounts]
+    .map((account) => {
+      const charged = money(charges.get(account) || 0);
+      const paid = money(payments.get(account) || 0);
+      return { account, charged, paid, balance: money(charged - paid) };
+    })
+    .sort((a, b) => b.balance - a.balance);
+}
