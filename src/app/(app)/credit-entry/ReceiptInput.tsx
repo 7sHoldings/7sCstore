@@ -4,11 +4,16 @@
 import { useState } from "react";
 
 /** Receipt photo picker — camera or photo library on phones — with previews. */
-export default function ReceiptInput({ existing = [] }: { existing?: string[] }) {
+export default function ReceiptInput({ existing = [], configured = true }: { existing?: string[]; configured?: boolean }) {
   const [files, setFiles] = useState<File[]>([]);
   return (
     <div>
       <label className="ft-label mb-1 block">Receipt photos (camera or upload)</label>
+      {!configured && (
+        <p className="text-body-sm text-error mb-2">
+          Photo storage isn&rsquo;t set up yet — uploads won&rsquo;t be saved. Ask the admin to add the Supabase Storage keys.
+        </p>
+      )}
       <input
         type="file"
         name="photos"

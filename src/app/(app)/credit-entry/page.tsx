@@ -4,7 +4,7 @@ import { getActiveLocationId } from "@/lib/location";
 import { getCreditManual, getHouseAccounts, getPayoutCategories } from "@/lib/credit";
 import { todayISO } from "@/lib/day";
 import { getReceipts } from "@/lib/receipts";
-import { signedUrls } from "@/lib/storage";
+import { signedUrls, isStorageConfigured } from "@/lib/storage";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import { saveCreditManual, addPayoutCategoryInline, addHouseAccountInline } from "./actions";
 import LineItemEditor from "./LineItemEditor";
@@ -82,7 +82,7 @@ export default async function CreditEntryPage({
             addAction={addHouseAccountInline}
           />
 
-          <ReceiptInput existing={receiptUrls} />
+          <ReceiptInput existing={receiptUrls} configured={isStorageConfigured()} />
 
           <button type="submit" className="ft-btn-primary"><Icon name="save" className="text-[18px]" /> Save entry · {dateISO}</button>
         </form>

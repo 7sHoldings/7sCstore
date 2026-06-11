@@ -58,8 +58,8 @@ export async function uploadReceiptsFromForm(formData: FormData, field: string, 
   return paths;
 }
 
-/** Create a time-limited signed URL to view a stored object. */
-export async function signedUrl(path: string, expiresIn = 3600): Promise<string | null> {
+/** Create a time-limited signed URL to view (or download) a stored object. */
+export async function signedUrl(path: string, expiresIn = 3600, download = false): Promise<string | null> {
   if (!isStorageConfigured() || !path) return null;
   try {
     const res = await fetch(`${BASE}/storage/v1/object/sign/${BUCKET}/${path}`, {
@@ -70,17 +70,18 @@ export async function signedUrl(path: string, expiresIn = 3600): Promise<string 
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { signedURL?: string };
-    return data.signedURL ? `${BASE}/storage/v1${data.signedURL}` : null;
+    if (!data.signedURL) return null;
+    return `${BASE}/storage/v1${data.signedURL}${download ? "&download" : ""}`;
   } catch {
     return null;
   }
 }
 
 /** Signed URLs for many paths (skips ones that fail). */
-export async function signedUrls(paths: string[]): Promise<string[]> {
+export async function signedUrls(paths: string[], download = false): Promise<string[]> {
   const out: string[] = [];
   for (const p of paths) {
-    const u = await signedUrl(p);
+    const u = await signedUrl(p, 3600, download);
     if (u) out.push(u);
   }
   return out;

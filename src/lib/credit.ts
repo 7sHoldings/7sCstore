@@ -141,6 +141,25 @@ export async function getHouseChargeTotals(locationId: string): Promise<Map<stri
   return m;
 }
 
+/** Dated payout entries (each day's payout line items), newest first, optionally windowed. */
+export async function getDatedPayouts(
+  locationId: string, start?: Date, end?: Date
+): Promise<{ date: string; items: HouseCharge[]; total: number }[]> {
+  const rows = await prisma.setting.findMany({ where: { key: { startsWith: `creditmanual:${locationId}:` } } });
+  const out: { date: string; items: HouseCharge[]; total: number }[] = [];
+  for (const r of rows) {
+    const date = r.key.split(":").pop()!;
+    const d = new Date(date + "T00:00:00");
+    if (start && d < start) continue;
+    if (end && d >= end) continue;
+    try {
+      const items = parsePayouts(JSON.parse(r.value) as Record<string, unknown>);
+      if (items.length) out.push({ date, items, total: sumLines(items) });
+    } catch { /* skip */ }
+  }
+  return out.sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
 /** Total payouts per category across ALL dates. */
 export async function getPayoutTotals(locationId: string): Promise<Map<string, number>> {
   const rows = await prisma.setting.findMany({ where: { key: { startsWith: `creditmanual:${locationId}:` } } });

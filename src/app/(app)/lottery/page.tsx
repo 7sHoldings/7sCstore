@@ -4,7 +4,7 @@ import { getActiveLocationId } from "@/lib/location";
 import { getLotteryManual } from "@/lib/lottery";
 import { todayISO } from "@/lib/day";
 import { getReceipts } from "@/lib/receipts";
-import { signedUrls } from "@/lib/storage";
+import { signedUrls, isStorageConfigured } from "@/lib/storage";
 import { money } from "@/lib/calc";
 import { fmtMoney } from "@/lib/format";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
@@ -66,7 +66,7 @@ export default async function LotteryEntryPage({
             <span className="tabular font-bold">{fmtMoney(net)}</span>
           </div>
 
-          <ReceiptInput existing={receiptUrls} />
+          <ReceiptInput existing={receiptUrls} configured={isStorageConfigured()} />
 
           <div className="flex items-center gap-2">
             <button type="submit" className="ft-btn-primary"><Icon name="save" className="text-[18px]" /> Save entry</button>
