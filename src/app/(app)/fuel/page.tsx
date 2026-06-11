@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
@@ -40,7 +41,8 @@ export default async function FuelPage({
     range = rangeFor(period);
   } else {
     period = "yest";
-    const start = new Date(yesterdayISO() + "T00:00:00");
+    const vtz = (await cookies()).get("vtz")?.value;
+    const start = new Date(yesterdayISO(vtz || undefined) + "T00:00:00");
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
     end.setDate(end.getDate() + 1);

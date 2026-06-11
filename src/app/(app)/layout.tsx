@@ -5,6 +5,7 @@ import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { switchLocation } from "./locations/actions";
 import AppShell from "@/components/AppShell";
+import TzCookie from "@/components/TzCookie";
 
 export default async function AppLayout({
   children,
@@ -42,6 +43,7 @@ export default async function AppLayout({
       activeLocationId={activeLocationId}
       switchLocation={switchLocation}
     >
+      <TzCookie />
       {children}
     </AppShell>
   );

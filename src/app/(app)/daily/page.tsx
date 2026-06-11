@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { money, pctChange } from "@/lib/calc";
 import { fmtNumber, fmtDate, fmtMoney, gradeLabel } from "@/lib/format";
 import { customRange, previousRange } from "@/lib/period";
+import { cookies } from "next/headers";
 import { yesterdayISO } from "@/lib/day";
 import { buildSalesView } from "@/lib/salesView";
 import { getTaxRate } from "@/lib/settings";
@@ -51,7 +52,8 @@ export default async function DailySalesPage({
     exportQs = `from=${sp.from}&to=${sp.to}`;
     navDate = sp.to!;
   } else {
-    const dateISO = sp.date || yesterdayISO();
+    const vtz = (await cookies()).get("vtz")?.value;
+    const dateISO = sp.date || yesterdayISO(vtz || undefined);
     const b = dayBounds(dateISO);
     range = { start: b.start, end: b.end, label: fmtDate(b.start) };
     exportQs = `date=${dateISO}`;
