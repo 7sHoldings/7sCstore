@@ -7,8 +7,11 @@ import { rangeFor, customRange, startOfMonth, type PeriodKey, type Range } from 
 import { money } from "@/lib/calc";
 import { fmtMoney, fmtMoney4, fmtNumber, gradeLabel } from "@/lib/format";
 import { toISODate } from "@/lib/day";
-import { Card, PageHeader, EmptyState } from "@/components/ui";
+import { getLatestReading, getReorderLevel, TANK_GRADES } from "@/lib/tank";
+import { TANK_CAPACITY } from "@/lib/tankChart";
+import { Card, PageHeader, EmptyState, Icon } from "@/components/ui";
 import PeriodBar from "@/components/PeriodBar";
+import { setReorderLevels } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -76,11 +79,73 @@ export default async function FuelPage({
     };
   }).sort((a, b) => (a.date < b.date ? 1 : -1));
 
+  // Tank balances (latest stick reading) + reorder suggestions.
+  const canEditReorder = can(session.role, "viewAll");
+  const distinctDays = Math.max(1, byDay.size);
+  const tanks = await Promise.all(TANK_GRADES.map(async (g) => {
+    const [reading, reorder] = await Promise.all([
+      loc ? getLatestReading(loc, g) : Promise.resolve(null),
+      loc ? getReorderLevel(loc, g) : Promise.resolve(0),
+    ]);
+    const avgDaily = (grades.find((x) => x.grade === g)?.gallons ?? 0) / distinctDays;
+    const balance = reading?.gallons ?? null;
+    const daysLeft = balance != null && avgDaily > 0 ? Math.floor((balance - reorder) / avgDaily) : null;
+    const orderNow = balance != null && reorder > 0 && balance <= reorder;
+    return { grade: g, reading, reorder, avgDaily, balance, daysLeft, orderNow };
+  }));
+
   return (
     <div>
       <PageHeader title="Fuel Sales" subtitle={`By grade · ${range.label} (Mid-grade blended into Regular & Premium)`} />
 
       <div className="mb-6"><PeriodBar period={period} from={sp.from} to={sp.to} path="/fuel" /></div>
+
+      <Card className="overflow-hidden mb-6">
+        <div className="px-5 py-4 border-b border-outline-variant/60 flex items-center justify-between">
+          <h3 className="font-semibold text-on-surface">Tank balance &amp; reorder</h3>
+          <span className="text-body-sm text-on-surface-variant">From latest stick reading · usage from {range.label}</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-5">
+          {tanks.map((t) => {
+            const pct = t.balance != null ? Math.min(100, Math.round((t.balance / TANK_CAPACITY) * 100)) : 0;
+            return (
+              <div key={t.grade} className={`rounded-lg border p-4 ${t.orderNow ? "border-error/50 bg-error/[0.05]" : "border-outline-variant/60"}`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-label-caps uppercase text-on-surface-variant">{gradeLabel(t.grade)}</span>
+                  {t.orderNow && <span className="text-label-caps uppercase bg-error-container text-on-error-container rounded-full px-2 py-0.5">Order now</span>}
+                </div>
+                <div className="text-2xl font-bold tabular text-primary">{t.balance != null ? `${fmtNumber(t.balance)} gal` : "—"}</div>
+                <div className="mt-2 h-2 rounded-full bg-surface-container-low overflow-hidden">
+                  <div className={`h-full ${t.orderNow ? "bg-error" : "bg-primary"}`} style={{ width: `${pct}%` }} />
+                </div>
+                <div className="mt-2 space-y-0.5 text-body-sm text-on-surface-variant">
+                  <div>Reading: {t.reading ? `${t.reading.inches}″ on ${t.reading.date}` : "none yet"}</div>
+                  <div>Reorder at: <span className="tabular">{t.reorder ? `${fmtNumber(t.reorder)} gal` : "not set"}</span></div>
+                  <div>Avg use: <span className="tabular">{fmtNumber(Math.round(t.avgDaily))} gal/day</span></div>
+                  <div className="font-medium text-on-surface">
+                    {t.balance == null ? "Enter a tank reading to track this."
+                      : t.orderNow ? `Below reorder level — order ~${fmtNumber(Math.max(0, Math.round(TANK_CAPACITY - t.balance)))} gal to fill.`
+                      : t.daysLeft != null ? `~${t.daysLeft} day${t.daysLeft === 1 ? "" : "s"} to reorder level`
+                      : "Set a reorder level to get a reminder."}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {canEditReorder && (
+          <form action={setReorderLevels} className="px-5 pb-5 flex flex-wrap items-end gap-3 border-t border-outline-variant/60 pt-4">
+            <span className="text-body-sm text-on-surface-variant w-full">Set the reorder reminder level (gallons) per grade:</span>
+            {tanks.map((t) => (
+              <div key={t.grade}>
+                <label className="ft-label">{gradeLabel(t.grade)}</label>
+                <input name={`reorder_${t.grade}`} type="number" step="1" min="0" defaultValue={t.reorder || ""} className="ft-input w-32" placeholder="gal" />
+              </div>
+            ))}
+            <button type="submit" className="ft-btn-primary"><Icon name="save" className="text-[18px]" /> Save levels</button>
+          </form>
+        )}
+      </Card>
 
       {fuelSales.length === 0 ? (
         <Card className="p-8"><EmptyState icon="local_gas_station" title="No fuel sales in this period" hint="Pick another period, or run a sync/backfill." /></Card>
