@@ -30,6 +30,7 @@ export async function uploadReceipt(file: File, prefix: string): Promise<string 
       method: "POST",
       headers: {
         Authorization: `Bearer ${KEY}`,
+        apikey: KEY,
         "content-type": file.type || "application/octet-stream",
         "x-upsert": "true",
       },
@@ -64,7 +65,7 @@ export async function signedUrl(path: string, expiresIn = 3600, download = false
   try {
     const res = await fetch(`${BASE}/storage/v1/object/sign/${BUCKET}/${path}`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${KEY}`, "content-type": "application/json" },
+      headers: { Authorization: `Bearer ${KEY}`, apikey: KEY, "content-type": "application/json" },
       body: JSON.stringify({ expiresIn }),
       cache: "no-store",
     });
