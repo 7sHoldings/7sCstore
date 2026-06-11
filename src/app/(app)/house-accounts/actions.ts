@@ -7,6 +7,7 @@ import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { addHousePayment, deleteHousePayment } from "@/lib/credit";
 import { uploadReceiptsFromForm } from "@/lib/storage";
+import { todayISO } from "@/lib/day";
 import { logAudit } from "@/lib/audit";
 
 /** Record a payment against a house account (reduces its running balance). */
@@ -18,7 +19,7 @@ export async function recordHousePayment(formData: FormData): Promise<void> {
 
   const account = String(formData.get("account") || "").trim();
   const amount = Number(formData.get("amount"));
-  const date = String(formData.get("date") || "") || new Date().toISOString().slice(0, 10);
+  const date = String(formData.get("date") || "") || todayISO();
   const note = String(formData.get("note") || "");
   if (!account || !isFinite(amount) || amount <= 0) return;
 

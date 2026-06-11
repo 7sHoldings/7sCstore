@@ -4,13 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui";
 
+/** Local-date helpers — avoid toISOString() which converts to UTC and can shift the day. */
+function fmt(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return fmt(new Date());
 }
 function shift(dateISO: string, days: number): string {
-  const d = new Date(dateISO + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = dateISO.split("-").map(Number);
+  return fmt(new Date(y, m - 1, d + days));
 }
 
 /** Daily Sales date toolbar: Today / Yesterday presets, a day stepper, and a custom range. */

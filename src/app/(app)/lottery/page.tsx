@@ -2,6 +2,7 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { getLotteryManual } from "@/lib/lottery";
+import { todayISO } from "@/lib/day";
 import { getReceipts } from "@/lib/receipts";
 import { signedUrls } from "@/lib/storage";
 import { money } from "@/lib/calc";
@@ -23,7 +24,7 @@ export default async function LotteryEntryPage({
   }
   const loc = await getActiveLocationId();
   const sp = await searchParams;
-  const dateISO = sp.date || new Date().toISOString().slice(0, 10);
+  const dateISO = sp.date || todayISO();
   const existing = loc ? await getLotteryManual(loc, dateISO) : null;
   const net = existing ? money(existing.sales - existing.payout) : 0;
   const receiptUrls = await signedUrls(loc ? await getReceipts(loc, "lottery", dateISO) : []);

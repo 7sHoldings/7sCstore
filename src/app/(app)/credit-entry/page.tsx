@@ -2,6 +2,7 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { getCreditManual, getHouseAccounts, getPayoutCategories } from "@/lib/credit";
+import { todayISO } from "@/lib/day";
 import { getReceipts } from "@/lib/receipts";
 import { signedUrls } from "@/lib/storage";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
@@ -22,7 +23,7 @@ export default async function CreditEntryPage({
   }
   const loc = await getActiveLocationId();
   const sp = await searchParams;
-  const dateISO = sp.date || new Date().toISOString().slice(0, 10);
+  const dateISO = sp.date || todayISO();
   const [existing, houseAccounts, payoutCategories, receiptPaths] = await Promise.all([
     loc ? getCreditManual(loc, dateISO) : Promise.resolve(null),
     getHouseAccounts(),

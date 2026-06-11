@@ -3,6 +3,7 @@ import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { getHouseBalances, getHousePayments } from "@/lib/credit";
 import { signedUrl } from "@/lib/storage";
+import { todayISO } from "@/lib/day";
 import { fmtMoney } from "@/lib/format";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import { recordHousePayment, removeHousePayment } from "./actions";
@@ -28,7 +29,7 @@ export default async function HouseAccountsPage({
   const totalOutstanding = balances.reduce((s, b) => s + b.balance, 0);
   const recent = [...payments].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 25);
   const recentPhotos = await Promise.all(recent.map((p) => (p.photo ? signedUrl(p.photo) : Promise.resolve(null))));
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
   return (
     <div>
