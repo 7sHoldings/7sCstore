@@ -1,7 +1,7 @@
 import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
-import { getHouseBalances, getHousePayments, getCreditManualRange } from "@/lib/credit";
+import { getHouseBalances, getHousePayments, getCreditManualRange, getAccountLedger } from "@/lib/credit";
 import { rangeFor, customRange, type PeriodKey, type Range } from "@/lib/period";
 import { signedUrl } from "@/lib/storage";
 import { fmtMoney } from "@/lib/format";
@@ -9,6 +9,7 @@ import { todayISO } from "@/lib/day";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import { recordHousePayment, removeHousePayment } from "./actions";
 import PeriodBar from "@/components/PeriodBar";
+import AccountFilter from "./AccountFilter";
 import ReceiptInput from "../credit-entry/ReceiptInput";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function HouseAccountsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ paid?: string; period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ paid?: string; period?: string; from?: string; to?: string; account?: string }>;
 }) {
   const session = (await getSession())!;
   if (!can(session.role, "enterSales")) {
@@ -25,11 +26,23 @@ export default async function HouseAccountsPage({
   const loc = await getActiveLocationId();
   const sp = await searchParams;
 
-  const [balances, allPayments] = await Promise.all([
+  const [allBalances, allPayments] = await Promise.all([
     loc ? getHouseBalances(loc) : Promise.resolve([]),
     loc ? getHousePayments(loc) : Promise.resolve([]),
   ]);
+  const accountNames = allBalances.map((b) => b.account);
+  const selectedAccount = sp.account && accountNames.includes(sp.account) ? sp.account : undefined;
+  const balances = selectedAccount ? allBalances.filter((b) => b.account === selectedAccount) : allBalances;
   const totalOutstanding = balances.reduce((s, b) => s + b.balance, 0);
+
+  // Dated ledger for the selected account (all-time history).
+  const ledger = selectedAccount && loc ? await getAccountLedger(loc, selectedAccount) : [];
+  let running = 0;
+  const ledgerRows = ledger.map((e) => {
+    running += e.kind === "charge" ? e.amount : -e.amount;
+    return { ...e, balance: running };
+  }).reverse();
+  const ledgerPhotos = await Promise.all(ledgerRows.map((e) => (e.photo ? signedUrl(e.photo) : Promise.resolve(null))));
 
   // Optional activity window for the Charged / Paid columns (Balance stays all-time).
   let activeRange: Range | null = null;
@@ -62,7 +75,10 @@ export default async function HouseAccountsPage({
       <PageHeader title="House Accounts" subtitle="Running balances — charges add up, payments bring them down." />
       {sp.paid && <Banner>Payment recorded.</Banner>}
 
-      <div className="mb-6"><PeriodBar period={sp.period} from={sp.from} to={sp.to} path="/house-accounts" /></div>
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        <PeriodBar period={sp.period} from={sp.from} to={sp.to} path="/house-accounts" />
+        <AccountFilter accounts={accountNames} value={selectedAccount} />
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <Card className="p-4">
@@ -125,9 +141,9 @@ export default async function HouseAccountsPage({
           <form action={recordHousePayment} className="space-y-3">
             <div>
               <label className="ft-label" htmlFor="account">Account</label>
-              <select id="account" name="account" className="ft-input w-full" required defaultValue="">
+              <select id="account" name="account" className="ft-input w-full" required defaultValue={selectedAccount ?? ""}>
                 <option value="" disabled>— Select account —</option>
-                {balances.map((b) => <option key={b.account} value={b.account}>{b.account} ({fmtMoney(b.balance)} due)</option>)}
+                {allBalances.map((b) => <option key={b.account} value={b.account}>{b.account} ({fmtMoney(b.balance)} due)</option>)}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -150,7 +166,53 @@ export default async function HouseAccountsPage({
         </Card>
       </div>
 
-      {recent.length > 0 && (
+      {selectedAccount ? (
+        <Card className="overflow-hidden mt-6">
+          <div className="px-5 py-4 border-b border-outline-variant/60 flex items-center justify-between">
+            <h3 className="font-semibold text-on-surface">{selectedAccount} — history</h3>
+            <span className="text-body-sm text-on-surface-variant">Charges &amp; payments, newest first</span>
+          </div>
+          {ledgerRows.length === 0 ? (
+            <div className="p-8"><EmptyState icon="receipt_long" title="No activity yet" /></div>
+          ) : (
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left text-body-sm">
+                <thead>
+                  <tr className="bg-surface-container-low text-label-caps uppercase text-on-surface-variant">
+                    <th className="px-5 py-3">Date</th>
+                    <th className="px-5 py-3">Type</th>
+                    <th className="px-5 py-3">Note</th>
+                    <th className="px-5 py-3">Receipt</th>
+                    <th className="px-5 py-3 text-right">Charge</th>
+                    <th className="px-5 py-3 text-right">Payment</th>
+                    <th className="px-5 py-3 text-right">Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-outline-variant/40">
+                  {ledgerRows.map((e, i) => (
+                    <tr key={`${e.date}-${e.kind}-${i}`} className="hover:bg-surface-container-low/50">
+                      <td className="px-5 py-3 tabular text-on-surface-variant">{e.date}</td>
+                      <td className="px-5 py-3">
+                        <span className={`text-label-caps uppercase ${e.kind === "payment" ? "text-secondary" : "text-on-surface-variant"}`}>{e.kind === "payment" ? "Payment" : "Charge"}</span>
+                      </td>
+                      <td className="px-5 py-3 text-on-surface-variant">{e.note || "—"}</td>
+                      <td className="px-5 py-3">
+                        {ledgerPhotos[i] ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <a href={ledgerPhotos[i]!} target="_blank" rel="noreferrer"><img src={ledgerPhotos[i]!} alt="receipt" className="w-10 h-10 object-cover rounded border border-outline-variant/60" /></a>
+                        ) : <span className="text-on-surface-variant">—</span>}
+                      </td>
+                      <td className="px-5 py-3 text-right tabular">{e.kind === "charge" ? fmtMoney(e.amount) : "—"}</td>
+                      <td className="px-5 py-3 text-right tabular text-secondary">{e.kind === "payment" ? fmtMoney(e.amount) : "—"}</td>
+                      <td className={`px-5 py-3 text-right tabular font-semibold ${e.balance > 0 ? "text-error" : "text-secondary"}`}>{fmtMoney(e.balance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      ) : recent.length > 0 && (
         <Card className="overflow-hidden mt-6">
           <div className="px-5 py-4 border-b border-outline-variant/60">
             <h3 className="font-semibold text-on-surface">Payments · {activityLabel}</h3>

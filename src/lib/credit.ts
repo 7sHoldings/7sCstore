@@ -196,6 +196,32 @@ export async function getHousePaymentTotals(locationId: string): Promise<Map<str
   return m;
 }
 
+export interface LedgerEntry {
+  date: string;
+  kind: "charge" | "payment";
+  amount: number;
+  note?: string;
+  photo?: string;
+}
+
+/** Full dated history (charges + payments) for one house account, oldest first. */
+export async function getAccountLedger(locationId: string, account: string): Promise<LedgerEntry[]> {
+  const rows = await prisma.setting.findMany({ where: { key: { startsWith: `creditmanual:${locationId}:` } } });
+  const out: LedgerEntry[] = [];
+  for (const r of rows) {
+    const date = r.key.split(":").pop()!;
+    try {
+      const o = JSON.parse(r.value) as Record<string, unknown>;
+      for (const h of parseLines(o.house)) if (h.account === account) out.push({ date, kind: "charge", amount: h.amount });
+    } catch { /* skip */ }
+  }
+  for (const p of await getHousePayments(locationId)) {
+    if (p.account === account) out.push({ date: p.date, kind: "payment", amount: p.amount, note: p.note, photo: p.photo });
+  }
+  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.kind === "charge" ? -1 : 1));
+  return out;
+}
+
 /** Per-account running balance = total charged − total paid (incl. accounts with no charges yet). */
 export async function getHouseBalances(locationId: string): Promise<{ account: string; charged: number; paid: number; balance: number }[]> {
   const [charges, payments, names] = await Promise.all([
