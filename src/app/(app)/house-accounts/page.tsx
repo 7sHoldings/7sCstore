@@ -12,6 +12,7 @@ import { recordHousePayment, removeHousePayment } from "./actions";
 import PeriodBar from "@/components/PeriodBar";
 import AccountFilter from "./AccountFilter";
 import ReceiptInput from "../credit-entry/ReceiptInput";
+import { ReceiptThumbs } from "@/components/ReceiptThumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +62,7 @@ export default async function HouseAccountsPage({
   if (loc) {
     for (const d of [...new Set(ledgerRows.filter((e) => e.kind === "charge").map((e) => e.date))]) {
       const paths = await getReceipts(loc, "credit", d);
-      if (paths.length) chargeReceipts.set(d, await signedUrls(paths, true));
+      if (paths.length) chargeReceipts.set(d, await signedUrls(paths));
     }
   }
 
@@ -210,20 +211,7 @@ export default async function HouseAccountsPage({
                       </td>
                       <td className="px-5 py-3 text-on-surface-variant">{e.note || "—"}</td>
                       <td className="px-5 py-3">
-                        {(() => {
-                          const urls = e.kind === "payment" ? (ledgerPhotos[i] ? [ledgerPhotos[i]!] : []) : (chargeReceipts.get(e.date) ?? []);
-                          if (urls.length === 0) return <span className="text-on-surface-variant">—</span>;
-                          return (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {urls.map((u, k) => (
-                                <a key={k} href={u} target="_blank" rel="noreferrer" title="Open / download receipt">
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={u} alt="receipt" className="w-10 h-10 object-cover rounded border border-outline-variant/60" />
-                                </a>
-                              ))}
-                            </div>
-                          );
-                        })()}
+                        <ReceiptThumbs urls={e.kind === "payment" ? (ledgerPhotos[i] ? [ledgerPhotos[i]!] : []) : (chargeReceipts.get(e.date) ?? [])} />
                       </td>
                       <td className="px-5 py-3 text-right tabular">{e.kind === "charge" ? fmtMoney(e.amount) : "—"}</td>
                       <td className="px-5 py-3 text-right tabular text-secondary">{e.kind === "payment" ? fmtMoney(e.amount) : "—"}</td>
@@ -259,10 +247,7 @@ export default async function HouseAccountsPage({
                     <td className="px-5 py-3 font-medium text-on-surface">{p.account}</td>
                     <td className="px-5 py-3 text-on-surface-variant">{p.note || "—"}</td>
                     <td className="px-5 py-3">
-                      {recentPhotos[i] ? (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <a href={recentPhotos[i]!} target="_blank" rel="noreferrer"><img src={recentPhotos[i]!} alt="receipt" className="w-10 h-10 object-cover rounded border border-outline-variant/60" /></a>
-                      ) : <span className="text-on-surface-variant">—</span>}
+                      <ReceiptThumbs urls={recentPhotos[i] ? [recentPhotos[i]!] : []} />
                     </td>
                     <td className="px-5 py-3 text-right tabular text-secondary">{fmtMoney(p.amount)}</td>
                     <td className="px-5 py-3 text-right">

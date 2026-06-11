@@ -8,6 +8,7 @@ import { rangeFor, customRange, type PeriodKey, type Range } from "@/lib/period"
 import { fmtMoney } from "@/lib/format";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import PeriodBar from "@/components/PeriodBar";
+import { ReceiptThumbs } from "@/components/ReceiptThumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default async function PayoutsPage({
 
   // Dated entries + downloadable receipts (receipts attach to the day's Credit Entry).
   const dated = loc ? await getDatedPayouts(loc, activeRange?.start, activeRange?.end) : [];
-  const datedReceipts = await Promise.all(dated.map((d) => (loc ? getReceipts(loc, "credit", d.date).then((p) => signedUrls(p, true)) : Promise.resolve([]))));
+  const datedReceipts = await Promise.all(dated.map((d) => (loc ? getReceipts(loc, "credit", d.date).then((p) => signedUrls(p)) : Promise.resolve([]))));
 
   return (
     <div>
@@ -106,18 +107,7 @@ export default async function PayoutsPage({
                   <tr key={d.date} className="hover:bg-surface-container-low/50">
                     <td className="px-5 py-3 tabular text-on-surface-variant">{d.date}</td>
                     <td className="px-5 py-3 text-on-surface">{d.items.map((it) => `${it.account} ${fmtMoney(it.amount)}`).join(" · ")}</td>
-                    <td className="px-5 py-3">
-                      {datedReceipts[i] && datedReceipts[i].length > 0 ? (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {datedReceipts[i].map((u, k) => (
-                            <a key={k} href={u} target="_blank" rel="noreferrer" title="Open / download receipt">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={u} alt="receipt" className="w-10 h-10 object-cover rounded border border-outline-variant/60" />
-                            </a>
-                          ))}
-                        </div>
-                      ) : <span className="text-on-surface-variant">—</span>}
-                    </td>
+                    <td className="px-5 py-3"><ReceiptThumbs urls={datedReceipts[i] ?? []} /></td>
                     <td className="px-5 py-3 text-right tabular text-error">{fmtMoney(d.total)}</td>
                   </tr>
                 ))}
