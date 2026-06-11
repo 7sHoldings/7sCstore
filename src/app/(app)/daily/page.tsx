@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { money, pctChange } from "@/lib/calc";
 import { fmtNumber, fmtDate, fmtMoney, gradeLabel } from "@/lib/format";
 import { customRange, previousRange } from "@/lib/period";
-import { todayISO, toISODate } from "@/lib/day";
+import { yesterdayISO } from "@/lib/day";
 import { buildSalesView } from "@/lib/salesView";
 import { getTaxRate } from "@/lib/settings";
 import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
@@ -51,8 +51,7 @@ export default async function DailySalesPage({
     exportQs = `from=${sp.from}&to=${sp.to}`;
     navDate = sp.to!;
   } else {
-    const latest = await prisma.sale.findFirst({ where: locWhere, orderBy: { date: "desc" }, select: { date: true } });
-    const dateISO = sp.date || (latest ? toISODate(latest.date) : todayISO());
+    const dateISO = sp.date || yesterdayISO();
     const b = dayBounds(dateISO);
     range = { start: b.start, end: b.end, label: fmtDate(b.start) };
     exportQs = `date=${dateISO}`;

@@ -3,10 +3,10 @@ import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { prisma } from "@/lib/db";
 import { gradesFromFuel, type FuelRow } from "@/lib/salesView";
-import { rangeFor, customRange, startOfMonth, type PeriodKey, type Range } from "@/lib/period";
+import { rangeFor, customRange, type PeriodKey, type Range } from "@/lib/period";
 import { money } from "@/lib/calc";
 import { fmtMoney, fmtMoney4, fmtNumber, gradeLabel } from "@/lib/format";
-import { toISODate } from "@/lib/day";
+import { toISODate, yesterdayISO } from "@/lib/day";
 import { getLatestReading, getReorderLevel, TANK_GRADES } from "@/lib/tank";
 import { TANK_CAPACITY } from "@/lib/tankChart";
 import { Card, PageHeader, EmptyState, Icon } from "@/components/ui";
@@ -30,7 +30,7 @@ export default async function FuelPage({
   const locWhere = loc ? { locationId: loc } : {};
   const sp = await searchParams;
 
-  // Resolve window; default to the latest month with fuel sales.
+  // Resolve window; default to yesterday.
   let range: Range;
   let period: PeriodKey | "" = "";
   if (sp.from && sp.to) {
@@ -39,14 +39,12 @@ export default async function FuelPage({
     period = sp.period as PeriodKey;
     range = rangeFor(period);
   } else {
-    const latest = await prisma.fuelSale.findFirst({ where: locWhere, orderBy: { date: "desc" }, select: { date: true } });
-    if (latest) {
-      const start = startOfMonth(latest.date);
-      range = { start, end: new Date(start.getFullYear(), start.getMonth() + 1, 1), label: start.toLocaleDateString("en-US", { month: "long", year: "numeric" }) };
-    } else {
-      period = "mtd";
-      range = rangeFor("mtd");
-    }
+    period = "yest";
+    const start = new Date(yesterdayISO() + "T00:00:00");
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    range = { start, end, label: "Yesterday" };
   }
 
   const fuelSales = (await prisma.fuelSale.findMany({

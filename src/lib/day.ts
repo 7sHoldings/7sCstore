@@ -18,6 +18,14 @@ export function todayISO(tz: string = storeTimezone()): string {
   }).format(new Date());
 }
 
+/** Yesterday's date as YYYY-MM-DD in the store's timezone. */
+export function yesterdayISO(tz: string = storeTimezone()): string {
+  const [y, m, d] = todayISO(tz).split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt.toISOString().slice(0, 10);
+}
+
 /** A Date (from the DB) rendered as YYYY-MM-DD in the store's timezone. */
 export function toISODate(d: Date, tz: string = storeTimezone()): string {
   return new Intl.DateTimeFormat("en-CA", {
