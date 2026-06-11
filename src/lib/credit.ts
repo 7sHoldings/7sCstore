@@ -141,6 +141,26 @@ export async function getHouseChargeTotals(locationId: string): Promise<Map<stri
   return m;
 }
 
+/** Per-date house charges across all accounts, optionally windowed. */
+export async function getHouseChargeEntries(
+  locationId: string, start?: Date, end?: Date
+): Promise<{ date: string; account: string; amount: number }[]> {
+  const rows = await prisma.setting.findMany({ where: { key: { startsWith: `creditmanual:${locationId}:` } } });
+  const out: { date: string; account: string; amount: number }[] = [];
+  for (const r of rows) {
+    const date = r.key.split(":").pop()!;
+    const d = new Date(date + "T00:00:00");
+    if (start && d < start) continue;
+    if (end && d >= end) continue;
+    try {
+      for (const h of parseLines((JSON.parse(r.value) as Record<string, unknown>).house)) {
+        out.push({ date, account: h.account, amount: h.amount });
+      }
+    } catch { /* skip */ }
+  }
+  return out;
+}
+
 /** Dated payout entries (each day's payout line items), newest first, optionally windowed. */
 export async function getDatedPayouts(
   locationId: string, start?: Date, end?: Date

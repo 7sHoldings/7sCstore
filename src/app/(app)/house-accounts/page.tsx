@@ -1,7 +1,7 @@
 import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
-import { getHouseBalances, getHousePayments, getCreditManualRange, getAccountLedger } from "@/lib/credit";
+import { getHouseBalances, getHousePayments, getCreditManualRange, getAccountLedger, getHouseChargeEntries } from "@/lib/credit";
 import { rangeFor, customRange, type PeriodKey, type Range } from "@/lib/period";
 import { signedUrl, signedUrls, isStorageConfigured } from "@/lib/storage";
 import { getReceipts } from "@/lib/receipts";
@@ -80,8 +80,24 @@ export default async function HouseAccountsPage({
   }
 
   const payments = allPayments.filter((p) => inRange(p.date));
-  const recent = [...payments].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 25);
-  const recentPhotos = await Promise.all(recent.map((p) => (p.photo ? signedUrl(p.photo) : Promise.resolve(null))));
+
+  // All-accounts activity statement (charges + payments) for the window.
+  type Act = { date: string; account: string; kind: "charge" | "payment"; amount: number; note?: string; photo?: string; id?: string };
+  let activity: Act[] = [];
+  const dateReceiptMap = new Map<string, string[]>();
+  let activityPhotos: (string | null)[] = [];
+  if (!selectedAccount && loc) {
+    const charges = await getHouseChargeEntries(loc, activeRange?.start, activeRange?.end);
+    activity = [
+      ...charges.map((c) => ({ date: c.date, account: c.account, kind: "charge" as const, amount: c.amount })),
+      ...payments.map((p) => ({ date: p.date, account: p.account, kind: "payment" as const, amount: p.amount, note: p.note, photo: p.photo, id: p.id })),
+    ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.kind === "charge" ? -1 : 1)).slice(0, 200);
+    for (const d of [...new Set(activity.filter((a) => a.kind === "charge").map((a) => a.date))]) {
+      const paths = await getReceipts(loc, "credit", d);
+      if (paths.length) dateReceiptMap.set(d, await signedUrls(paths));
+    }
+    activityPhotos = await Promise.all(activity.map((a) => (a.kind === "payment" && a.photo ? signedUrl(a.photo) : Promise.resolve(null))));
+  }
   const today = todayISO();
 
   return (
@@ -223,10 +239,11 @@ export default async function HouseAccountsPage({
             </div>
           )}
         </Card>
-      ) : recent.length > 0 && (
+      ) : activity.length > 0 && (
         <Card className="overflow-hidden mt-6">
-          <div className="px-5 py-4 border-b border-outline-variant/60">
-            <h3 className="font-semibold text-on-surface">Payments · {activityLabel}</h3>
+          <div className="px-5 py-4 border-b border-outline-variant/60 flex items-center justify-between">
+            <h3 className="font-semibold text-on-surface">Activity · {activityLabel}</h3>
+            <span className="text-body-sm text-on-surface-variant">All accounts — charges &amp; payments</span>
           </div>
           <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-left text-body-sm">
@@ -234,27 +251,33 @@ export default async function HouseAccountsPage({
                 <tr className="bg-surface-container-low text-label-caps uppercase text-on-surface-variant">
                   <th className="px-5 py-3">Date</th>
                   <th className="px-5 py-3">Account</th>
+                  <th className="px-5 py-3">Type</th>
                   <th className="px-5 py-3">Note</th>
                   <th className="px-5 py-3">Receipt</th>
-                  <th className="px-5 py-3 text-right">Amount</th>
+                  <th className="px-5 py-3 text-right">Charge</th>
+                  <th className="px-5 py-3 text-right">Payment</th>
                   <th className="px-5 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/40">
-                {recent.map((p, i) => (
-                  <tr key={p.id} className="hover:bg-surface-container-low/50">
-                    <td className="px-5 py-3 tabular text-on-surface-variant">{p.date}</td>
-                    <td className="px-5 py-3 font-medium text-on-surface">{p.account}</td>
-                    <td className="px-5 py-3 text-on-surface-variant">{p.note || "—"}</td>
+                {activity.map((a, i) => (
+                  <tr key={`${a.date}-${a.kind}-${a.account}-${i}`} className="hover:bg-surface-container-low/50">
+                    <td className="px-5 py-3 tabular text-on-surface-variant">{a.date}</td>
+                    <td className="px-5 py-3 font-medium text-on-surface">{a.account}</td>
+                    <td className="px-5 py-3"><span className={`text-label-caps uppercase ${a.kind === "payment" ? "text-secondary" : "text-on-surface-variant"}`}>{a.kind === "payment" ? "Payment" : "Charge"}</span></td>
+                    <td className="px-5 py-3 text-on-surface-variant">{a.note || "—"}</td>
                     <td className="px-5 py-3">
-                      <ReceiptThumbs urls={recentPhotos[i] ? [recentPhotos[i]!] : []} />
+                      <ReceiptThumbs urls={a.kind === "charge" ? (dateReceiptMap.get(a.date) ?? []) : (activityPhotos[i] ? [activityPhotos[i]!] : [])} />
                     </td>
-                    <td className="px-5 py-3 text-right tabular text-secondary">{fmtMoney(p.amount)}</td>
+                    <td className="px-5 py-3 text-right tabular">{a.kind === "charge" ? fmtMoney(a.amount) : "—"}</td>
+                    <td className="px-5 py-3 text-right tabular text-secondary">{a.kind === "payment" ? fmtMoney(a.amount) : "—"}</td>
                     <td className="px-5 py-3 text-right">
-                      <form action={removeHousePayment}>
-                        <input type="hidden" name="id" value={p.id} />
-                        <button type="submit" className="ft-btn-ghost p-1.5 rounded-md text-on-surface-variant" aria-label="Remove payment"><Icon name="delete" className="text-[18px]" /></button>
-                      </form>
+                      {a.kind === "payment" && a.id && (
+                        <form action={removeHousePayment}>
+                          <input type="hidden" name="id" value={a.id} />
+                          <button type="submit" className="ft-btn-ghost p-1.5 rounded-md text-on-surface-variant" aria-label="Remove payment"><Icon name="delete" className="text-[18px]" /></button>
+                        </form>
+                      )}
                     </td>
                   </tr>
                 ))}
