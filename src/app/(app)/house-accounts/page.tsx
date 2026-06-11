@@ -1,12 +1,14 @@
 import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
-import { getHouseBalances, getHousePayments } from "@/lib/credit";
+import { getHouseBalances, getHousePayments, getCreditManualRange } from "@/lib/credit";
+import { rangeFor, customRange, type PeriodKey, type Range } from "@/lib/period";
 import { signedUrl } from "@/lib/storage";
-import { todayISO } from "@/lib/day";
 import { fmtMoney } from "@/lib/format";
+import { todayISO } from "@/lib/day";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import { recordHousePayment, removeHousePayment } from "./actions";
+import PeriodBar from "@/components/PeriodBar";
 import ReceiptInput from "../credit-entry/ReceiptInput";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +16,7 @@ export const dynamic = "force-dynamic";
 export default async function HouseAccountsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ paid?: string }>;
+  searchParams: Promise<{ paid?: string; period?: string; from?: string; to?: string }>;
 }) {
   const session = (await getSession())!;
   if (!can(session.role, "enterSales")) {
@@ -22,11 +24,35 @@ export default async function HouseAccountsPage({
   }
   const loc = await getActiveLocationId();
   const sp = await searchParams;
-  const [balances, payments] = await Promise.all([
+
+  const [balances, allPayments] = await Promise.all([
     loc ? getHouseBalances(loc) : Promise.resolve([]),
     loc ? getHousePayments(loc) : Promise.resolve([]),
   ]);
   const totalOutstanding = balances.reduce((s, b) => s + b.balance, 0);
+
+  // Optional activity window for the Charged / Paid columns (Balance stays all-time).
+  let activeRange: Range | null = null;
+  let activityLabel = "all time";
+  if (sp.from && sp.to) { activeRange = customRange(sp.from, sp.to); activityLabel = activeRange.label; }
+  else if (sp.period) { activeRange = rangeFor(sp.period as PeriodKey); activityLabel = activeRange.label; }
+
+  const chargedMap = new Map<string, number>();
+  const paidMap = new Map<string, number>();
+  if (activeRange && loc) {
+    const cm = await getCreditManualRange(loc, activeRange.start, activeRange.end);
+    for (const h of cm?.house ?? []) chargedMap.set(h.account, h.amount);
+    for (const p of allPayments) {
+      const d = new Date(p.date + "T00:00:00");
+      if (d >= activeRange.start && d < activeRange.end) paidMap.set(p.account, (paidMap.get(p.account) || 0) + p.amount);
+    }
+  } else {
+    for (const b of balances) { chargedMap.set(b.account, b.charged); paidMap.set(b.account, b.paid); }
+  }
+
+  const payments = activeRange
+    ? allPayments.filter((p) => { const d = new Date(p.date + "T00:00:00"); return d >= activeRange!.start && d < activeRange!.end; })
+    : allPayments;
   const recent = [...payments].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 25);
   const recentPhotos = await Promise.all(recent.map((p) => (p.photo ? signedUrl(p.photo) : Promise.resolve(null))));
   const today = todayISO();
@@ -36,9 +62,11 @@ export default async function HouseAccountsPage({
       <PageHeader title="House Accounts" subtitle="Running balances — charges add up, payments bring them down." />
       {sp.paid && <Banner>Payment recorded.</Banner>}
 
+      <div className="mb-6"><PeriodBar period={sp.period} from={sp.from} to={sp.to} path="/house-accounts" /></div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <Card className="p-4">
-          <div className="text-label-caps uppercase text-on-surface-variant">Outstanding (all)</div>
+          <div className="text-label-caps uppercase text-on-surface-variant">Outstanding (now)</div>
           <div className={`tabular text-2xl font-bold mt-1 ${totalOutstanding > 0 ? "text-error" : "text-secondary"}`}>{fmtMoney(totalOutstanding)}</div>
         </Card>
         <Card className="p-4">
@@ -49,8 +77,9 @@ export default async function HouseAccountsPage({
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="overflow-hidden lg:col-span-2">
-          <div className="px-5 py-4 border-b border-outline-variant/60">
+          <div className="px-5 py-4 border-b border-outline-variant/60 flex items-center justify-between">
             <h3 className="font-semibold text-on-surface">Balances</h3>
+            <span className="text-body-sm text-on-surface-variant">Activity · {activityLabel}</span>
           </div>
           {balances.length === 0 ? (
             <div className="p-8"><EmptyState icon="account_balance" title="No house accounts yet" hint="Add charges from Credit Entry." /></div>
@@ -62,15 +91,15 @@ export default async function HouseAccountsPage({
                     <th className="px-5 py-3">Account</th>
                     <th className="px-5 py-3 text-right">Charged</th>
                     <th className="px-5 py-3 text-right">Paid</th>
-                    <th className="px-5 py-3 text-right">Balance</th>
+                    <th className="px-5 py-3 text-right">Balance (now)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-outline-variant/40">
                   {balances.map((b) => (
                     <tr key={b.account} className="hover:bg-surface-container-low/50">
                       <td className="px-5 py-3 font-medium text-on-surface">{b.account}</td>
-                      <td className="px-5 py-3 text-right tabular">{fmtMoney(b.charged)}</td>
-                      <td className="px-5 py-3 text-right tabular text-secondary">{fmtMoney(b.paid)}</td>
+                      <td className="px-5 py-3 text-right tabular">{fmtMoney(chargedMap.get(b.account) || 0)}</td>
+                      <td className="px-5 py-3 text-right tabular text-secondary">{fmtMoney(paidMap.get(b.account) || 0)}</td>
                       <td className={`px-5 py-3 text-right tabular font-bold ${b.balance > 0 ? "text-error" : "text-secondary"}`}>{fmtMoney(b.balance)}</td>
                     </tr>
                   ))}
@@ -124,7 +153,7 @@ export default async function HouseAccountsPage({
       {recent.length > 0 && (
         <Card className="overflow-hidden mt-6">
           <div className="px-5 py-4 border-b border-outline-variant/60">
-            <h3 className="font-semibold text-on-surface">Recent payments</h3>
+            <h3 className="font-semibold text-on-surface">Payments · {activityLabel}</h3>
           </div>
           <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-left text-body-sm">

@@ -13,8 +13,7 @@ import { getLotteryManualRange } from "@/lib/lottery";
 import { getCreditManualRange } from "@/lib/credit";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
-import PeriodSelect from "@/components/PeriodSelect";
-import RangePicker from "@/components/RangePicker";
+import PeriodBar from "@/components/PeriodBar";
 
 export const dynamic = "force-dynamic";
 
@@ -153,13 +152,11 @@ export default async function DashboardPage({
       <PageHeader
         title="Dashboard"
         subtitle={`Store overview · ${range.label}`}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <PeriodSelect value={period} />
-            <RangePicker from={sp.from} to={sp.to} />
-          </div>
-        }
       />
+
+      <div className="mb-6">
+        <PeriodBar period={period} from={sp.from} to={sp.to} path="/dashboard" />
+      </div>
 
       {empty ? (
         <Card className="p-8">
