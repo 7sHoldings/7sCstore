@@ -35,20 +35,26 @@ export default async function HouseAccountsPage({
   const balances = selectedAccount ? allBalances.filter((b) => b.account === selectedAccount) : allBalances;
   const totalOutstanding = balances.reduce((s, b) => s + b.balance, 0);
 
-  // Dated ledger for the selected account (all-time history).
-  const ledger = selectedAccount && loc ? await getAccountLedger(loc, selectedAccount) : [];
-  let running = 0;
-  const ledgerRows = ledger.map((e) => {
-    running += e.kind === "charge" ? e.amount : -e.amount;
-    return { ...e, balance: running };
-  }).reverse();
-  const ledgerPhotos = await Promise.all(ledgerRows.map((e) => (e.photo ? signedUrl(e.photo) : Promise.resolve(null))));
-
-  // Optional activity window for the Charged / Paid columns (Balance stays all-time).
+  // Optional activity window for the Charged / Paid columns and the ledger.
   let activeRange: Range | null = null;
   let activityLabel = "all time";
   if (sp.from && sp.to) { activeRange = customRange(sp.from, sp.to); activityLabel = activeRange.label; }
   else if (sp.period) { activeRange = rangeFor(sp.period as PeriodKey); activityLabel = activeRange.label; }
+  const inRange = (dateISO: string) => {
+    if (!activeRange) return true;
+    const d = new Date(dateISO + "T00:00:00");
+    return d >= activeRange.start && d < activeRange.end;
+  };
+
+  // Dated statement for the selected account. Running balance is computed over the
+  // full history (so it's accurate), then we show only entries within the window.
+  const ledger = selectedAccount && loc ? await getAccountLedger(loc, selectedAccount) : [];
+  let running = 0;
+  const ledgerRows = ledger
+    .map((e) => { running += e.kind === "charge" ? e.amount : -e.amount; return { ...e, balance: running }; })
+    .filter((e) => inRange(e.date))
+    .reverse();
+  const ledgerPhotos = await Promise.all(ledgerRows.map((e) => (e.photo ? signedUrl(e.photo) : Promise.resolve(null))));
 
   const chargedMap = new Map<string, number>();
   const paidMap = new Map<string, number>();
@@ -63,9 +69,7 @@ export default async function HouseAccountsPage({
     for (const b of balances) { chargedMap.set(b.account, b.charged); paidMap.set(b.account, b.paid); }
   }
 
-  const payments = activeRange
-    ? allPayments.filter((p) => { const d = new Date(p.date + "T00:00:00"); return d >= activeRange!.start && d < activeRange!.end; })
-    : allPayments;
+  const payments = allPayments.filter((p) => inRange(p.date));
   const recent = [...payments].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 25);
   const recentPhotos = await Promise.all(recent.map((p) => (p.photo ? signedUrl(p.photo) : Promise.resolve(null))));
   const today = todayISO();
@@ -198,8 +202,11 @@ export default async function HouseAccountsPage({
                       <td className="px-5 py-3 text-on-surface-variant">{e.note || "—"}</td>
                       <td className="px-5 py-3">
                         {ledgerPhotos[i] ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <a href={ledgerPhotos[i]!} target="_blank" rel="noreferrer"><img src={ledgerPhotos[i]!} alt="receipt" className="w-10 h-10 object-cover rounded border border-outline-variant/60" /></a>
+                          <div className="flex items-center gap-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <a href={ledgerPhotos[i]!} target="_blank" rel="noreferrer"><img src={ledgerPhotos[i]!} alt="receipt" className="w-10 h-10 object-cover rounded border border-outline-variant/60" /></a>
+                            <a href={`${ledgerPhotos[i]}&download=${selectedAccount}-${e.date}.jpg`} className="text-primary" title="Download receipt"><Icon name="download" className="text-[18px]" /></a>
+                          </div>
                         ) : <span className="text-on-surface-variant">—</span>}
                       </td>
                       <td className="px-5 py-3 text-right tabular">{e.kind === "charge" ? fmtMoney(e.amount) : "—"}</td>

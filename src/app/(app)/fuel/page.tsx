@@ -1,0 +1,154 @@
+import { getSession } from "@/lib/auth";
+import { can } from "@/lib/rbac";
+import { getActiveLocationId } from "@/lib/location";
+import { prisma } from "@/lib/db";
+import { gradesFromFuel, type FuelRow } from "@/lib/salesView";
+import { rangeFor, customRange, startOfMonth, type PeriodKey, type Range } from "@/lib/period";
+import { money } from "@/lib/calc";
+import { fmtMoney, fmtMoney4, fmtNumber, gradeLabel } from "@/lib/format";
+import { toISODate } from "@/lib/day";
+import { Card, PageHeader, EmptyState } from "@/components/ui";
+import PeriodBar from "@/components/PeriodBar";
+
+export const dynamic = "force-dynamic";
+
+type Row = FuelRow & { date: Date };
+
+export default async function FuelPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+}) {
+  const session = (await getSession())!;
+  if (!can(session.role, "viewProfit") && !can(session.role, "viewAll")) {
+    return <Card className="p-8"><EmptyState icon="lock" title="No access" /></Card>;
+  }
+  const loc = await getActiveLocationId();
+  const locWhere = loc ? { locationId: loc } : {};
+  const sp = await searchParams;
+
+  // Resolve window; default to the latest month with fuel sales.
+  let range: Range;
+  let period: PeriodKey | "" = "";
+  if (sp.from && sp.to) {
+    range = customRange(sp.from, sp.to);
+  } else if (sp.period) {
+    period = sp.period as PeriodKey;
+    range = rangeFor(period);
+  } else {
+    const latest = await prisma.fuelSale.findFirst({ where: locWhere, orderBy: { date: "desc" }, select: { date: true } });
+    if (latest) {
+      const start = startOfMonth(latest.date);
+      range = { start, end: new Date(start.getFullYear(), start.getMonth() + 1, 1), label: start.toLocaleDateString("en-US", { month: "long", year: "numeric" }) };
+    } else {
+      period = "mtd";
+      range = rangeFor("mtd");
+    }
+  }
+
+  const fuelSales = (await prisma.fuelSale.findMany({
+    where: { ...locWhere, date: { gte: range.start, lt: range.end } },
+    select: { grade: true, gallons: true, total: true, pricePerGallon: true, date: true },
+  })) as Row[];
+
+  const grades = gradesFromFuel(fuelSales);
+  const totalGallons = money(fuelSales.reduce((s, x) => s + x.gallons, 0));
+  const totalSales = money(fuelSales.reduce((s, x) => s + x.total, 0));
+
+  // Per-day breakdown (reallocated grades), newest first.
+  const byDay = new Map<string, Row[]>();
+  for (const f of fuelSales) {
+    const d = toISODate(f.date);
+    const arr = byDay.get(d) ?? [];
+    arr.push(f);
+    byDay.set(d, arr);
+  }
+  const dayRows = [...byDay.entries()].map(([date, rows]) => {
+    const g = gradesFromFuel(rows);
+    const gal = (k: string) => g.find((x) => x.grade === k)?.gallons ?? 0;
+    return {
+      date,
+      regular: gal("REGULAR"),
+      premium: gal("PREMIUM"),
+      diesel: gal("DIESEL"),
+      gallons: money(rows.reduce((s, x) => s + x.gallons, 0)),
+      sales: money(rows.reduce((s, x) => s + x.total, 0)),
+    };
+  }).sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  return (
+    <div>
+      <PageHeader title="Fuel Sales" subtitle={`By grade · ${range.label} (Mid-grade blended into Regular & Premium)`} />
+
+      <div className="mb-6"><PeriodBar period={period} from={sp.from} to={sp.to} path="/fuel" /></div>
+
+      {fuelSales.length === 0 ? (
+        <Card className="p-8"><EmptyState icon="local_gas_station" title="No fuel sales in this period" hint="Pick another period, or run a sync/backfill." /></Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            {grades.map((g) => (
+              <Card key={g.grade} className="p-5">
+                <div className="text-label-caps uppercase text-on-surface-variant">{gradeLabel(g.grade)}</div>
+                <div className="text-2xl font-bold tabular text-primary mt-1">{fmtMoney(g.total)}</div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-body-sm">
+                  <div className="bg-surface-container-low rounded-md px-2.5 py-1.5">
+                    <div className="text-label-caps uppercase text-on-surface-variant">Gallons</div>
+                    <div className="tabular font-semibold">{fmtNumber(g.gallons)}</div>
+                  </div>
+                  <div className="bg-surface-container-low rounded-md px-2.5 py-1.5">
+                    <div className="text-label-caps uppercase text-on-surface-variant">$/gal</div>
+                    <div className="tabular font-semibold">{fmtMoney4(g.price)}</div>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          <Card className="overflow-hidden">
+            <div className="px-5 py-4 border-b border-outline-variant/60 flex items-center justify-between">
+              <h3 className="font-semibold text-on-surface">Daily fuel sales</h3>
+              <span className="text-body-sm text-on-surface-variant">{fmtNumber(totalGallons)} gal · {fmtMoney(totalSales)}</span>
+            </div>
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left text-body-sm">
+                <thead>
+                  <tr className="bg-surface-container-low text-label-caps uppercase text-on-surface-variant">
+                    <th className="px-5 py-3">Date</th>
+                    <th className="px-5 py-3 text-right">Regular gal</th>
+                    <th className="px-5 py-3 text-right">Premium gal</th>
+                    <th className="px-5 py-3 text-right">Diesel gal</th>
+                    <th className="px-5 py-3 text-right">Total gal</th>
+                    <th className="px-5 py-3 text-right">Sales</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-outline-variant/40">
+                  {dayRows.map((r) => (
+                    <tr key={r.date} className="hover:bg-surface-container-low/50">
+                      <td className="px-5 py-3 tabular font-medium text-on-surface"><a href={`/daily?date=${r.date}`} className="hover:text-primary">{r.date}</a></td>
+                      <td className="px-5 py-3 text-right tabular">{fmtNumber(r.regular)}</td>
+                      <td className="px-5 py-3 text-right tabular">{fmtNumber(r.premium)}</td>
+                      <td className="px-5 py-3 text-right tabular">{fmtNumber(r.diesel)}</td>
+                      <td className="px-5 py-3 text-right tabular">{fmtNumber(r.gallons)}</td>
+                      <td className="px-5 py-3 text-right tabular">{fmtMoney(r.sales)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-surface-container font-bold">
+                    <td className="px-5 py-3">Total</td>
+                    <td className="px-5 py-3 text-right tabular">{fmtNumber(grades.find((g) => g.grade === "REGULAR")?.gallons ?? 0)}</td>
+                    <td className="px-5 py-3 text-right tabular">{fmtNumber(grades.find((g) => g.grade === "PREMIUM")?.gallons ?? 0)}</td>
+                    <td className="px-5 py-3 text-right tabular">{fmtNumber(grades.find((g) => g.grade === "DIESEL")?.gallons ?? 0)}</td>
+                    <td className="px-5 py-3 text-right tabular">{fmtNumber(totalGallons)}</td>
+                    <td className="px-5 py-3 text-right tabular">{fmtMoney(totalSales)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
