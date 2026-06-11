@@ -159,16 +159,32 @@ export function LotteryReconcileStrip({
 export function ManualCreditPanel({
   data, entryHref, className,
 }: {
-  data: { ebt: number; otherCredit: number; payoutCash: number; house: { account: string; amount: number }[] } | null;
+  data: { ebt: number; otherCredit: number; payouts: { account: string; amount: number }[]; house: { account: string; amount: number }[] } | null;
   entryHref?: string;
   className?: string;
 }) {
   const houseTotal = data ? data.house.reduce((s, h) => s + h.amount, 0) : 0;
+  const payoutTotal = data ? data.payouts.reduce((s, h) => s + h.amount, 0) : 0;
   const Cell = ({ label, value, tone }: { label: string; value: number; tone?: "error" }) => (
     <div className="bg-surface-container-low rounded-md px-3 py-2">
       <div className="text-label-caps uppercase text-on-surface-variant">{label}</div>
       <div className={`tabular font-semibold text-base ${tone === "error" ? "text-error" : ""}`}>{value < 0 ? `-${fmtMoney(-value)}` : fmtMoney(value)}</div>
     </div>
+  );
+  const Breakdown = ({ title, items }: { title: string; items: { account: string; amount: number }[] }) => (
+    items.length > 0 ? (
+      <div className="mt-4">
+        <div className="text-label-caps uppercase text-on-surface-variant mb-1.5">{title}</div>
+        <div className="flex flex-wrap gap-2">
+          {items.map((h) => (
+            <span key={h.account} className="inline-flex items-center gap-2 rounded-md bg-surface-container-low px-3 py-1.5 text-body-sm">
+              <span className="text-on-surface-variant">{h.account}</span>
+              <span className="tabular font-semibold">{fmtMoney(h.amount)}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+    ) : null
   );
   return (
     <Card className={`overflow-hidden ${className ?? ""}`}>
@@ -181,22 +197,11 @@ export function ManualCreditPanel({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <Cell label="EBT" value={data.ebt} />
             <Cell label="Other Credit Card" value={data.otherCredit} />
-            <Cell label="Payout in Cash" value={data.payoutCash} tone="error" />
+            <Cell label="Payout in Cash" value={payoutTotal} tone="error" />
             <Cell label="House Account" value={houseTotal} />
           </div>
-          {data.house.length > 0 && (
-            <div className="mt-4">
-              <div className="text-label-caps uppercase text-on-surface-variant mb-1.5">House accounts</div>
-              <div className="flex flex-wrap gap-2">
-                {data.house.map((h) => (
-                  <span key={h.account} className="inline-flex items-center gap-2 rounded-md bg-surface-container-low px-3 py-1.5 text-body-sm">
-                    <span className="text-on-surface-variant">{h.account}</span>
-                    <span className="tabular font-semibold">{fmtMoney(h.amount)}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          <Breakdown title="Payouts in cash" items={data.payouts} />
+          <Breakdown title="House accounts" items={data.house} />
         </div>
       ) : (
         <div className="px-5 py-8 text-center text-body-sm text-on-surface-variant">

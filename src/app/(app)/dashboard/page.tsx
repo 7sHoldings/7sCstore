@@ -100,6 +100,7 @@ export default async function DashboardPage({
   const lottoOver = manualLotto ? money(systemLotto.net - manualLotto.net) : 0;
   const creditManual = await getCreditManualRange(loc ?? "", range.start, range.end);
   const houseTotal = creditManual ? creditManual.house.reduce((s, h) => s + h.amount, 0) : 0;
+  const payoutTotal = creditManual ? creditManual.payouts.reduce((s, h) => s + h.amount, 0) : 0;
 
   // Short/Over: POS sales (expected) less everything actually collected/paid, plus
   // the lottery short/over. Each part is a signed contribution to the short/over.
@@ -108,7 +109,7 @@ export default async function DashboardPage({
     { label: "Safe drop", value: totalSplit.cash },
     { label: "EBT", value: creditManual?.ebt ?? 0 },
     { label: "Other credit", value: creditManual?.otherCredit ?? 0 },
-    { label: "Payout in cash", value: creditManual?.payoutCash ?? 0 },
+    { label: "Payout in cash", value: payoutTotal },
     { label: "House account", value: houseTotal },
     // Signed: lottery short (negative) subtracts, lottery over (positive) adds.
     { label: "Lottery short/over", value: lottoOver },

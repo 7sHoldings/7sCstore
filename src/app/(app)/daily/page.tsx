@@ -138,6 +138,7 @@ export default async function DailySalesPage({
     ? await getCreditManualRange(loc ?? "", range.start, range.end)
     : await getCreditManual(loc ?? "", navDate);
   const houseTotal = creditManual ? creditManual.house.reduce((s, h) => s + h.amount, 0) : 0;
+  const payoutTotal = creditManual ? creditManual.payouts.reduce((s, h) => s + h.amount, 0) : 0;
 
   // Short/Over: POS sales (expected) less everything actually collected/paid, with
   // the lottery short/over rolled in. Each part is a signed contribution.
@@ -146,7 +147,7 @@ export default async function DailySalesPage({
     { label: "Safe drop", value: totalSplit.cash },
     { label: "EBT", value: creditManual?.ebt ?? 0 },
     { label: "Other credit", value: creditManual?.otherCredit ?? 0 },
-    { label: "Payout in cash", value: creditManual?.payoutCash ?? 0 },
+    { label: "Payout in cash", value: payoutTotal },
     { label: "House account", value: houseTotal },
     // Signed: lottery short (negative) subtracts, lottery over (positive) adds.
     { label: "Lottery short/over", value: lottoOver },

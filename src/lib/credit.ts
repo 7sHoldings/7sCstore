@@ -1,7 +1,7 @@
 /**
  * Employee manual credit/tender entry — EBT, other credit-card sales, cash
- * payouts, and house-account charges (with a maintained list of house accounts).
- * Stored as per-day scalars (Setting table) so the owner can review them.
+ * payouts (by category), and house-account charges. House accounts and payout
+ * categories are maintained lists. Stored as per-day scalars (Setting table).
  */
 import "server-only";
 import { prisma } from "./db";
@@ -15,38 +15,49 @@ export interface HouseCharge {
 export interface CreditManual {
   ebt: number;
   otherCredit: number;
-  payoutCash: number;
+  payouts: HouseCharge[];
   house: HouseCharge[];
 }
 
 const DEFAULT_HOUSE = ["Texas Bank", "First Baptist Church"];
+const DEFAULT_PAYOUT = ["Employee Pay", "Product Buying"];
 
-/** The maintained list of house-account names for the dropdown. */
-export async function getHouseAccounts(): Promise<string[]> {
-  const raw = await getSetting("houseaccounts");
-  if (!raw) return DEFAULT_HOUSE;
+async function getList(key: string, fallback: string[]): Promise<string[]> {
+  const raw = await getSetting(key);
+  if (!raw) return fallback;
   try {
     const a = JSON.parse(raw);
-    return Array.isArray(a) && a.length ? a.map(String) : DEFAULT_HOUSE;
+    return Array.isArray(a) && a.length ? a.map(String) : fallback;
   } catch {
-    return DEFAULT_HOUSE;
+    return fallback;
   }
 }
-
-/** Append a new house account (no-op if blank or already present). */
-export async function addHouseAccount(name: string): Promise<void> {
+async function addToList(key: string, fallback: string[], name: string): Promise<void> {
   const n = name.trim();
   if (!n) return;
-  const list = await getHouseAccounts();
+  const list = await getList(key, fallback);
   if (list.some((x) => x.toLowerCase() === n.toLowerCase())) return;
-  await setSetting("houseaccounts", JSON.stringify([...list, n]));
+  await setSetting(key, JSON.stringify([...list, n]));
+}
+
+/** Maintained list of house-account names for the dropdown. */
+export const getHouseAccounts = () => getList("houseaccounts", DEFAULT_HOUSE);
+export const addHouseAccount = (name: string) => addToList("houseaccounts", DEFAULT_HOUSE, name);
+
+/** Maintained list of cash-payout categories for the dropdown. */
+export const getPayoutCategories = () => getList("payoutcategories", DEFAULT_PAYOUT);
+export const addPayoutCategory = (name: string) => addToList("payoutcategories", DEFAULT_PAYOUT, name);
+
+/** Sum the amounts of a set of line items. */
+export function sumLines(items: HouseCharge[]): number {
+  return money(items.reduce((s, h) => s + h.amount, 0));
 }
 
 function key(locationId: string, dateISO: string): string {
   return `creditmanual:${locationId}:${dateISO}`;
 }
 
-function parseHouse(raw: unknown): HouseCharge[] {
+function parseLines(raw: unknown): HouseCharge[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((h) => {
@@ -54,6 +65,13 @@ function parseHouse(raw: unknown): HouseCharge[] {
       return { account: String(hh.account ?? "").trim(), amount: money(Number(hh.amount) || 0) };
     })
     .filter((h) => h.account && h.amount > 0);
+}
+
+/** Back-compat: older entries stored payoutCash as a single number. */
+function parsePayouts(o: Record<string, unknown>): HouseCharge[] {
+  if (Array.isArray(o.payouts)) return parseLines(o.payouts);
+  const legacy = money(Number(o.payoutCash) || 0);
+  return legacy > 0 ? [{ account: "Payout", amount: legacy }] : [];
 }
 
 /** Read the employee's manual credit entry for a day, or null. */
@@ -65,8 +83,8 @@ export async function getCreditManual(locationId: string, dateISO: string): Prom
     return {
       ebt: money(Number(o.ebt) || 0),
       otherCredit: money(Number(o.otherCredit) || 0),
-      payoutCash: money(Number(o.payoutCash) || 0),
-      house: parseHouse(o.house),
+      payouts: parsePayouts(o),
+      house: parseLines(o.house),
     };
   } catch {
     return null;
@@ -78,7 +96,7 @@ export async function setCreditManual(locationId: string, dateISO: string, data:
   await setSetting(key(locationId, dateISO), JSON.stringify({
     ebt: money(data.ebt),
     otherCredit: money(data.otherCredit),
-    payoutCash: money(data.payoutCash),
+    payouts: data.payouts.map((h) => ({ account: h.account, amount: money(h.amount) })),
     house: data.house.map((h) => ({ account: h.account, amount: money(h.amount) })),
   }));
 }
@@ -86,8 +104,9 @@ export async function setCreditManual(locationId: string, dateISO: string, data:
 /** Sum manual credit entries across a [start, end) range, or null if none. */
 export async function getCreditManualRange(locationId: string, start: Date, end: Date): Promise<CreditManual | null> {
   const rows = await prisma.setting.findMany({ where: { key: { startsWith: `creditmanual:${locationId}:` } } });
-  let ebt = 0, otherCredit = 0, payoutCash = 0, seen = false;
+  let ebt = 0, otherCredit = 0, seen = false;
   const houseMap = new Map<string, number>();
+  const payoutMap = new Map<string, number>();
   for (const r of rows) {
     const dateISO = r.key.split(":").pop()!;
     const d = new Date(dateISO + "T00:00:00");
@@ -96,16 +115,15 @@ export async function getCreditManualRange(locationId: string, start: Date, end:
       const o = JSON.parse(r.value) as Record<string, unknown>;
       ebt += Number(o.ebt) || 0;
       otherCredit += Number(o.otherCredit) || 0;
-      payoutCash += Number(o.payoutCash) || 0;
-      for (const h of parseHouse(o.house)) houseMap.set(h.account, (houseMap.get(h.account) || 0) + h.amount);
+      for (const h of parseLines(o.house)) houseMap.set(h.account, (houseMap.get(h.account) || 0) + h.amount);
+      for (const p of parsePayouts(o)) payoutMap.set(p.account, (payoutMap.get(p.account) || 0) + p.amount);
       seen = true;
     } catch {
       // skip malformed
     }
   }
   if (!seen) return null;
-  const house = [...houseMap.entries()]
-    .map(([account, amount]) => ({ account, amount: money(amount) }))
-    .sort((a, b) => b.amount - a.amount);
-  return { ebt: money(ebt), otherCredit: money(otherCredit), payoutCash: money(payoutCash), house };
+  const toLines = (m: Map<string, number>) =>
+    [...m.entries()].map(([account, amount]) => ({ account, amount: money(amount) })).sort((a, b) => b.amount - a.amount);
+  return { ebt: money(ebt), otherCredit: money(otherCredit), payouts: toLines(payoutMap), house: toLines(houseMap) };
 }
