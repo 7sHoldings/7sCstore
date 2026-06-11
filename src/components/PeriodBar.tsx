@@ -10,7 +10,7 @@ const PRESETS: { key: string; label: string }[] = [
   { key: "wtd", label: "Week" },
   { key: "mtd", label: "This Month" },
   { key: "lastmonth", label: "Last Month" },
-  { key: "qtd", label: "Quarter" },
+  { key: "lastquarter", label: "Quarter" },
   { key: "ytd", label: "Year" },
 ];
 
