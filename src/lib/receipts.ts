@@ -27,3 +27,8 @@ export async function addReceipts(locationId: string, scope: string, id: string,
   const existing = await getReceipts(locationId, scope, id);
   await setSetting(key(locationId, scope, id), JSON.stringify([...existing, ...paths]));
 }
+
+/** Replace the receipt list for a scope+id (used when updating an entry's photo). */
+export async function setReceipts(locationId: string, scope: string, id: string, paths: string[]): Promise<void> {
+  await setSetting(key(locationId, scope, id), JSON.stringify(paths));
+}

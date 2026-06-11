@@ -7,7 +7,7 @@ import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { setCreditManual, addHouseAccount as addHA, addPayoutCategory as addPC, getHouseAccounts, getPayoutCategories, type HouseCharge } from "@/lib/credit";
 import { uploadReceiptsFromForm } from "@/lib/storage";
-import { addReceipts } from "@/lib/receipts";
+import { setReceipts } from "@/lib/receipts";
 import { logAudit } from "@/lib/audit";
 
 /** Add a payout category inline and return the updated list. */
@@ -56,8 +56,9 @@ export async function saveCreditManual(formData: FormData): Promise<void> {
   const data = { ebt: num("ebt"), otherCredit: num("otherCredit"), payouts, house };
   await setCreditManual(loc, date, data);
 
+  // New photos replace the day's receipts (so an update doesn't keep the old image).
   const photos = await uploadReceiptsFromForm(formData, "photos", `${loc}/credit/${date}`);
-  await addReceipts(loc, "credit", date, photos);
+  if (photos.length) await setReceipts(loc, "credit", date, photos);
 
   await logAudit({ userId: session.userId, action: "UPDATE", entity: "Setting", entityId: `creditmanual:${loc}:${date}`, after: data });
 
