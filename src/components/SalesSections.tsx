@@ -157,11 +157,12 @@ export function LotteryReconcileStrip({
 
 /** Owner-side panel showing the employee's manual credit entry (EBT / other credit / payout / house accounts). */
 export function ManualCreditPanel({
-  data, entryHref, className,
+  data, entryHref, className, receipts = [],
 }: {
   data: { ebt: number; otherCredit: number; payouts: { account: string; amount: number }[]; house: { account: string; amount: number }[] } | null;
   entryHref?: string;
   className?: string;
+  receipts?: string[];
 }) {
   const houseTotal = data ? data.house.reduce((s, h) => s + h.amount, 0) : 0;
   const payoutTotal = data ? data.payouts.reduce((s, h) => s + h.amount, 0) : 0;
@@ -202,6 +203,17 @@ export function ManualCreditPanel({
           </div>
           <Breakdown title="Payouts in cash" items={data.payouts} />
           <Breakdown title="House accounts" items={data.house} />
+          {receipts.length > 0 && (
+            <div className="mt-4">
+              <div className="text-label-caps uppercase text-on-surface-variant mb-1.5">Receipts</div>
+              <div className="flex flex-wrap gap-2">
+                {receipts.map((u, i) => (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <a key={i} href={u} target="_blank" rel="noreferrer"><img src={u} alt="receipt" className="w-14 h-14 object-cover rounded-md border border-outline-variant/60" /></a>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="px-5 py-8 text-center text-body-sm text-on-surface-variant">

@@ -2,9 +2,11 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { getHouseBalances, getHousePayments } from "@/lib/credit";
+import { signedUrl } from "@/lib/storage";
 import { fmtMoney } from "@/lib/format";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import { recordHousePayment, removeHousePayment } from "./actions";
+import ReceiptInput from "../credit-entry/ReceiptInput";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,7 @@ export default async function HouseAccountsPage({
   ]);
   const totalOutstanding = balances.reduce((s, b) => s + b.balance, 0);
   const recent = [...payments].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 25);
+  const recentPhotos = await Promise.all(recent.map((p) => (p.photo ? signedUrl(p.photo) : Promise.resolve(null))));
   const today = new Date().toISOString().slice(0, 10);
 
   return (
@@ -111,6 +114,7 @@ export default async function HouseAccountsPage({
               <label className="ft-label" htmlFor="note">Note (optional)</label>
               <input id="note" name="note" className="ft-input w-full" placeholder="e.g. cash, check #123" />
             </div>
+            <ReceiptInput />
             <button type="submit" className="ft-btn-primary w-full justify-center"><Icon name="check" className="text-[18px]" /> Record payment</button>
           </form>
         </Card>
@@ -128,16 +132,23 @@ export default async function HouseAccountsPage({
                   <th className="px-5 py-3">Date</th>
                   <th className="px-5 py-3">Account</th>
                   <th className="px-5 py-3">Note</th>
+                  <th className="px-5 py-3">Receipt</th>
                   <th className="px-5 py-3 text-right">Amount</th>
                   <th className="px-5 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/40">
-                {recent.map((p) => (
+                {recent.map((p, i) => (
                   <tr key={p.id} className="hover:bg-surface-container-low/50">
                     <td className="px-5 py-3 tabular text-on-surface-variant">{p.date}</td>
                     <td className="px-5 py-3 font-medium text-on-surface">{p.account}</td>
                     <td className="px-5 py-3 text-on-surface-variant">{p.note || "—"}</td>
+                    <td className="px-5 py-3">
+                      {recentPhotos[i] ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <a href={recentPhotos[i]!} target="_blank" rel="noreferrer"><img src={recentPhotos[i]!} alt="receipt" className="w-10 h-10 object-cover rounded border border-outline-variant/60" /></a>
+                      ) : <span className="text-on-surface-variant">—</span>}
+                    </td>
                     <td className="px-5 py-3 text-right tabular text-secondary">{fmtMoney(p.amount)}</td>
                     <td className="px-5 py-3 text-right">
                       <form action={removeHousePayment}>

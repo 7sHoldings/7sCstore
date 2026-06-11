@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { addHousePayment, deleteHousePayment } from "@/lib/credit";
+import { uploadReceiptsFromForm } from "@/lib/storage";
 import { logAudit } from "@/lib/audit";
 
 /** Record a payment against a house account (reduces its running balance). */
@@ -21,7 +22,8 @@ export async function recordHousePayment(formData: FormData): Promise<void> {
   const note = String(formData.get("note") || "");
   if (!account || !isFinite(amount) || amount <= 0) return;
 
-  await addHousePayment(loc, account, amount, date, note);
+  const [photo] = await uploadReceiptsFromForm(formData, "photos", `${loc}/housepay/${date}`);
+  await addHousePayment(loc, account, amount, date, note, photo);
   await logAudit({ userId: session.userId, action: "CREATE", entity: "HousePayment", entityId: account, after: { account, amount, date } });
   revalidatePath("/house-accounts");
   revalidatePath("/daily");

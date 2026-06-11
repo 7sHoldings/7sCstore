@@ -2,10 +2,13 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { getLotteryManual } from "@/lib/lottery";
+import { getReceipts } from "@/lib/receipts";
+import { signedUrls } from "@/lib/storage";
 import { money } from "@/lib/calc";
 import { fmtMoney } from "@/lib/format";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import { saveLotteryManual } from "./actions";
+import ReceiptInput from "../credit-entry/ReceiptInput";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +26,7 @@ export default async function LotteryEntryPage({
   const dateISO = sp.date || new Date().toISOString().slice(0, 10);
   const existing = loc ? await getLotteryManual(loc, dateISO) : null;
   const net = existing ? money(existing.sales - existing.payout) : 0;
+  const receiptUrls = await signedUrls(loc ? await getReceipts(loc, "lottery", dateISO) : []);
 
   return (
     <div>
@@ -60,6 +64,8 @@ export default async function LotteryEntryPage({
             <span className="text-label-caps uppercase text-on-surface-variant">Net (sales − payout)</span>
             <span className="tabular font-bold">{fmtMoney(net)}</span>
           </div>
+
+          <ReceiptInput existing={receiptUrls} />
 
           <div className="flex items-center gap-2">
             <button type="submit" className="ft-btn-primary"><Icon name="save" className="text-[18px]" /> Save entry</button>

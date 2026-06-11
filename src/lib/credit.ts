@@ -162,6 +162,7 @@ export interface HousePayment {
   amount: number;
   date: string;
   note?: string;
+  photo?: string;
 }
 
 export async function getHousePayments(locationId: string): Promise<HousePayment[]> {
@@ -170,16 +171,16 @@ export async function getHousePayments(locationId: string): Promise<HousePayment
   try {
     const a = JSON.parse(raw);
     return Array.isArray(a)
-      ? a.map((p) => ({ id: String(p.id), account: String(p.account), amount: money(Number(p.amount) || 0), date: String(p.date), note: p.note ? String(p.note) : undefined }))
+      ? a.map((p) => ({ id: String(p.id), account: String(p.account), amount: money(Number(p.amount) || 0), date: String(p.date), note: p.note ? String(p.note) : undefined, photo: p.photo ? String(p.photo) : undefined }))
       : [];
   } catch {
     return [];
   }
 }
 
-export async function addHousePayment(locationId: string, account: string, amount: number, date: string, note?: string): Promise<void> {
+export async function addHousePayment(locationId: string, account: string, amount: number, date: string, note?: string, photo?: string): Promise<void> {
   const list = await getHousePayments(locationId);
-  list.push({ id: crypto.randomUUID(), account: account.trim(), amount: money(amount), date, note: note?.trim() || undefined });
+  list.push({ id: crypto.randomUUID(), account: account.trim(), amount: money(amount), date, note: note?.trim() || undefined, photo: photo || undefined });
   await setSetting(`housepayments:${locationId}`, JSON.stringify(list));
 }
 

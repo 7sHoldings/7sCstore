@@ -2,9 +2,12 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { getCreditManual, getHouseAccounts, getPayoutCategories } from "@/lib/credit";
+import { getReceipts } from "@/lib/receipts";
+import { signedUrls } from "@/lib/storage";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import { saveCreditManual, addPayoutCategoryInline, addHouseAccountInline } from "./actions";
 import LineItemEditor from "./LineItemEditor";
+import ReceiptInput from "./ReceiptInput";
 
 export const dynamic = "force-dynamic";
 
@@ -20,11 +23,13 @@ export default async function CreditEntryPage({
   const loc = await getActiveLocationId();
   const sp = await searchParams;
   const dateISO = sp.date || new Date().toISOString().slice(0, 10);
-  const [existing, houseAccounts, payoutCategories] = await Promise.all([
+  const [existing, houseAccounts, payoutCategories, receiptPaths] = await Promise.all([
     loc ? getCreditManual(loc, dateISO) : Promise.resolve(null),
     getHouseAccounts(),
     getPayoutCategories(),
+    loc ? getReceipts(loc, "credit", dateISO) : Promise.resolve([]),
   ]);
+  const receiptUrls = await signedUrls(receiptPaths);
 
   return (
     <div>
@@ -75,6 +80,8 @@ export default async function CreditEntryPage({
             rows={existing?.house ?? []}
             addAction={addHouseAccountInline}
           />
+
+          <ReceiptInput existing={receiptUrls} />
 
           <button type="submit" className="ft-btn-primary"><Icon name="save" className="text-[18px]" /> Save entry · {dateISO}</button>
         </form>

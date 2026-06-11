@@ -6,6 +6,8 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
 import { setLotteryManual } from "@/lib/lottery";
+import { uploadReceiptsFromForm } from "@/lib/storage";
+import { addReceipts } from "@/lib/receipts";
 import { logAudit } from "@/lib/audit";
 
 /** Save the employee's manual lottery sales + lotto payout for a day. */
@@ -22,6 +24,10 @@ export async function saveLotteryManual(formData: FormData): Promise<void> {
   if (!isFinite(sales) || !isFinite(payout) || sales < 0 || payout < 0) return;
 
   await setLotteryManual(loc, date, sales, payout);
+
+  const photos = await uploadReceiptsFromForm(formData, "photos", `${loc}/lottery/${date}`);
+  await addReceipts(loc, "lottery", date, photos);
+
   await logAudit({
     userId: session.userId,
     action: "UPDATE",

@@ -10,6 +10,8 @@ import { getTaxRate } from "@/lib/settings";
 import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
 import { getLotteryManual, getLotteryManualRange } from "@/lib/lottery";
 import { getCreditManual, getCreditManualRange } from "@/lib/credit";
+import { getReceipts } from "@/lib/receipts";
+import { signedUrls } from "@/lib/storage";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import DailyActions from "./DailyActions";
@@ -138,6 +140,7 @@ export default async function DailySalesPage({
     : await getCreditManual(loc ?? "", navDate);
   const houseTotal = creditManual ? creditManual.house.reduce((s, h) => s + h.amount, 0) : 0;
   const payoutTotal = creditManual ? creditManual.payouts.reduce((s, h) => s + h.amount, 0) : 0;
+  const creditReceipts = !isRange ? await signedUrls(await getReceipts(loc ?? "", "credit", navDate)) : [];
 
   // Short/Over: POS sales (expected) less everything actually collected/paid, with
   // the lottery short/over rolled in. Each part is a signed contribution.
@@ -219,7 +222,7 @@ export default async function DailySalesPage({
             reconcile={tender ? { parts: reconParts, shortOver } : undefined}
           />
 
-          <ManualCreditPanel className="mb-6" data={creditManual} entryHref={`/credit-entry?date=${navDate}`} />
+          <ManualCreditPanel className="mb-6" data={creditManual} entryHref={`/credit-entry?date=${navDate}`} receipts={creditReceipts} />
 
           <Card className="p-5 mb-6">
             <div className="flex items-center justify-between mb-3">
