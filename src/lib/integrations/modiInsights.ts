@@ -115,7 +115,8 @@ export const modiInsightsAdapter: PosAdapter = {
         const price = num(r.RptRetail) || num(r.Retail);
         const amount = num(r.Amount);
         if (amount === 0 && gallons === 0) continue;
-        const promoTotal = num(r.Promotion);
+        // Fuel "promotions" = the report's Discount Amount (+ any Promotion).
+        const promoTotal = (num(r.Discount) || num(r.DiscountAmount)) + num(r.Promotion);
         const ratio = fuelRatio.get(fuelType.trim().toUpperCase()) ?? fuelOverall;
         for (const [pay, amt] of splitAmount(amount, ratio)) {
           out.push({

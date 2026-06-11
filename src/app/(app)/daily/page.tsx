@@ -12,9 +12,8 @@ import { getLotteryManual, getLotteryManualRange } from "@/lib/lottery";
 import { getCreditManual, getCreditManualRange } from "@/lib/credit";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
-import RangePicker from "@/components/RangePicker";
-import DayNav from "./DayNav";
 import DailyActions from "./DailyActions";
+import DailyDateBar from "./DailyDateBar";
 
 export const dynamic = "force-dynamic";
 
@@ -174,14 +173,10 @@ export default async function DailySalesPage({
       <PageHeader
         title="Daily Sales"
         subtitle={`POS closing summary · ${label}`}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <DailyActions query={exportQs} canExport={can(session.role, "exportReports")} />
-            <RangePicker from={sp.from} to={sp.to} path="/daily" />
-            <DayNav date={navDate} />
-          </div>
-        }
+        actions={<DailyActions query={exportQs} canExport={can(session.role, "exportReports")} />}
       />
+
+      <DailyDateBar date={navDate} isRange={isRange} from={sp.from} to={sp.to} />
 
       {empty ? (
         <Card className="p-8">

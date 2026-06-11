@@ -4,7 +4,7 @@ import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { money, pctChange } from "@/lib/calc";
 import { fmtMoney, fmtNumber, gradeLabel } from "@/lib/format";
-import { rangeFor, customRange, previousRange, type PeriodKey } from "@/lib/period";
+import { rangeFor, customRange, previousRange, startOfMonth, type PeriodKey, type Range } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
 import { getReportData } from "@/lib/reports";
 import { getTaxRate } from "@/lib/settings";
@@ -25,11 +25,30 @@ export default async function DashboardPage({
 }) {
   const session = (await getSession())!;
   const sp = await searchParams;
-  const period = (sp.period as PeriodKey) || "mtd";
-  const range = sp.from && sp.to ? customRange(sp.from, sp.to) : rangeFor(period);
-  const prev = previousRange(range);
   const loc = await getActiveLocationId();
   const locWhere = loc ? { locationId: loc } : {};
+
+  // Resolve the window. With no explicit selection, default to the month of the
+  // latest sale so the overview isn't empty (mirrors Daily Sales' latest-day default).
+  let range: Range;
+  let period: PeriodKey | "" = "";
+  if (sp.from && sp.to) {
+    range = customRange(sp.from, sp.to);
+  } else if (sp.period) {
+    period = sp.period as PeriodKey;
+    range = rangeFor(period);
+  } else {
+    const latest = await prisma.sale.findFirst({ where: locWhere, orderBy: { date: "desc" }, select: { date: true } });
+    if (latest) {
+      const start = startOfMonth(latest.date);
+      const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+      range = { start, end, label: start.toLocaleDateString("en-US", { month: "long", year: "numeric" }) };
+    } else {
+      period = "mtd";
+      range = rangeFor("mtd");
+    }
+  }
+  const prev = previousRange(range);
   const showProfit = can(session.role, "viewProfit");
 
   // Trend window: per-day totals across the range, capped at 31 bars (most recent).
