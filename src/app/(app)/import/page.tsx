@@ -2,7 +2,7 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import ImportForm from "./ImportForm";
-import { importSales, importExpenses, importDailySales } from "./actions";
+import { importSales, importExpenses, importDailySales, importDailyReconciliation } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +27,15 @@ export default async function ImportPage() {
             title="Import Daily Sales (CSV)"
             description="One row per day from the Excel daily sheet. Columns: date, dailySales, fuel, lotto, lottery, lotteryPayout, total, credit, cash, shortOver. Shown in Monthly Sales."
             templateHref="/api/import/template?type=daily"
+            entityLabel="days"
+          />
+        )}
+        {canSales && (
+          <ImportForm
+            action={importDailyReconciliation}
+            title="Import Daily Reconciliation (CSV)"
+            description="Per-day manual lottery + credit entries that make the Daily page's Short/Over reconcile. Columns: date, lotterySales, lotteryPayout, ebt, otherCredit, payoutCash, houseAccount."
+            templateHref="/api/import/template?type=recon"
             entityLabel="days"
           />
         )}

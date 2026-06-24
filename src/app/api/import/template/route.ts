@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SALES_TEMPLATE_CSV, EXPENSE_TEMPLATE_CSV, DAILY_SALES_TEMPLATE_CSV } from "@/lib/csv";
+import { SALES_TEMPLATE_CSV, EXPENSE_TEMPLATE_CSV, DAILY_SALES_TEMPLATE_CSV, RECON_TEMPLATE_CSV } from "@/lib/csv";
 
 export const runtime = "nodejs";
 
 const TEMPLATES: Record<string, { csv: string; filename: string }> = {
   expenses: { csv: EXPENSE_TEMPLATE_CSV, filename: "7scstores_expenses_template.csv" },
   daily: { csv: DAILY_SALES_TEMPLATE_CSV, filename: "7scstores_daily_sales_template.csv" },
+  recon: { csv: RECON_TEMPLATE_CSV, filename: "7scstores_daily_reconciliation_template.csv" },
 };
 
 export async function GET(req: NextRequest) {

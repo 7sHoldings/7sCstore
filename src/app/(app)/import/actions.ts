@@ -8,6 +8,8 @@ import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { parseCSV, SALES_TEMPLATE_HEADERS, EXPENSE_TEMPLATE_HEADERS, DAILY_SALES_TEMPLATE_HEADERS } from "@/lib/csv";
 import { money, perGallon } from "@/lib/calc";
+import { setLotteryManual } from "@/lib/lottery";
+import { setCreditManual } from "@/lib/credit";
 
 const CATEGORIES = ["FUEL", "STORE", "LOTTERY", "TOBACCO", "FOOD_DRINK", "OTHER"];
 const PAYMENTS = ["CASH", "CARD", "OTHER"];
@@ -403,5 +405,103 @@ export async function importDailySales(
   await logAudit({ userId: session.userId, action: "IMPORT", entity: "DailySalesSummary", after: { count: parsed.length } });
   revalidatePath("/monthly");
   revalidatePath("/dashboard");
+  return { ok: true, imported: parsed.length };
+}
+
+interface ParsedRecon {
+  date: string;
+  lotterySales: number;
+  lotteryPayout: number;
+  ebt: number;
+  otherCredit: number;
+  payoutCash: number;
+  houseAccount: number;
+}
+
+/**
+ * Validate-then-commit CSV import for the employee manual entries that drive the
+ * daily Short/Over: lottery (sales/payout) and credit (EBT, other credit, cash
+ * payout, house account). Written via the same save functions as the Lottery /
+ * Credit Entry pages, so an imported day is identical to a hand-entered one.
+ * Re-importing a date overwrites it; the base POS sales/tender are untouched.
+ */
+export async function importDailyReconciliation(
+  _prev: ImportResult | undefined,
+  formData: FormData
+): Promise<ImportResult> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "enterSales")) return { error: "You don't have permission to import sales." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { error: "Choose a CSV file to import." };
+
+  const text = await file.text();
+  const rows = parseCSV(text);
+  if (rows.length < 2) return { error: "The file has no data rows." };
+
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const idx = (name: string) => header.indexOf(name.toLowerCase());
+  if (idx("date") === -1) return { error: `Missing required column: date. Download the template for the correct format.` };
+
+  const errors: { row: number; message: string }[] = [];
+  const parsed: ParsedRecon[] = [];
+  const fields = ["lotterySales", "lotteryPayout", "ebt", "otherCredit", "payoutCash", "houseAccount"];
+
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r];
+    const get = (name: string) => (idx(name) >= 0 ? (cells[idx(name)] ?? "").trim() : "");
+    const lineNo = r + 1;
+    const dateStr = get("date");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      errors.push({ row: lineNo, message: `Invalid date "${dateStr}" (use YYYY-MM-DD).` });
+      continue;
+    }
+    const vals: Record<string, number> = {};
+    let bad = false;
+    for (const f of fields) {
+      const raw = get(f);
+      const n = raw === "" ? 0 : Number(raw);
+      if (isNaN(n) || n < 0) { errors.push({ row: lineNo, message: `Invalid "${f}": "${raw}".` }); bad = true; break; }
+      vals[f] = money(n);
+    }
+    if (bad) continue;
+    parsed.push({ date: dateStr, ...(vals as unknown as Omit<ParsedRecon, "date">) });
+  }
+
+  if (errors.length) return { ok: false, errors, imported: 0 };
+
+  try {
+    // Write in small batches to stay within the connection pool.
+    for (let i = 0; i < parsed.length; i += 15) {
+      const batch = parsed.slice(i, i + 15);
+      await Promise.all(
+        batch.map(async (p) => {
+          if (p.lotterySales > 0 || p.lotteryPayout > 0) {
+            await setLotteryManual(locationId, p.date, p.lotterySales, p.lotteryPayout);
+          }
+          if (p.ebt > 0 || p.otherCredit > 0 || p.payoutCash > 0 || p.houseAccount > 0) {
+            await setCreditManual(locationId, p.date, {
+              ebt: p.ebt,
+              otherCredit: p.otherCredit,
+              payouts: p.payoutCash > 0 ? [{ account: "General Payout", amount: p.payoutCash }] : [],
+              house: p.houseAccount > 0 ? [{ account: "House Account", amount: p.houseAccount }] : [],
+            });
+          }
+        })
+      );
+    }
+  } catch (e) {
+    console.error(e);
+    return { error: "Import failed while saving. Some days may have been written; re-running is safe." };
+  }
+
+  await logAudit({ userId: session.userId, action: "IMPORT", entity: "Setting", after: { count: parsed.length, kind: "reconciliation" } });
+  revalidatePath("/daily");
+  revalidatePath("/monthly");
+  revalidatePath("/lottery");
+  revalidatePath("/credit-entry");
   return { ok: true, imported: parsed.length };
 }

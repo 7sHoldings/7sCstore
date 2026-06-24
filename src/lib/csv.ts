@@ -106,3 +106,22 @@ export const DAILY_SALES_TEMPLATE_CSV =
     "2026-05-06,3878.76,2256.28,74.50,704.00,451.00,6767.59,4096.70,2482.00,2.25",
   ].join("\n") +
   "\n";
+
+export const RECON_TEMPLATE_HEADERS = [
+  "date",
+  "lotterySales",
+  "lotteryPayout",
+  "ebt",
+  "otherCredit",
+  "payoutCash",
+  "houseAccount",
+];
+
+export const RECON_TEMPLATE_CSV =
+  RECON_TEMPLATE_HEADERS.join(",") +
+  "\n" +
+  [
+    // Employee manual lottery + credit entries that drive the day's Short/Over.
+    "2026-05-06,778.50,451.00,0,0,120.14,73.00",
+  ].join("\n") +
+  "\n";
