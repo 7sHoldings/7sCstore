@@ -87,4 +87,4 @@ export const catLabel = (c: string) => CATEGORY_LABELS[c] ?? c;
 export const expenseCatLabel = (c: string) => EXPENSE_LABELS[c] ?? c;
 export const gradeLabel = (g: string) => GRADE_LABELS[g] ?? g;
 export const paymentLabel = (p: string) =>
-  ({ CASH: "Cash", CARD: "Card", OTHER: "Other" }[p] ?? p);
+  ({ CASH: "Cash", CARD: "Card", CHECK: "Check", OTHER: "Other" }[p] ?? p);

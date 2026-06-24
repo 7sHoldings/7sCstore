@@ -7,7 +7,7 @@ import { expenseCatLabel, paymentLabel } from "@/lib/format";
 import { fixedSubOptionsFor, vendorSuggestionsFor } from "@/lib/expenseOptions";
 
 const CATEGORIES = ["STORE_OPERATING_EXPENSES", "INVENTORY_PURCHASE"];
-const PAYMENTS = ["CASH", "CARD", "OTHER"];
+const PAYMENTS = ["CASH", "CARD", "CHECK", "OTHER"];
 
 // Always-visible inline entry row — fill left to right and hit Add (or Enter)
 // to save. Date + Category stay put so you can log many rows quickly; the
@@ -79,7 +79,7 @@ export default function QuickExpenseRow({ defaultDate }: { defaultDate: string }
           </Field>
 
           <Field label="Method" className="w-[110px]">
-            <select name="paymentMethod" className="ft-input" defaultValue={isInventory ? "OTHER" : "CASH"}>
+            <select name="paymentMethod" key={category} className="ft-input" defaultValue={isInventory ? "CHECK" : "CASH"}>
               {PAYMENTS.map((p) => (
                 <option key={p} value={p}>{paymentLabel(p)}</option>
               ))}

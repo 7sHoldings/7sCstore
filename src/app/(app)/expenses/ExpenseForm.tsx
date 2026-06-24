@@ -8,7 +8,7 @@ import { expenseCatLabel, paymentLabel } from "@/lib/format";
 import { fixedSubOptionsFor, vendorSuggestionsFor } from "@/lib/expenseOptions";
 
 const CATEGORIES = ["STORE_OPERATING_EXPENSES", "INVENTORY_PURCHASE"];
-const PAYMENTS = ["CASH", "CARD", "OTHER"];
+const PAYMENTS = ["CASH", "CARD", "CHECK", "OTHER"];
 
 export default function ExpenseForm({ defaultDate }: { defaultDate: string }) {
   const [open, setOpen] = useState(false);
@@ -90,7 +90,7 @@ export default function ExpenseForm({ defaultDate }: { defaultDate: string }) {
           </div>
           <div>
             <label className="ft-label" htmlFor="paymentMethod">Payment method</label>
-            <select id="paymentMethod" name="paymentMethod" className="ft-input" defaultValue="CARD">
+            <select id="paymentMethod" name="paymentMethod" key={category} className="ft-input" defaultValue={isInventory ? "CHECK" : "CARD"}>
               {PAYMENTS.map((p) => (
                 <option key={p} value={p}>{paymentLabel(p)}</option>
               ))}

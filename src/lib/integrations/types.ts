@@ -7,7 +7,7 @@
 export interface NormalizedSale {
   date: Date;
   category: "FUEL" | "STORE" | "LOTTERY" | "TOBACCO" | "FOOD_DRINK" | "OTHER";
-  paymentType: "CASH" | "CARD" | "OTHER";
+  paymentType: "CASH" | "CARD" | "CHECK" | "OTHER";
   amount: number;
   taxCollected?: number;
   refund?: number;

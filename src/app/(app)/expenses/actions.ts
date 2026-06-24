@@ -15,7 +15,7 @@ const schema = z.object({
   amount: z.coerce.number().min(0),
   payee: z.string().optional(),
   checkNo: z.string().optional(),
-  paymentMethod: z.enum(["CASH", "CARD", "OTHER"]).default("CARD"),
+  paymentMethod: z.enum(["CASH", "CARD", "CHECK", "OTHER"]).default("CARD"),
   note: z.string().optional(),
   recurring: z.coerce.boolean().default(false),
 });

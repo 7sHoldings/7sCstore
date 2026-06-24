@@ -38,6 +38,7 @@ enum SaleCategory {
 enum PaymentType {
   CASH
   CARD
+  CHECK
   OTHER
 }
 

@@ -8,7 +8,7 @@
  * future POS-fed data all compute profit the same way (FR-29).
  */
 
-export type PaymentTypeStr = "CASH" | "CARD" | "OTHER";
+export type PaymentTypeStr = "CASH" | "CARD" | "CHECK" | "OTHER";
 export type SaleCategoryStr =
   | "FUEL"
   | "STORE"
