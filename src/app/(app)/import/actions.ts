@@ -271,7 +271,16 @@ export async function importExpenses(
   }
 
   try {
+    const dates = parsed.map((p) => p.date.getTime());
+    const minDate = new Date(Math.min(...dates));
+    const maxDate = new Date(Math.max(...dates) + 86400000); // inclusive of the last day
     await prisma.$transaction(async (tx) => {
+      // Idempotent re-import: clear previously CSV-imported expenses in this
+      // date range so re-running doesn't create duplicates. Manually-entered
+      // expenses (source MANUAL) are untouched.
+      await tx.expense.deleteMany({
+        where: { locationId, source: "CSV_IMPORT", date: { gte: minDate, lt: maxDate } },
+      });
       for (const p of parsed) {
         await tx.expense.create({
           data: {
