@@ -598,20 +598,19 @@ export async function importHouseAccounts(
       );
     }
 
-    // Paybacks → house payments. First remove previously-imported paybacks in
-    // this date range so re-running doesn't duplicate them (manually-added
-    // payments, which lack the import tag, are kept). Then re-add.
-    if (payments.length) {
-      const dates = payments.map((p) => p.date).sort();
-      const lo = dates[0], hi = dates[dates.length - 1];
+    // Paybacks → house payments. Clear ALL existing house payments inside the
+    // imported date range first (covers earlier untagged imports as well as
+    // tagged re-runs), then re-add the correct set. This makes re-import fully
+    // self-healing. The window spans every date in the file (charges + paybacks).
+    const allDates = [...chargesByDate.keys(), ...payments.map((p) => p.date)].sort();
+    if (allDates.length) {
+      const lo = allDates[0], hi = allDates[allDates.length - 1];
       const existing = await getHousePayments(locationId);
       for (const p of existing) {
-        if (p.note === HOUSE_IMPORT_TAG && p.date >= lo && p.date <= hi) {
-          await deleteHousePayment(locationId, p.id);
-        }
+        if (p.date >= lo && p.date <= hi) await deleteHousePayment(locationId, p.id);
       }
-      for (const p of payments) await addHousePayment(locationId, p.account, p.amount, p.date, HOUSE_IMPORT_TAG);
     }
+    for (const p of payments) await addHousePayment(locationId, p.account, p.amount, p.date, HOUSE_IMPORT_TAG);
   } catch (e) {
     console.error(e);
     return { error: "Import failed while saving. Re-running is safe." };
