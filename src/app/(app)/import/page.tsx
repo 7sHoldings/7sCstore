@@ -2,12 +2,15 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import ImportForm from "./ImportForm";
+import { importSales, importExpenses } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function ImportPage() {
   const session = (await getSession())!;
-  if (!can(session.role, "enterSales")) {
+  const canSales = can(session.role, "enterSales");
+  const canExpenses = can(session.role, "enterExpenses");
+  if (!canSales && !canExpenses) {
     return <Card className="p-8"><EmptyState icon="lock" title="No access" hint="Your role can't import data." /></Card>;
   }
 
@@ -15,10 +18,27 @@ export default async function ImportPage() {
     <div>
       <PageHeader
         title="Import Data"
-        subtitle="Bulk-import sales from a CSV / Excel export — the manual side of the integration layer"
+        subtitle="Bulk-import sales or expenses from a CSV / Excel export — the manual side of the integration layer"
       />
-      <div className="max-w-2xl">
-        <ImportForm />
+      <div className="max-w-2xl space-y-6">
+        {canSales && (
+          <ImportForm
+            action={importSales}
+            title="Import Sales (CSV)"
+            description="Columns: date, category, paymentType, amount, taxCollected, grade, gallons, pricePerGallon, note. Fuel rows use grade/gallons/pricePerGallon; other rows use amount."
+            templateHref="/api/import/template"
+            entityLabel="sales"
+          />
+        )}
+        {canExpenses && (
+          <ImportForm
+            action={importExpenses}
+            title="Import Expenses (CSV)"
+            description="Columns: date, category, payee, amount, checkNo, paymentMethod, note. category is STORE_OPERATING_EXPENSES or INVENTORY_PURCHASE; payee is the expense type or vendor."
+            templateHref="/api/import/template?type=expenses"
+            entityLabel="expenses"
+          />
+        )}
       </div>
     </div>
   );

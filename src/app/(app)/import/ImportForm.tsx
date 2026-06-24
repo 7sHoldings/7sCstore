@@ -1,11 +1,25 @@
 "use client";
 
 import { useActionState } from "react";
-import { importSales } from "./actions";
+import type { ImportResult } from "./actions";
 import { Card, Icon } from "@/components/ui";
 
-export default function ImportForm() {
-  const [state, action, pending] = useActionState(importSales, {});
+type ImportAction = (prev: ImportResult | undefined, formData: FormData) => Promise<ImportResult>;
+
+export default function ImportForm({
+  action,
+  title,
+  description,
+  templateHref,
+  entityLabel,
+}: {
+  action: ImportAction;
+  title: string;
+  description: string;
+  templateHref: string;
+  entityLabel: string;
+}) {
+  const [state, formAction, pending] = useActionState(action, {});
 
   return (
     <div className="space-y-4">
@@ -15,19 +29,16 @@ export default function ImportForm() {
             <Icon name="upload_file" className="text-primary" />
           </div>
           <div>
-            <h3 className="font-semibold text-on-surface">Import Sales (CSV)</h3>
-            <p className="text-body-sm text-on-surface-variant">
-              Columns: date, category, paymentType, amount, taxCollected, grade, gallons, pricePerGallon, note.
-              Fuel rows use grade/gallons/pricePerGallon; other rows use amount.
-            </p>
+            <h3 className="font-semibold text-on-surface">{title}</h3>
+            <p className="text-body-sm text-on-surface-variant">{description}</p>
           </div>
         </div>
 
-        <a href="/api/import/template" className="ft-btn-secondary mb-4 inline-flex">
+        <a href={templateHref} className="ft-btn-secondary mb-4 inline-flex">
           <Icon name="download" className="text-[18px]" /> Download CSV template
         </a>
 
-        <form action={action} className="space-y-4">
+        <form action={formAction} className="space-y-4">
           <input
             type="file"
             name="file"
@@ -53,7 +64,7 @@ export default function ImportForm() {
       {state?.ok && (
         <Card className="p-4 border-secondary/40 bg-secondary-container/20">
           <div className="flex items-center gap-2 text-secondary font-medium">
-            <Icon name="check_circle" className="text-[20px]" /> Imported {state.imported} sales successfully.
+            <Icon name="check_circle" className="text-[20px]" /> Imported {state.imported} {entityLabel} successfully.
           </div>
         </Card>
       )}

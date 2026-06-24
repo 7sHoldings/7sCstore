@@ -62,3 +62,25 @@ export const SALES_TEMPLATE_CSV =
     "2026-06-01,LOTTERY,CASH,32.00,,,,,Commission only",
   ].join("\n") +
   "\n";
+
+export const EXPENSE_TEMPLATE_HEADERS = [
+  "date",
+  "category",
+  "payee",
+  "amount",
+  "checkNo",
+  "paymentMethod",
+  "note",
+];
+
+export const EXPENSE_TEMPLATE_CSV =
+  EXPENSE_TEMPLATE_HEADERS.join(",") +
+  "\n" +
+  [
+    // category: STORE_OPERATING_EXPENSES or INVENTORY_PURCHASE
+    // paymentMethod: CASH, CARD, CHECK or OTHER (defaults to CASH)
+    "2026-06-01,STORE_OPERATING_EXPENSES,Electricity,842.17,,OTHER,",
+    "2026-06-02,INVENTORY_PURCHASE,Mikes Wholesale,1240.55,1208,CHECK,Inv 5567",
+    "2026-06-02,INVENTORY_PURCHASE,Reddy Ice,164.80,,CASH,",
+  ].join("\n") +
+  "\n";
