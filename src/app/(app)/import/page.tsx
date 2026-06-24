@@ -2,7 +2,7 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import ImportForm from "./ImportForm";
-import { importSales, importExpenses } from "./actions";
+import { importSales, importExpenses, importDailySales } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +21,15 @@ export default async function ImportPage() {
         subtitle="Bulk-import sales or expenses from a CSV / Excel export — the manual side of the integration layer"
       />
       <div className="max-w-2xl space-y-6">
+        {canSales && (
+          <ImportForm
+            action={importDailySales}
+            title="Import Daily Sales (CSV)"
+            description="One row per day from the Excel daily sheet. Columns: date, dailySales, fuel, lotto, lottery, lotteryPayout, total, credit, cash, shortOver. Shown in Monthly Sales."
+            templateHref="/api/import/template?type=daily"
+            entityLabel="days"
+          />
+        )}
         {canSales && (
           <ImportForm
             action={importSales}

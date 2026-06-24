@@ -84,3 +84,25 @@ export const EXPENSE_TEMPLATE_CSV =
     "2026-06-02,INVENTORY_PURCHASE,Reddy Ice,164.80,,CASH,",
   ].join("\n") +
   "\n";
+
+export const DAILY_SALES_TEMPLATE_HEADERS = [
+  "date",
+  "dailySales",
+  "fuel",
+  "lotto",
+  "lottery",
+  "lotteryPayout",
+  "total",
+  "credit",
+  "cash",
+  "shortOver",
+];
+
+export const DAILY_SALES_TEMPLATE_CSV =
+  DAILY_SALES_TEMPLATE_HEADERS.join(",") +
+  "\n" +
+  [
+    // One row per day. dailySales=Inside Sales, total=Z-Tape (register grand total).
+    "2026-05-06,3878.76,2256.28,74.50,704.00,451.00,6767.59,4096.70,2482.00,2.25",
+  ].join("\n") +
+  "\n";

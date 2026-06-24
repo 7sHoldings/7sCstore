@@ -58,6 +58,12 @@ export default async function MonthlySalesPage({
     getTaxRate(),
   ]);
 
+  // Imported per-day summaries (from the Excel daily sheet) take precedence.
+  const summaries = loc
+    ? await prisma.dailySalesSummary.findMany({ where: { locationId: loc, date: { gte: monthStart, lt: monthEnd } } })
+    : [];
+  const summaryByDay = new Map(summaries.map((s) => [s.date.toISOString().slice(0, 10), s]));
+
   // ---- bucket sales / fuel by UTC day ----
   const dayKey = (d: Date) => d.toISOString().slice(0, 10);
   const salesByDay = new Map<string, SaleRow[]>();
@@ -109,56 +115,62 @@ export default async function MonthlySalesPage({
     }
   }
 
-  // ---- compute one row per day that has any data ----
-  const allDays = new Set<string>([
+  // ---- compute one row per day from the live records (used when there's no
+  // imported Excel summary for that day) ----
+  type Row = {
+    date: string; daily: number; fuel: number; lottoSales: number; lottoPayout: number;
+    total: number; credit: number; cash: number; shortOver: number; imported: boolean;
+  };
+  const computedByDay = new Map<string, Row>();
+  const computedDays = new Set<string>([
     ...salesByDay.keys(), ...fuelByDay.keys(), ...tenderByDay.keys(),
     ...lottoManualByDay.keys(), ...creditByDay.keys(), ...taxByDay.keys(),
   ]);
-  const rows = [...allDays].sort().map((date) => {
+  for (const date of computedDays) {
     const view = buildSalesView(salesByDay.get(date) ?? [], fuelByDay.get(date) ?? []);
-
     let lottoSales = 0, lottoPayout = 0;
     for (const d of view.lotto.depts) {
       if (d.sales >= 0) lottoSales += d.sales;
       else lottoPayout += -d.sales;
     }
-    const lottoNet = view.lotto.split.total;
-
     const realTax = taxByDay.get(date);
     const salesTax = realTax != null ? money(realTax) : money(view.merch.taxable * (taxRate / 100));
     const posSales = money(view.total.total + salesTax);
-
     const tender = tenderByDay.get(date);
     const cashRatio = view.total.total > 0 ? view.total.cash / view.total.total : 0;
     const cash = tender ? money(tender.cash) : money(view.total.cash + salesTax * cashRatio);
     const card = tender ? money(tender.card) : money(view.total.card + salesTax * (1 - cashRatio));
-
     const cm = creditByDay.get(date);
     const lm = lottoManualByDay.get(date);
-    const lottoOver = lm ? money(lottoNet - money(lm.sales - lm.payout)) : 0;
-    const shortOver = money(
-      card + cash + (cm?.ebt ?? 0) + (cm?.otherCredit ?? 0) + (cm?.payout ?? 0) + (cm?.house ?? 0) + lottoOver - posSales
-    );
+    const lottoOver = lm ? money(view.lotto.split.total - money(lm.sales - lm.payout)) : 0;
+    const shortOver = money(card + cash + (cm?.ebt ?? 0) + (cm?.otherCredit ?? 0) + (cm?.payout ?? 0) + (cm?.house ?? 0) + lottoOver - posSales);
+    computedByDay.set(date, {
+      date, daily: view.merch.split.total, fuel: view.fuel.split.total,
+      lottoSales: money(lottoSales), lottoPayout: money(lottoPayout),
+      total: posSales, credit: card, cash, shortOver, imported: false,
+    });
+  }
 
-    return {
-      date,
-      daily: view.merch.split.total,
-      fuel: view.fuel.split.total,
-      lottoSales: money(lottoSales),
-      lottoPayout: money(lottoPayout),
-      lottoNet,
-      total: posSales,
-      card,
-      cash,
-      shortOver,
-    };
+  // Merge: imported Excel summaries take precedence over computed rows.
+  const allDays = new Set<string>([...computedByDay.keys(), ...summaryByDay.keys()]);
+  const rows: Row[] = [...allDays].sort().map((date) => {
+    const s = summaryByDay.get(date);
+    if (s) {
+      return {
+        date, daily: money(s.dailySales), fuel: money(s.fuel),
+        lottoSales: money(s.lotto + s.lottery), lottoPayout: money(s.lotteryPayout),
+        total: money(s.total), credit: money(s.credit), cash: money(s.cash), shortOver: money(s.shortOver),
+        imported: true,
+      };
+    }
+    return computedByDay.get(date)!;
   });
 
-  const sum = (k: keyof (typeof rows)[number]) => money(rows.reduce((s, r) => s + (r[k] as number), 0));
+  const sum = (k: keyof Row) => money(rows.reduce((acc, r) => acc + (r[k] as number), 0));
   const totals = rows.length
     ? {
-        daily: sum("daily"), fuel: sum("fuel"), lottoNet: sum("lottoNet"),
-        total: sum("total"), card: sum("card"), cash: sum("cash"), shortOver: sum("shortOver"),
+        daily: sum("daily"), fuel: sum("fuel"), lottoSales: sum("lottoSales"),
+        total: sum("total"), credit: sum("credit"), cash: sum("cash"), shortOver: sum("shortOver"),
       }
     : null;
 
@@ -205,13 +217,13 @@ export default async function MonthlySalesPage({
                     <td className="px-4 py-3 text-right tabular">{fmtMoney(r.daily)}</td>
                     <td className="px-4 py-3 text-right tabular">{fmtMoney(r.fuel)}</td>
                     <td className="px-4 py-3 text-right tabular">
-                      {fmtMoney(r.lottoNet)}
-                      <span className="block text-on-surface-variant text-[11px]">
-                        sales {fmtMoney(r.lottoSales)} · payout {fmtMoney(r.lottoPayout)}
-                      </span>
+                      {fmtMoney(r.lottoSales)}
+                      {r.lottoPayout > 0 && (
+                        <span className="block text-on-surface-variant text-[11px]">payout {fmtMoney(r.lottoPayout)}</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right tabular font-semibold text-on-surface">{fmtMoney(r.total)}</td>
-                    <td className="px-4 py-3 text-right tabular">{fmtMoney(r.card)}</td>
+                    <td className="px-4 py-3 text-right tabular">{fmtMoney(r.credit)}</td>
                     <td className="px-4 py-3 text-right tabular">{fmtMoney(r.cash)}</td>
                     <td className={`px-4 py-3 text-right tabular font-medium ${r.shortOver < 0 ? "text-error" : r.shortOver > 0 ? "text-secondary" : "text-on-surface-variant"}`}>
                       {fmtMoney(r.shortOver)}
@@ -225,9 +237,9 @@ export default async function MonthlySalesPage({
                     <td className="px-4 py-3">Total — {monthLabel}</td>
                     <td className="px-4 py-3 text-right tabular">{fmtMoney(totals.daily)}</td>
                     <td className="px-4 py-3 text-right tabular">{fmtMoney(totals.fuel)}</td>
-                    <td className="px-4 py-3 text-right tabular">{fmtMoney(totals.lottoNet)}</td>
+                    <td className="px-4 py-3 text-right tabular">{fmtMoney(totals.lottoSales)}</td>
                     <td className="px-4 py-3 text-right tabular">{fmtMoney(totals.total)}</td>
-                    <td className="px-4 py-3 text-right tabular">{fmtMoney(totals.card)}</td>
+                    <td className="px-4 py-3 text-right tabular">{fmtMoney(totals.credit)}</td>
                     <td className="px-4 py-3 text-right tabular">{fmtMoney(totals.cash)}</td>
                     <td className={`px-4 py-3 text-right tabular ${totals.shortOver < 0 ? "text-error" : totals.shortOver > 0 ? "text-secondary" : ""}`}>
                       {fmtMoney(totals.shortOver)}

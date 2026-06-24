@@ -207,6 +207,31 @@ model ExpenseOption {
   @@index([locationId, kind])
 }
 
+// Per-day sales summary imported from the legacy Excel "daily sheet". These are
+// the authoritative day figures the Monthly Sales view shows for historical
+// days (mapped: dailySales=Inside Sales/AL, fuel=Gasoline/H, lotto+lottery=I+J,
+// total=Z-Tape/C, credit=T, cash=R, shortOver=AO). Kept separate from the
+// transactional Sale rows because the Excel totals don't decompose the same way.
+model DailySalesSummary {
+  id            String     @id @default(cuid())
+  locationId    String
+  date          DateTime
+  dailySales    Float      @default(0)
+  fuel          Float      @default(0)
+  lotto         Float      @default(0)
+  lottery       Float      @default(0)
+  lotteryPayout Float      @default(0)
+  total         Float      @default(0)
+  credit        Float      @default(0)
+  cash          Float      @default(0)
+  shortOver     Float      @default(0)
+  source        DataSource @default(CSV_IMPORT)
+  createdAt     DateTime   @default(now())
+
+  @@unique([locationId, date])
+  @@index([locationId, date])
+}
+
 // ---------------------------------------------------------------------------
 // Products, purchases, vendors, inventory
 // ---------------------------------------------------------------------------
