@@ -125,3 +125,17 @@ export const RECON_TEMPLATE_CSV =
     "2026-05-06,778.50,451.00,0,0,120.14,73.00",
   ].join("\n") +
   "\n";
+
+export const HOUSE_TEMPLATE_HEADERS = ["date", "account", "charge", "payback"];
+
+export const HOUSE_TEMPLATE_CSV =
+  HOUSE_TEMPLATE_HEADERS.join(",") +
+  "\n" +
+  [
+    // charge = money charged to the account that day; payback = money the
+    // customer paid back. One row per account per day with activity.
+    "2026-01-06,Texas Bank,46.00,0",
+    "2026-01-21,Texas Bank,0,921.92",
+    "2026-01-23,First Baptist Church,30.00,0",
+  ].join("\n") +
+  "\n";

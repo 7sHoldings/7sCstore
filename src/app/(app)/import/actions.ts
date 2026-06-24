@@ -9,7 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { parseCSV, SALES_TEMPLATE_HEADERS, EXPENSE_TEMPLATE_HEADERS, DAILY_SALES_TEMPLATE_HEADERS } from "@/lib/csv";
 import { money, perGallon } from "@/lib/calc";
 import { setLotteryManual } from "@/lib/lottery";
-import { setCreditManual } from "@/lib/credit";
+import { setCreditManual, getCreditManual, addHousePayment, addHouseAccount } from "@/lib/credit";
 
 const CATEGORIES = ["FUEL", "STORE", "LOTTERY", "TOBACCO", "FOOD_DRINK", "OTHER"];
 const PAYMENTS = ["CASH", "CARD", "OTHER"];
@@ -504,4 +504,100 @@ export async function importDailyReconciliation(
   revalidatePath("/lottery");
   revalidatePath("/credit-entry");
   return { ok: true, imported: parsed.length };
+}
+
+/**
+ * Validate-then-commit CSV import for house accounts (charge = money charged to
+ * the account, payback = money paid back). Charges are written into each day's
+ * credit entry (per account), so they show on the House Accounts page AND keep
+ * the Daily Short/Over correct (they replace that day's lump house total with the
+ * same itemised amount). Paybacks become house payments. Other credit-entry
+ * fields (EBT, payouts) on each day are preserved. Run AFTER the reconciliation
+ * import.
+ */
+export async function importHouseAccounts(
+  _prev: ImportResult | undefined,
+  formData: FormData
+): Promise<ImportResult> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "enterSales")) return { error: "You don't have permission to import." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { error: "Choose a CSV file to import." };
+
+  const text = await file.text();
+  const rows = parseCSV(text);
+  if (rows.length < 2) return { error: "The file has no data rows." };
+
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const idx = (name: string) => header.indexOf(name.toLowerCase());
+  for (const req of ["date", "account"]) {
+    if (idx(req) === -1) return { error: `Missing required column: ${req}. Download the template for the correct format.` };
+  }
+
+  const errors: { row: number; message: string }[] = [];
+  const chargesByDate = new Map<string, { account: string; amount: number }[]>();
+  const payments: { date: string; account: string; amount: number }[] = [];
+  const accountNames = new Set<string>();
+
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r];
+    const get = (name: string) => (idx(name) >= 0 ? (cells[idx(name)] ?? "").trim() : "");
+    const lineNo = r + 1;
+    const date = get("date");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { errors.push({ row: lineNo, message: `Invalid date "${date}".` }); continue; }
+    const account = get("account");
+    if (!account) { errors.push({ row: lineNo, message: `Missing account name.` }); continue; }
+    const charge = get("charge") === "" ? 0 : Number(get("charge"));
+    const payback = get("payback") === "" ? 0 : Number(get("payback"));
+    if (isNaN(charge) || charge < 0 || isNaN(payback) || payback < 0) {
+      errors.push({ row: lineNo, message: `Invalid charge/payback on row ${lineNo}.` });
+      continue;
+    }
+    accountNames.add(account);
+    if (charge > 0) {
+      const list = chargesByDate.get(date) ?? chargesByDate.set(date, []).get(date)!;
+      list.push({ account, amount: money(charge) });
+    }
+    if (payback > 0) payments.push({ date, account, amount: money(payback) });
+  }
+
+  if (errors.length) return { ok: false, errors, imported: 0 };
+
+  try {
+    // Maintained account-name list (sequential — single shared setting).
+    for (const name of accountNames) await addHouseAccount(name);
+
+    // House charges → each day's credit entry, preserving EBT/payouts.
+    const dates = [...chargesByDate.keys()];
+    for (let i = 0; i < dates.length; i += 15) {
+      await Promise.all(
+        dates.slice(i, i + 15).map(async (date) => {
+          const existing = await getCreditManual(locationId, date);
+          await setCreditManual(locationId, date, {
+            ebt: existing?.ebt ?? 0,
+            otherCredit: existing?.otherCredit ?? 0,
+            payouts: existing?.payouts ?? [],
+            house: chargesByDate.get(date)!,
+          });
+        })
+      );
+    }
+
+    // Paybacks → house payments (sequential — single shared setting).
+    for (const p of payments) await addHousePayment(locationId, p.account, p.amount, p.date);
+  } catch (e) {
+    console.error(e);
+    return { error: "Import failed while saving. Re-running is safe." };
+  }
+
+  const count = chargesByDate.size + payments.length;
+  await logAudit({ userId: session.userId, action: "IMPORT", entity: "Setting", after: { kind: "house_accounts", charges: [...chargesByDate.values()].reduce((s, l) => s + l.length, 0), payments: payments.length } });
+  revalidatePath("/house-accounts");
+  revalidatePath("/daily");
+  revalidatePath("/credit-entry");
+  return { ok: true, imported: count };
 }

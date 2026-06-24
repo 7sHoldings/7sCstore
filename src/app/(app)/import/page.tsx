@@ -2,7 +2,7 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import ImportForm from "./ImportForm";
-import { importSales, importExpenses, importDailySales, importDailyReconciliation } from "./actions";
+import { importSales, importExpenses, importDailySales, importDailyReconciliation, importHouseAccounts } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +37,15 @@ export default async function ImportPage() {
             description="Per-day manual lottery + credit entries that make the Daily page's Short/Over reconcile. Columns: date, lotterySales, lotteryPayout, ebt, otherCredit, payoutCash, houseAccount."
             templateHref="/api/import/template?type=recon"
             entityLabel="days"
+          />
+        )}
+        {canSales && (
+          <ImportForm
+            action={importHouseAccounts}
+            title="Import House Accounts (CSV)"
+            description="Per-account charges & paybacks (charge = charged, payback = paid). Shows on the House Accounts page and ties to the daily House Account total. Columns: date, account, charge, payback. Run AFTER reconciliation."
+            templateHref="/api/import/template?type=house"
+            entityLabel="entries"
           />
         )}
         {canSales && (
