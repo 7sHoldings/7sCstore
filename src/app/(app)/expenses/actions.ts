@@ -13,7 +13,8 @@ const schema = z.object({
   date: z.string().min(1),
   category: z.enum([
     "RENT_MORTGAGE", "PAYROLL", "UTILITIES", "INTERNET_PHONE", "REPAIRS_MAINTENANCE",
-    "INSURANCE", "VENDOR_PAYMENT", "FUEL_PURCHASE", "PRODUCT_PURCHASE", "BANK_FEES",
+    "STORE_OPERATING_EXPENSES", "INSURANCE", "VENDOR_PAYMENT", "FUEL_PURCHASE",
+    "PRODUCT_PURCHASE", "INVENTORY_PURCHASE", "BANK_FEES",
     "CARD_PROCESSING_FEES", "OTHER",
   ]),
   amount: z.coerce.number().min(0),
