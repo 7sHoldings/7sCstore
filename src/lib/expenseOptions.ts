@@ -101,15 +101,3 @@ export const INVENTORY_VENDORS = [
   "Yummy Ice",
   "Zig Zag",
 ] as const;
-
-// Categories that get a fixed <select> of sub-options (closed set).
-export function fixedSubOptionsFor(category: string): readonly string[] | null {
-  if (category === "STORE_OPERATING_EXPENSES") return STORE_OPERATING_EXPENSE_TYPES;
-  return null;
-}
-
-// Categories that get a typeable combobox of suggestions (open set).
-export function vendorSuggestionsFor(category: string): readonly string[] | null {
-  if (category === "INVENTORY_PURCHASE") return INVENTORY_VENDORS;
-  return null;
-}

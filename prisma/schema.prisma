@@ -193,6 +193,20 @@ model Expense {
   @@index([category])
 }
 
+// User-added dropdown options for the expense form, so staff can extend the
+// "Expense type" and "Vendor" lists inline without a code change. Seeded base
+// lists live in src/lib/expenseOptions.ts; these are the custom additions.
+model ExpenseOption {
+  id         String   @id @default(cuid())
+  locationId String
+  kind       String // "EXPENSE_TYPE" | "VENDOR"
+  value      String
+  createdAt  DateTime @default(now())
+
+  @@unique([locationId, kind, value])
+  @@index([locationId, kind])
+}
+
 // ---------------------------------------------------------------------------
 // Products, purchases, vendors, inventory
 // ---------------------------------------------------------------------------

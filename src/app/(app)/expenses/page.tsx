@@ -11,10 +11,24 @@ import QuickExpenseRow from "./QuickExpenseRow";
 import DeleteButton from "@/components/DeleteButton";
 import { deleteExpense } from "./actions";
 import { toISODate } from "@/lib/period";
+import { STORE_OPERATING_EXPENSE_TYPES, INVENTORY_VENDORS } from "@/lib/expenseOptions";
 
 export const dynamic = "force-dynamic";
 
 const CATEGORIES = ["STORE_OPERATING_EXPENSES", "INVENTORY_PURCHASE"];
+
+// Base list + custom (DB) additions, case-insensitive de-dupe, base order first.
+function mergeOptions(base: readonly string[], custom: string[]): string[] {
+  const seen = new Set(base.map((b) => b.toLowerCase()));
+  const out = [...base];
+  for (const c of custom) {
+    if (!seen.has(c.toLowerCase())) {
+      seen.add(c.toLowerCase());
+      out.push(c);
+    }
+  }
+  return out;
+}
 
 export default async function ExpensesPage({
   searchParams,
@@ -49,12 +63,25 @@ export default async function ExpensesPage({
   const canDelete = can(session.role, "editDelete");
   const canAdd = can(session.role, "enterExpenses");
 
+  // Dropdown options: seeded base lists + any custom options staff have added.
+  const customOptions = loc
+    ? await prisma.expenseOption.findMany({ where: { locationId: loc }, orderBy: { createdAt: "asc" } })
+    : [];
+  const operatingTypes = mergeOptions(
+    STORE_OPERATING_EXPENSE_TYPES,
+    customOptions.filter((o) => o.kind === "EXPENSE_TYPE").map((o) => o.value)
+  );
+  const vendors = mergeOptions(
+    INVENTORY_VENDORS,
+    customOptions.filter((o) => o.kind === "VENDOR").map((o) => o.value)
+  );
+
   return (
     <div>
       <PageHeader
         title="Expenses"
         subtitle="Operating expenses by category, vendor, and payment method"
-        actions={canAdd && <ExpenseForm defaultDate={toISODate(new Date())} />}
+        actions={canAdd && <ExpenseForm defaultDate={toISODate(new Date())} operatingTypes={operatingTypes} vendors={vendors} />}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
@@ -65,7 +92,7 @@ export default async function ExpensesPage({
         ))}
       </div>
 
-      {canAdd && <QuickExpenseRow defaultDate={toISODate(new Date())} />}
+      {canAdd && <QuickExpenseRow defaultDate={toISODate(new Date())} operatingTypes={operatingTypes} vendors={vendors} />}
 
       <Filters
         selects={[{ name: "category", label: "Category", options: CATEGORIES.map((c) => ({ value: c, label: expenseCatLabel(c) })) }]}

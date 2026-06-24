@@ -5,19 +5,25 @@ import { createExpense } from "./actions";
 import { Icon } from "@/components/ui";
 import Modal from "@/components/Modal";
 import { expenseCatLabel, paymentLabel } from "@/lib/format";
-import { fixedSubOptionsFor, vendorSuggestionsFor } from "@/lib/expenseOptions";
+import OptionSelect from "./OptionSelect";
 
 const CATEGORIES = ["STORE_OPERATING_EXPENSES", "INVENTORY_PURCHASE"];
 const PAYMENTS = ["CASH", "CARD", "CHECK", "OTHER"];
 
-export default function ExpenseForm({ defaultDate }: { defaultDate: string }) {
+export default function ExpenseForm({
+  defaultDate,
+  operatingTypes,
+  vendors,
+}: {
+  defaultDate: string;
+  operatingTypes: string[];
+  vendors: string[];
+}) {
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState("STORE_OPERATING_EXPENSES");
   const [state, action, pending] = useActionState(createExpense, {});
   const formRef = useRef<HTMLFormElement>(null);
 
-  const fixedSubOptions = fixedSubOptionsFor(category);
-  const vendorSuggestions = vendorSuggestionsFor(category);
   const isInventory = category === "INVENTORY_PURCHASE";
 
   useEffect(() => {
@@ -61,32 +67,14 @@ export default function ExpenseForm({ defaultDate }: { defaultDate: string }) {
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            {fixedSubOptions ? (
-              <>
-                <label className="ft-label" htmlFor="payee">Expense type</label>
-                <select id="payee" name="payee" key={category} className="ft-input" defaultValue="">
-                  <option value="" disabled>— Select type —</option>
-                  {fixedSubOptions.map((o) => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                </select>
-              </>
-            ) : vendorSuggestions ? (
-              <>
-                <label className="ft-label" htmlFor="payee">Vendor</label>
-                <input id="payee" name="payee" type="text" list="vendor-options" className="ft-input" placeholder="Select or type a vendor" autoComplete="off" />
-                <datalist id="vendor-options">
-                  {vendorSuggestions.map((v) => (
-                    <option key={v} value={v} />
-                  ))}
-                </datalist>
-              </>
-            ) : (
-              <>
-                <label className="ft-label" htmlFor="payee">Vendor / Payee</label>
-                <input id="payee" name="payee" type="text" className="ft-input" placeholder="e.g. City Utilities" />
-              </>
-            )}
+            <label className="ft-label">{isInventory ? "Vendor" : "Expense type"}</label>
+            <OptionSelect
+              key={category}
+              name="payee"
+              kind={isInventory ? "VENDOR" : "EXPENSE_TYPE"}
+              options={isInventory ? vendors : operatingTypes}
+              placeholder={isInventory ? "Select or add a vendor" : "Select or add a type"}
+            />
           </div>
           <div>
             <label className="ft-label" htmlFor="paymentMethod">Payment method</label>

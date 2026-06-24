@@ -4,7 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { createExpense } from "./actions";
 import { Icon } from "@/components/ui";
 import { expenseCatLabel, paymentLabel } from "@/lib/format";
-import { fixedSubOptionsFor, vendorSuggestionsFor } from "@/lib/expenseOptions";
+import OptionSelect from "./OptionSelect";
 
 const CATEGORIES = ["STORE_OPERATING_EXPENSES", "INVENTORY_PURCHASE"];
 const PAYMENTS = ["CASH", "CARD", "CHECK", "OTHER"];
@@ -12,22 +12,31 @@ const PAYMENTS = ["CASH", "CARD", "CHECK", "OTHER"];
 // Always-visible inline entry row — fill left to right and hit Add (or Enter)
 // to save. Date + Category stay put so you can log many rows quickly; the
 // amount field re-focuses after each save.
-export default function QuickExpenseRow({ defaultDate }: { defaultDate: string }) {
+export default function QuickExpenseRow({
+  defaultDate,
+  operatingTypes,
+  vendors,
+}: {
+  defaultDate: string;
+  operatingTypes: string[];
+  vendors: string[];
+}) {
   const [state, action, pending] = useActionState(createExpense, {});
   const [date, setDate] = useState(defaultDate);
   const [category, setCategory] = useState("STORE_OPERATING_EXPENSES");
+  const [nonce, setNonce] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
 
-  const fixedSubOptions = fixedSubOptionsFor(category);
-  const vendorSuggestions = vendorSuggestionsFor(category);
   const isInventory = category === "INVENTORY_PURCHASE";
 
   useEffect(() => {
     if (state?.ok) {
-      // Clear uncontrolled fields (amount, payee, check, note); date + category
-      // are controlled state so they stay put for the next entry.
+      // Clear uncontrolled fields (amount, check); date + category are controlled
+      // state so they stay put. Bumping nonce remounts the OptionSelect to clear
+      // its selection for the next entry.
       formRef.current?.reset();
+      setNonce((n) => n + 1);
       amountRef.current?.focus();
     }
   }, [state?.ok]);
@@ -49,23 +58,13 @@ export default function QuickExpenseRow({ defaultDate }: { defaultDate: string }
           </Field>
 
           <Field label={isInventory ? "Vendor" : "Expense type"} className="min-w-[200px] flex-1">
-            {fixedSubOptions ? (
-              <select name="payee" key={category} className="ft-input" defaultValue="">
-                <option value="" disabled>— Select type —</option>
-                {fixedSubOptions.map((o) => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </select>
-            ) : (
-              <>
-                <input name="payee" type="text" list="qer-vendor-options" className="ft-input" placeholder="Select or type a vendor" autoComplete="off" />
-                <datalist id="qer-vendor-options">
-                  {(vendorSuggestions ?? []).map((v) => (
-                    <option key={v} value={v} />
-                  ))}
-                </datalist>
-              </>
-            )}
+            <OptionSelect
+              key={`${category}-${nonce}`}
+              name="payee"
+              kind={isInventory ? "VENDOR" : "EXPENSE_TYPE"}
+              options={isInventory ? vendors : operatingTypes}
+              placeholder={isInventory ? "Select or add a vendor" : "Select or add a type"}
+            />
           </Field>
 
           {isInventory && (

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { getActiveLocationId } from "@/lib/location";
@@ -69,4 +70,36 @@ export async function deleteExpense(id: string): Promise<void> {
   await logAudit({ userId: session.userId, action: "DELETE", entity: "Expense", entityId: id, before });
   revalidatePath("/expenses");
   revalidatePath("/dashboard");
+}
+
+// Add a custom option to a dropdown list ("Expense type" or "Vendor") so it
+// persists and appears for future entries.
+export async function addExpenseOption(
+  kind: "EXPENSE_TYPE" | "VENDOR",
+  rawValue: string
+): Promise<{ ok?: boolean; error?: string; value?: string }> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "enterExpenses")) return { error: "You don't have permission." };
+  if (kind !== "EXPENSE_TYPE" && kind !== "VENDOR") return { error: "Invalid list." };
+
+  const value = (rawValue ?? "").trim();
+  if (!value) return { error: "Enter a name." };
+  if (value.length > 80) return { error: "Name is too long." };
+
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned to your account." };
+
+  try {
+    await prisma.expenseOption.create({ data: { locationId, kind, value } });
+  } catch (e) {
+    // Unique constraint (already exists) is fine — treat as success.
+    if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) {
+      console.error(e);
+      return { error: "Could not add the option." };
+    }
+  }
+
+  revalidatePath("/expenses");
+  return { ok: true, value };
 }
