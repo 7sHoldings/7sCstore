@@ -232,6 +232,40 @@ model DailySalesSummary {
   @@index([locationId, date])
 }
 
+// Non-sales income (Excel "Money_incoming"): rent, game-machine credit, Stagity
+// investment, beer. Shown in its own Money Incoming section.
+model MoneyIncoming {
+  id                String     @id @default(cuid())
+  locationId        String
+  date              DateTime
+  rent              Float      @default(0)
+  gameMachine       Float      @default(0)
+  stagityInvestment Float      @default(0)
+  beer              Float      @default(0)
+  total             Float      @default(0)
+  source            DataSource @default(CSV_IMPORT)
+  createdAt         DateTime   @default(now())
+
+  @@index([locationId, date])
+}
+
+// Imported monthly P&L summary (Excel "Monthly_summary_*"). One row per
+// (year, category) with the 12 monthly values + annual total, in source order.
+model MonthlySummary {
+  id         String     @id @default(cuid())
+  locationId String
+  year       Int
+  category   String
+  sortOrder  Int        @default(0)
+  months     Json // array of 12 numbers, Jan..Dec
+  annual     Float      @default(0)
+  source     DataSource @default(CSV_IMPORT)
+  createdAt  DateTime   @default(now())
+
+  @@unique([locationId, year, category])
+  @@index([locationId, year])
+}
+
 // ---------------------------------------------------------------------------
 // Products, purchases, vendors, inventory
 // ---------------------------------------------------------------------------

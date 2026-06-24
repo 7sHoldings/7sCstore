@@ -2,7 +2,7 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import ImportForm from "./ImportForm";
-import { importSales, importExpenses, importDailySales, importDailyReconciliation, importHouseAccounts } from "./actions";
+import { importSales, importExpenses, importDailySales, importDailyReconciliation, importHouseAccounts, importMoneyIncoming, importMonthlySummary } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,8 @@ export default async function ImportPage() {
   const session = (await getSession())!;
   const canSales = can(session.role, "enterSales");
   const canExpenses = can(session.role, "enterExpenses");
-  if (!canSales && !canExpenses) {
+  const canProfit = can(session.role, "viewProfit");
+  if (!canSales && !canExpenses && !canProfit) {
     return <Card className="p-8"><EmptyState icon="lock" title="No access" hint="Your role can't import data." /></Card>;
   }
 
@@ -46,6 +47,24 @@ export default async function ImportPage() {
             description="Per-account charges & paybacks (charge = charged, payback = paid). Shows on the House Accounts page and ties to the daily House Account total. Columns: date, account, charge, payback. Run AFTER reconciliation."
             templateHref="/api/import/template?type=house"
             entityLabel="entries"
+          />
+        )}
+        {canSales && (
+          <ImportForm
+            action={importMoneyIncoming}
+            title="Import Money Incoming (CSV)"
+            description="Non-sales income. Columns: date, rent, gameMachine, stagityInvestment, beer. Shown in the Money Incoming section."
+            templateHref="/api/import/template?type=income"
+            entityLabel="entries"
+          />
+        )}
+        {canProfit && (
+          <ImportForm
+            action={importMonthlySummary}
+            title="Import Monthly Summary (CSV)"
+            description="The P&L summary by month and year. Columns: year, category, jan..dec, annual. Shown in the Monthly Summary section."
+            templateHref="/api/import/template?type=summary"
+            entityLabel="rows"
           />
         )}
         {canSales && (

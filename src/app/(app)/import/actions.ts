@@ -623,3 +623,122 @@ export async function importHouseAccounts(
   revalidatePath("/credit-entry");
   return { ok: true, imported: count };
 }
+
+/** Validate-then-commit CSV import for non-sales income (Money Incoming). */
+export async function importMoneyIncoming(
+  _prev: ImportResult | undefined,
+  formData: FormData
+): Promise<ImportResult> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "enterSales")) return { error: "You don't have permission to import." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { error: "Choose a CSV file to import." };
+  const rows = parseCSV(await file.text());
+  if (rows.length < 2) return { error: "The file has no data rows." };
+
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const idx = (n: string) => header.indexOf(n.toLowerCase());
+  if (idx("date") === -1) return { error: "Missing required column: date." };
+
+  const errors: { row: number; message: string }[] = [];
+  const parsed: { date: Date; rent: number; gameMachine: number; stagityInvestment: number; beer: number; total: number }[] = [];
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r];
+    const get = (n: string) => (idx(n) >= 0 ? (cells[idx(n)] ?? "").trim() : "");
+    const lineNo = r + 1;
+    const dateStr = get("date");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) { errors.push({ row: lineNo, message: `Invalid date "${dateStr}".` }); continue; }
+    const n = (k: string) => { const raw = get(k); return raw === "" ? 0 : Number(raw); };
+    const rent = n("rent"), gameMachine = n("gameMachine"), stagityInvestment = n("stagityInvestment"), beer = n("beer");
+    if ([rent, gameMachine, stagityInvestment, beer].some((x) => isNaN(x) || x < 0)) {
+      errors.push({ row: lineNo, message: `Invalid amount on row ${lineNo}.` });
+      continue;
+    }
+    parsed.push({
+      date: new Date(`${dateStr}T00:00:00.000Z`),
+      rent: money(rent), gameMachine: money(gameMachine), stagityInvestment: money(stagityInvestment), beer: money(beer),
+      total: money(rent + gameMachine + stagityInvestment + beer),
+    });
+  }
+  if (errors.length) return { ok: false, errors, imported: 0 };
+
+  try {
+    const times = parsed.map((p) => p.date.getTime());
+    const minDate = new Date(Math.min(...times)), maxDate = new Date(Math.max(...times) + 86400000);
+    await prisma.$transaction(async (tx) => {
+      await tx.moneyIncoming.deleteMany({ where: { locationId, source: "CSV_IMPORT", date: { gte: minDate, lt: maxDate } } });
+      for (const p of parsed) {
+        await tx.moneyIncoming.create({ data: { locationId, source: "CSV_IMPORT", ...p } });
+      }
+    });
+  } catch (e) {
+    console.error(e);
+    return { error: "Import failed while saving. No rows were imported." };
+  }
+  await logAudit({ userId: session.userId, action: "IMPORT", entity: "MoneyIncoming", after: { count: parsed.length } });
+  revalidatePath("/money-incoming");
+  return { ok: true, imported: parsed.length };
+}
+
+/** Validate-then-commit CSV import for the monthly P&L summary (per year). */
+export async function importMonthlySummary(
+  _prev: ImportResult | undefined,
+  formData: FormData
+): Promise<ImportResult> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "viewProfit")) return { error: "You don't have permission to import." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { error: "Choose a CSV file to import." };
+  const rows = parseCSV(await file.text());
+  if (rows.length < 2) return { error: "The file has no data rows." };
+
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const idx = (n: string) => header.indexOf(n.toLowerCase());
+  for (const req of ["year", "category"]) if (idx(req) === -1) return { error: `Missing required column: ${req}.` };
+  const monthKeys = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+  const errors: { row: number; message: string }[] = [];
+  const parsed: { year: number; category: string; sortOrder: number; months: number[]; annual: number }[] = [];
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r];
+    const get = (n: string) => (idx(n) >= 0 ? (cells[idx(n)] ?? "").trim() : "");
+    const lineNo = r + 1;
+    const year = Number(get("year"));
+    const category = get("category");
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) { errors.push({ row: lineNo, message: `Invalid year "${get("year")}".` }); continue; }
+    if (!category) { errors.push({ row: lineNo, message: `Missing category.` }); continue; }
+    const months = monthKeys.map((k) => { const raw = get(k); return raw === "" ? 0 : money(Number(raw)); });
+    if (months.some((m) => isNaN(m))) { errors.push({ row: lineNo, message: `Invalid number on row ${lineNo}.` }); continue; }
+    const annualRaw = get("annual");
+    const annual = annualRaw === "" ? money(months.reduce((s, m) => s + m, 0)) : money(Number(annualRaw));
+    if (isNaN(annual)) { errors.push({ row: lineNo, message: `Invalid annual on row ${lineNo}.` }); continue; }
+    parsed.push({ year, category, sortOrder: r, months, annual });
+  }
+  if (errors.length) return { ok: false, errors, imported: 0 };
+
+  try {
+    await prisma.$transaction(
+      parsed.map((p) =>
+        prisma.monthlySummary.upsert({
+          where: { locationId_year_category: { locationId, year: p.year, category: p.category } },
+          create: { locationId, source: "CSV_IMPORT", ...p },
+          update: { sortOrder: p.sortOrder, months: p.months, annual: p.annual },
+        })
+      )
+    );
+  } catch (e) {
+    console.error(e);
+    return { error: "Import failed while saving. No rows were imported." };
+  }
+  await logAudit({ userId: session.userId, action: "IMPORT", entity: "MonthlySummary", after: { count: parsed.length } });
+  revalidatePath("/summary");
+  return { ok: true, imported: parsed.length };
+}

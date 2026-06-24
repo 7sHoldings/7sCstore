@@ -139,3 +139,21 @@ export const HOUSE_TEMPLATE_CSV =
     "2026-01-23,First Baptist Church,30.00,0",
   ].join("\n") +
   "\n";
+
+export const MONEY_INCOMING_TEMPLATE_HEADERS = ["date", "rent", "gameMachine", "stagityInvestment", "beer"];
+
+export const MONEY_INCOMING_TEMPLATE_CSV =
+  MONEY_INCOMING_TEMPLATE_HEADERS.join(",") +
+  "\n" +
+  ["2025-07-01,840.00,0,0,0", "2025-07-29,0,5063.00,0,0"].join("\n") +
+  "\n";
+
+export const SUMMARY_TEMPLATE_HEADERS = [
+  "year", "category", "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "annual",
+];
+
+export const SUMMARY_TEMPLATE_CSV =
+  SUMMARY_TEMPLATE_HEADERS.join(",") +
+  "\n" +
+  ["2025,Total Inside Sales,0,0,0,0,0,13646.2,110638.4,115570.7,104754,111570.6,105730.9,109514,671424.8"].join("\n") +
+  "\n";
