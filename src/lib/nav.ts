@@ -16,6 +16,7 @@ export const NAV_ITEMS: NavItem[] = [
   // Primary — reporting / overview
   { href: "/dashboard", label: "Dashboard", icon: "dashboard", section: "main", mobile: true },
   { href: "/daily", label: "Daily Sales", icon: "event_note", perm: "viewProfit", section: "main", mobile: true },
+  { href: "/monthly", label: "Monthly Sales", icon: "calendar_month", perm: "viewProfit", section: "main" },
   { href: "/fuel", label: "Fuel", icon: "local_gas_station", perm: "viewProfit", section: "main" },
   { href: "/reports", label: "Reports", icon: "assessment", perm: "viewProfit", section: "main", mobile: true },
   { href: "/insights", label: "AI Insights", icon: "auto_awesome", perm: "viewProfit", section: "main" },
