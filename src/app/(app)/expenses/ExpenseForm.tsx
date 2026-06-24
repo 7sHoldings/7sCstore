@@ -5,6 +5,7 @@ import { createExpense } from "./actions";
 import { Icon } from "@/components/ui";
 import Modal from "@/components/Modal";
 import { expenseCatLabel, paymentLabel } from "@/lib/format";
+import { fixedSubOptionsFor, vendorSuggestionsFor } from "@/lib/expenseOptions";
 
 const CATEGORIES = [
   "RENT_MORTGAGE", "PAYROLL", "UTILITIES", "INTERNET_PHONE", "REPAIRS_MAINTENANCE",
@@ -16,12 +17,17 @@ const PAYMENTS = ["CASH", "CARD", "OTHER"];
 
 export default function ExpenseForm({ defaultDate }: { defaultDate: string }) {
   const [open, setOpen] = useState(false);
+  const [category, setCategory] = useState("UTILITIES");
   const [state, action, pending] = useActionState(createExpense, {});
   const formRef = useRef<HTMLFormElement>(null);
+
+  const fixedSubOptions = fixedSubOptionsFor(category);
+  const vendorSuggestions = vendorSuggestionsFor(category);
 
   useEffect(() => {
     if (state?.ok) {
       formRef.current?.reset();
+      setCategory("UTILITIES");
       setOpen(false);
     }
   }, [state?.ok]);
@@ -50,7 +56,7 @@ export default function ExpenseForm({ defaultDate }: { defaultDate: string }) {
 
         <div>
           <label className="ft-label" htmlFor="category">Category</label>
-          <select id="category" name="category" className="ft-input" defaultValue="UTILITIES">
+          <select id="category" name="category" className="ft-input" value={category} onChange={(e) => setCategory(e.target.value)}>
             {CATEGORIES.map((c) => (
               <option key={c} value={c}>{expenseCatLabel(c)}</option>
             ))}
@@ -59,8 +65,32 @@ export default function ExpenseForm({ defaultDate }: { defaultDate: string }) {
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="ft-label" htmlFor="payee">Vendor / Payee</label>
-            <input id="payee" name="payee" type="text" className="ft-input" placeholder="e.g. City Utilities" />
+            {fixedSubOptions ? (
+              <>
+                <label className="ft-label" htmlFor="payee">Expense type</label>
+                <select id="payee" name="payee" key={category} className="ft-input" defaultValue="">
+                  <option value="" disabled>— Select type —</option>
+                  {fixedSubOptions.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </>
+            ) : vendorSuggestions ? (
+              <>
+                <label className="ft-label" htmlFor="payee">Vendor</label>
+                <input id="payee" name="payee" type="text" list="vendor-options" className="ft-input" placeholder="Select or type a vendor" autoComplete="off" />
+                <datalist id="vendor-options">
+                  {vendorSuggestions.map((v) => (
+                    <option key={v} value={v} />
+                  ))}
+                </datalist>
+              </>
+            ) : (
+              <>
+                <label className="ft-label" htmlFor="payee">Vendor / Payee</label>
+                <input id="payee" name="payee" type="text" className="ft-input" placeholder="e.g. City Utilities" />
+              </>
+            )}
           </div>
           <div>
             <label className="ft-label" htmlFor="paymentMethod">Payment method</label>
