@@ -18,6 +18,7 @@ export default function ExpenseForm({ defaultDate }: { defaultDate: string }) {
 
   const fixedSubOptions = fixedSubOptionsFor(category);
   const vendorSuggestions = vendorSuggestionsFor(category);
+  const isInventory = category === "INVENTORY_PURCHASE";
 
   useEffect(() => {
     if (state?.ok) {
@@ -96,6 +97,13 @@ export default function ExpenseForm({ defaultDate }: { defaultDate: string }) {
             </select>
           </div>
         </div>
+
+        {isInventory && (
+          <div>
+            <label className="ft-label" htmlFor="checkNo">Check #</label>
+            <input id="checkNo" name="checkNo" type="text" inputMode="numeric" className="ft-input" placeholder="e.g. 1042" autoComplete="off" />
+          </div>
+        )}
 
         <div>
           <label className="ft-label" htmlFor="note">Note (optional)</label>

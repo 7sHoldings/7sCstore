@@ -7,6 +7,7 @@ import { fmtMoney, fmtDate, expenseCatLabel, paymentLabel } from "@/lib/format";
 import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
 import Filters from "@/components/Filters";
 import ExpenseForm from "./ExpenseForm";
+import QuickExpenseRow from "./QuickExpenseRow";
 import DeleteButton from "@/components/DeleteButton";
 import { deleteExpense } from "./actions";
 import { toISODate } from "@/lib/period";
@@ -64,6 +65,8 @@ export default async function ExpensesPage({
         ))}
       </div>
 
+      {canAdd && <QuickExpenseRow defaultDate={toISODate(new Date())} />}
+
       <Filters
         selects={[{ name: "category", label: "Category", options: CATEGORIES.map((c) => ({ value: c, label: expenseCatLabel(c) })) }]}
       />
@@ -92,7 +95,7 @@ export default async function ExpensesPage({
                       <Badge>{expenseCatLabel(e.category)}</Badge>
                       {e.recurring && <span className="ml-1.5 text-tertiary text-[16px] material-symbols-outlined align-middle">autorenew</span>}
                     </td>
-                    <td className="px-4 py-3 text-on-surface">{e.payee || "—"}{e.note && <span className="text-on-surface-variant"> · {e.note}</span>}</td>
+                    <td className="px-4 py-3 text-on-surface">{e.payee || "—"}{e.checkNo && <span className="text-on-surface-variant"> · Check #{e.checkNo}</span>}{e.note && <span className="text-on-surface-variant"> · {e.note}</span>}</td>
                     <td className="px-4 py-3">{paymentLabel(e.paymentMethod)}</td>
                     <td className="px-4 py-3 text-right tabular font-semibold text-error">{fmtMoney(e.amount)}</td>
                     {canDelete && (

@@ -178,6 +178,7 @@ model Expense {
   category      ExpenseCategory
   amount        Float
   payee         String?
+  checkNo       String? // check number (used for Inventory Purchases paid by check)
   paymentMethod PaymentType     @default(CASH)
   note          String?
   receiptUrl    String? // optional receipt attachment (FR-18)
