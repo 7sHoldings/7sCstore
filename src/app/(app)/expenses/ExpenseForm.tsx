@@ -7,17 +7,12 @@ import Modal from "@/components/Modal";
 import { expenseCatLabel, paymentLabel } from "@/lib/format";
 import { fixedSubOptionsFor, vendorSuggestionsFor } from "@/lib/expenseOptions";
 
-const CATEGORIES = [
-  "RENT_MORTGAGE", "PAYROLL", "UTILITIES", "INTERNET_PHONE", "REPAIRS_MAINTENANCE",
-  "STORE_OPERATING_EXPENSES", "INSURANCE", "VENDOR_PAYMENT", "FUEL_PURCHASE",
-  "PRODUCT_PURCHASE", "INVENTORY_PURCHASE", "BANK_FEES",
-  "CARD_PROCESSING_FEES", "OTHER",
-];
+const CATEGORIES = ["STORE_OPERATING_EXPENSES", "INVENTORY_PURCHASE"];
 const PAYMENTS = ["CASH", "CARD", "OTHER"];
 
 export default function ExpenseForm({ defaultDate }: { defaultDate: string }) {
   const [open, setOpen] = useState(false);
-  const [category, setCategory] = useState("UTILITIES");
+  const [category, setCategory] = useState("STORE_OPERATING_EXPENSES");
   const [state, action, pending] = useActionState(createExpense, {});
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -27,7 +22,7 @@ export default function ExpenseForm({ defaultDate }: { defaultDate: string }) {
   useEffect(() => {
     if (state?.ok) {
       formRef.current?.reset();
-      setCategory("UTILITIES");
+      setCategory("STORE_OPERATING_EXPENSES");
       setOpen(false);
     }
   }, [state?.ok]);

@@ -13,12 +13,7 @@ import { toISODate } from "@/lib/period";
 
 export const dynamic = "force-dynamic";
 
-const CATEGORIES = [
-  "RENT_MORTGAGE", "PAYROLL", "UTILITIES", "INTERNET_PHONE", "REPAIRS_MAINTENANCE",
-  "STORE_OPERATING_EXPENSES", "INSURANCE", "VENDOR_PAYMENT", "FUEL_PURCHASE",
-  "PRODUCT_PURCHASE", "INVENTORY_PURCHASE", "BANK_FEES",
-  "CARD_PROCESSING_FEES", "OTHER",
-];
+const CATEGORIES = ["STORE_OPERATING_EXPENSES", "INVENTORY_PURCHASE"];
 
 export default async function ExpensesPage({
   searchParams,

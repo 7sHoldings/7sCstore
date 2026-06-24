@@ -11,12 +11,7 @@ import { money } from "@/lib/calc";
 
 const schema = z.object({
   date: z.string().min(1),
-  category: z.enum([
-    "RENT_MORTGAGE", "PAYROLL", "UTILITIES", "INTERNET_PHONE", "REPAIRS_MAINTENANCE",
-    "STORE_OPERATING_EXPENSES", "INSURANCE", "VENDOR_PAYMENT", "FUEL_PURCHASE",
-    "PRODUCT_PURCHASE", "INVENTORY_PURCHASE", "BANK_FEES",
-    "CARD_PROCESSING_FEES", "OTHER",
-  ]),
+  category: z.enum(["STORE_OPERATING_EXPENSES", "INVENTORY_PURCHASE"]),
   amount: z.coerce.number().min(0),
   payee: z.string().optional(),
   paymentMethod: z.enum(["CASH", "CARD", "OTHER"]).default("CARD"),
