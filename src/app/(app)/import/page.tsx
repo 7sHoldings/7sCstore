@@ -2,7 +2,7 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import ImportForm from "./ImportForm";
-import { importSales, importExpenses, importDailySales, importDailyReconciliation, importHouseAccounts, importMoneyIncoming, importMonthlySummary } from "./actions";
+import { importSales, importExpenses, importDailySales, importDailyReconciliation, importHouseAccounts, importMoneyIncoming, importMonthlySummary, importWholesaleCosts } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,8 @@ export default async function ImportPage() {
   const canSales = can(session.role, "enterSales");
   const canExpenses = can(session.role, "enterExpenses");
   const canProfit = can(session.role, "viewProfit");
-  if (!canSales && !canExpenses && !canProfit) {
+  const canPurchases = can(session.role, "enterPurchases");
+  if (!canSales && !canExpenses && !canProfit && !canPurchases) {
     return <Card className="p-8"><EmptyState icon="lock" title="No access" hint="Your role can't import data." /></Card>;
   }
 
@@ -22,6 +23,15 @@ export default async function ImportPage() {
         subtitle="Bulk-import sales or expenses from a CSV / Excel export — the manual side of the integration layer"
       />
       <div className="max-w-2xl space-y-6">
+        {canPurchases && (
+          <ImportForm
+            action={importWholesaleCosts}
+            title="Import Wholesale Costs (CSV)"
+            description="Set case cost per product (matched by UPC) from a distributor price list. Columns: upc, caseCost, unitsPerCase, vendor. Retail price is left as-is; this enables real margins."
+            templateHref="/api/import/template?type=cost"
+            entityLabel="costs matched"
+          />
+        )}
         {canSales && (
           <ImportForm
             action={importDailySales}

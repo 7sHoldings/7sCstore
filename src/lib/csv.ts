@@ -157,3 +157,16 @@ export const SUMMARY_TEMPLATE_CSV =
   "\n" +
   ["2025,Total Inside Sales,0,0,0,0,0,13646.2,110638.4,115570.7,104754,111570.6,105730.9,109514,671424.8"].join("\n") +
   "\n";
+
+export const COST_TEMPLATE_HEADERS = ["upc", "caseCost", "unitsPerCase", "vendor"];
+
+export const COST_TEMPLATE_CSV =
+  COST_TEMPLATE_HEADERS.join(",") +
+  "\n" +
+  [
+    // Matches your products by UPC and sets wholesale case cost (+ optional pack
+    // size and vendor). Retail price is left as-is (the POS owns it).
+    "018200000089,21.50,24,GSC",
+    "0024000162865,18.00,12,Texas Wholesale",
+  ].join("\n") +
+  "\n";

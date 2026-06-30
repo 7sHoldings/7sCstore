@@ -8,6 +8,7 @@ import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { parseCSV, SALES_TEMPLATE_HEADERS, EXPENSE_TEMPLATE_HEADERS, DAILY_SALES_TEMPLATE_HEADERS } from "@/lib/csv";
 import { money, perGallon } from "@/lib/calc";
+import { unitCostFromCase } from "@/lib/pricing";
 import { setLotteryManual } from "@/lib/lottery";
 import { setCreditManual, getCreditManual, addHousePayment, deleteHousePayment, getHousePayments, addHouseAccount } from "@/lib/credit";
 
@@ -741,4 +742,105 @@ export async function importMonthlySummary(
   await logAudit({ userId: session.userId, action: "IMPORT", entity: "MonthlySummary", after: { count: parsed.length } });
   revalidatePath("/summary");
   return { ok: true, imported: parsed.length };
+}
+
+/**
+ * Validate-then-commit CSV import for wholesale costs. Matches products by UPC
+ * and sets case cost → unit cost (+ optional pack size & vendor). Retail price is
+ * left untouched (the POS owns it); cost only enables real margins. Reports the
+ * unmatched count so junk-UPC items can be fixed by hand.
+ */
+export async function importWholesaleCosts(
+  _prev: ImportResult | undefined,
+  formData: FormData
+): Promise<ImportResult> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "enterPurchases")) return { error: "You don't have permission." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { error: "Choose a CSV file to import." };
+  const rows = parseCSV(await file.text());
+  if (rows.length < 2) return { error: "The file has no data rows." };
+
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const idx = (n: string) => header.indexOf(n.toLowerCase());
+  for (const req of ["upc", "casecost"]) if (idx(req) === -1) return { error: `Missing required column: ${req}.` };
+
+  const errors: { row: number; message: string }[] = [];
+  const parsed: { upc: string; caseCost: number; unitsPerCase?: number; vendor?: string }[] = [];
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r];
+    const get = (n: string) => (idx(n) >= 0 ? (cells[idx(n)] ?? "").trim() : "");
+    const lineNo = r + 1;
+    const upc = get("upc");
+    if (!upc) { errors.push({ row: lineNo, message: "Missing UPC." }); continue; }
+    const caseCost = Number(get("caseCost"));
+    if (isNaN(caseCost) || caseCost < 0) { errors.push({ row: lineNo, message: `Invalid caseCost "${get("caseCost")}".` }); continue; }
+    const upcRaw = get("unitsPerCase");
+    const unitsPerCase = upcRaw ? Math.max(1, Math.round(Number(upcRaw))) : undefined;
+    parsed.push({ upc, caseCost: money(caseCost), unitsPerCase, vendor: get("vendor") || undefined });
+  }
+  if (errors.length) return { ok: false, errors, imported: 0 };
+
+  try {
+    // Resolve vendors (find-or-create by name).
+    const vendorNames = [...new Set(parsed.map((p) => p.vendor).filter(Boolean) as string[])];
+    const vendorId = new Map<string, string>();
+    for (const name of vendorNames) {
+      const existing = await prisma.vendor.findFirst({ where: { name: { equals: name, mode: "insensitive" } } });
+      const v = existing ?? (await prisma.vendor.create({ data: { name } }));
+      vendorId.set(name.toLowerCase(), v.id);
+    }
+
+    // Load products that match any UPC in the file.
+    const upcs = [...new Set(parsed.map((p) => p.upc))];
+    const products = await prisma.product.findMany({
+      where: { locationId, upc: { in: upcs } },
+      select: { id: true, upc: true, unitsPerCase: true },
+    });
+    const byUpc = new Map(products.map((p) => [p.upc!, p]));
+
+    let matched = 0;
+    const updates: { id: string; caseCost: number; currentCost: number; unitsPerCase?: number; vendorId?: string }[] = [];
+    for (const p of parsed) {
+      const prod = byUpc.get(p.upc);
+      if (!prod) continue;
+      const units = p.unitsPerCase ?? prod.unitsPerCase ?? 1;
+      updates.push({
+        id: prod.id,
+        caseCost: p.caseCost,
+        currentCost: unitCostFromCase(p.caseCost, units),
+        unitsPerCase: p.unitsPerCase,
+        vendorId: p.vendor ? vendorId.get(p.vendor.toLowerCase()) : undefined,
+      });
+      matched++;
+    }
+
+    for (let i = 0; i < updates.length; i += 50) {
+      await prisma.$transaction(
+        updates.slice(i, i + 50).map((u) =>
+          prisma.product.update({
+            where: { id: u.id },
+            data: {
+              caseCost: u.caseCost,
+              currentCost: u.currentCost,
+              ...(u.unitsPerCase ? { unitsPerCase: u.unitsPerCase } : {}),
+              ...(u.vendorId ? { vendorId: u.vendorId } : {}),
+            },
+          })
+        )
+      );
+    }
+
+    await logAudit({ userId: session.userId, action: "IMPORT", entity: "Product", after: { kind: "wholesale_costs", matched, rows: parsed.length } });
+    revalidatePath("/inventory");
+    const unmatched = parsed.length - matched;
+    return { ok: true, imported: matched, errors: unmatched > 0 ? [{ row: 0, message: `${unmatched} row(s) had no matching product UPC — those items keep their current cost.` }] : undefined };
+  } catch (e) {
+    console.error(e);
+    return { error: "Import failed while saving." };
+  }
 }
