@@ -769,23 +769,29 @@ export async function importWholesaleCosts(
 
   const header = rows[0].map((h) => h.trim().toLowerCase());
   const idx = (n: string) => header.indexOf(n.toLowerCase());
-  for (const req of ["upc", "casecost"]) if (idx(req) === -1) return { error: `Missing required column: ${req}.` };
+  if (idx("casecost") === -1) return { error: "Missing required column: caseCost." };
+  if (idx("upc") === -1 && idx("positemid") === -1) return { error: "Need a 'upc' or 'posItemId' column to match products." };
 
   const errors: { row: number; message: string }[] = [];
-  const parsed: { upc: string; caseCost: number; unitsPerCase?: number; vendor?: string }[] = [];
+  const parsed: { upc: string; posItemId: number | null; caseCost: number; unitsPerCase?: number; vendor?: string }[] = [];
   for (let r = 1; r < rows.length; r++) {
     const cells = rows[r];
     const get = (n: string) => (idx(n) >= 0 ? (cells[idx(n)] ?? "").trim() : "");
     const lineNo = r + 1;
+    const costStr = get("caseCost");
+    if (costStr === "") continue; // blank caseCost = leave this item alone
     const upc = get("upc");
-    if (!upc) { errors.push({ row: lineNo, message: "Missing UPC." }); continue; }
-    const caseCost = Number(get("caseCost"));
-    if (isNaN(caseCost) || caseCost < 0) { errors.push({ row: lineNo, message: `Invalid caseCost "${get("caseCost")}".` }); continue; }
-    const upcRaw = get("unitsPerCase");
-    const unitsPerCase = upcRaw ? Math.max(1, Math.round(Number(upcRaw))) : undefined;
-    parsed.push({ upc, caseCost: money(caseCost), unitsPerCase, vendor: get("vendor") || undefined });
+    const posRaw = get("posItemId");
+    const posItemId = posRaw ? Number(posRaw) : NaN;
+    if (!upc && !isFinite(posItemId)) { errors.push({ row: lineNo, message: "Missing both UPC and posItemId." }); continue; }
+    const caseCost = Number(costStr.replace(/[$,]/g, ""));
+    if (isNaN(caseCost) || caseCost < 0) { errors.push({ row: lineNo, message: `Invalid caseCost "${costStr}".` }); continue; }
+    const unitsRaw = get("unitsPerCase");
+    const unitsPerCase = unitsRaw ? Math.max(1, Math.round(Number(unitsRaw))) : undefined;
+    parsed.push({ upc, posItemId: isFinite(posItemId) ? posItemId : null, caseCost: money(caseCost), unitsPerCase, vendor: get("vendor") || undefined });
   }
   if (errors.length) return { ok: false, errors, imported: 0 };
+  if (!parsed.length) return { ok: true, imported: 0, message: "No caseCost values filled in — nothing to update." };
 
   try {
     // Resolve vendors (find-or-create by name).
@@ -797,19 +803,23 @@ export async function importWholesaleCosts(
       vendorId.set(name.toLowerCase(), v.id);
     }
 
-    // Load products that match any UPC in the file.
-    const upcs = [...new Set(parsed.map((p) => p.upc))];
+    // Load products that match any UPC or posItemId in the file.
+    const upcs = [...new Set(parsed.map((p) => p.upc).filter(Boolean))];
+    const posIds = [...new Set(parsed.map((p) => p.posItemId).filter((v): v is number => v != null))];
     const products = await prisma.product.findMany({
-      where: { locationId, upc: { in: upcs } },
-      select: { id: true, upc: true, unitsPerCase: true },
+      where: { locationId, OR: [{ upc: { in: upcs } }, { posItemId: { in: posIds } }] },
+      select: { id: true, upc: true, posItemId: true, unitsPerCase: true },
     });
-    const byUpc = new Map(products.map((p) => [p.upc!, p]));
+    const byUpc = new Map(products.filter((p) => p.upc).map((p) => [p.upc!, p]));
+    const byPos = new Map(products.filter((p) => p.posItemId != null).map((p) => [p.posItemId!, p]));
 
     let matched = 0;
+    const seen = new Set<string>();
     const updates: { id: string; caseCost: number; currentCost: number; unitsPerCase?: number; vendorId?: string }[] = [];
     for (const p of parsed) {
-      const prod = byUpc.get(p.upc);
-      if (!prod) continue;
+      const prod = (p.posItemId != null && byPos.get(p.posItemId)) || (p.upc && byUpc.get(p.upc)) || null;
+      if (!prod || seen.has(prod.id)) continue;
+      seen.add(prod.id);
       const units = p.unitsPerCase ?? prod.unitsPerCase ?? 1;
       updates.push({
         id: prod.id,

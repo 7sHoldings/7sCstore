@@ -36,7 +36,7 @@ export default async function ImportPage() {
           <ImportForm
             action={importWholesaleCosts}
             title="Import Wholesale Costs (CSV)"
-            description="Set case cost per product (matched by UPC) from a distributor price list. Columns: upc, caseCost, unitsPerCase, vendor. Retail price is left as-is; this enables real margins."
+            description="Set case cost per product so margins read correctly. Edit the caseCost / unitsPerCase / vendor columns of an Inventory → Export CSV (or a distributor price list), then upload. Matches by posItemId or upc; blank caseCost rows are skipped. Retail is left as-is."
             templateHref="/api/import/template?type=cost"
             entityLabel="costs matched"
           />

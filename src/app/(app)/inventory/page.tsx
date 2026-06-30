@@ -178,7 +178,7 @@ export default async function InventoryPage({
               <a
                 href={`/api/inventory/export?${new URLSearchParams({ ...(q ? { q } : {}), ...(cat ? { cat } : {}), ...(dept ? { dept } : {}) })}`}
                 className="ft-btn-secondary h-9 whitespace-nowrap"
-                title="Download this view as a CSV to bulk-edit prices"
+                title="Download this view as a CSV to bulk-edit prices (newRetail) or costs (caseCost), then re-import"
               >
                 <Icon name="download" className="text-[18px]" /> Export CSV
               </a>

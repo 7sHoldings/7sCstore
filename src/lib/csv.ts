@@ -171,15 +171,16 @@ export const PRICE_TEMPLATE_CSV =
   ].join("\n") +
   "\n";
 
-export const COST_TEMPLATE_HEADERS = ["upc", "caseCost", "unitsPerCase", "vendor"];
+export const COST_TEMPLATE_HEADERS = ["posItemId", "upc", "name", "caseCost", "unitsPerCase", "vendor"];
 
 export const COST_TEMPLATE_CSV =
   COST_TEMPLATE_HEADERS.join(",") +
   "\n" +
   [
-    // Matches your products by UPC and sets wholesale case cost (+ optional pack
-    // size and vendor). Retail price is left as-is (the POS owns it).
-    "018200000089,21.50,24,GSC",
-    "0024000162865,18.00,12,Texas Wholesale",
+    // Matches your products by posItemId (preferred) or UPC, and sets wholesale
+    // case cost (+ optional pack size and vendor). Retail is left as-is.
+    // Tip: use Inventory → "Export CSV" to get this pre-filled with your items.
+    "437457,0080310011160,Kinder Joy,21.50,24,GSC",
+    ",0024000162865,Del Monte Peaches,18.00,12,Texas Wholesale",
   ].join("\n") +
   "\n";

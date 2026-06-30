@@ -44,11 +44,18 @@ export async function GET(req: NextRequest) {
     orderBy: [{ department: "asc" }, { name: "asc" }],
     select: {
       posItemId: true, upc: true, name: true, department: true, category: true,
-      currentCost: true, sellingPrice: true, posDeptId: true,
+      unitsPerCase: true, caseCost: true, currentCost: true, sellingPrice: true,
+      posDeptId: true, vendor: { select: { name: true } },
     },
   });
 
-  const headers = ["posItemId", "upc", "name", "department", "category", "unitCost", "retail", "newRetail", "pushable"];
+  // One sheet that drives both imports:
+  //   • edit `newRetail`  → Import → "Import Price Updates" (pushes to POS)
+  //   • edit `caseCost` / `unitsPerCase` / `vendor` → Import → "Import Wholesale Costs"
+  const headers = [
+    "posItemId", "upc", "name", "department", "category",
+    "unitsPerCase", "caseCost", "vendor", "unitCost", "retail", "newRetail", "pushable",
+  ];
   const lines = [headers.join(",")];
   for (const p of products) {
     lines.push([
@@ -57,9 +64,12 @@ export async function GET(req: NextRequest) {
       cell(p.name),
       cell(p.department ?? ""),
       cell(p.category),
-      cell(p.currentCost.toFixed(2)),
-      cell(p.sellingPrice.toFixed(2)),
-      cell(p.sellingPrice.toFixed(2)), // newRetail prefilled = current; edit this column
+      cell(p.unitsPerCase),
+      cell(p.caseCost.toFixed(2)),       // edit for cost import
+      cell(p.vendor?.name ?? ""),        // edit for cost import
+      cell(p.currentCost.toFixed(2)),    // reference: computed unit cost
+      cell(p.sellingPrice.toFixed(2)),   // reference: current retail
+      cell(p.sellingPrice.toFixed(2)),   // newRetail prefilled = current; edit for price import
       cell(p.posItemId && p.posDeptId ? "yes" : "no"),
     ].join(","));
   }
