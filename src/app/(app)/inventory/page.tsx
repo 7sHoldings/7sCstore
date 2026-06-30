@@ -7,6 +7,7 @@ import { money } from "@/lib/calc";
 import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
 import { FuelReadingForm, ProductForm } from "./InventoryForms";
 import PullInventoryButton from "./PullInventoryButton";
+import EditProductButton from "./EditProductButton";
 import { reorderSuggestions } from "@/lib/reorder";
 import { marginOf } from "@/lib/pricing";
 import { toISODate } from "@/lib/period";
@@ -14,31 +15,42 @@ import { toISODate } from "@/lib/period";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // the Modisoft inventory pull (~16k items) can run long
 
+const CATEGORIES = ["FUEL", "STORE", "FOOD_DRINK", "TOBACCO", "LOTTERY", "OTHER"];
+const PAGE_SIZE = 100;
+
 export default async function InventoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; cat?: string; page?: string }>;
 }) {
   const session = (await getSession())!;
   if (!can(session.role, "viewAll")) {
     return <Card className="p-8"><EmptyState icon="lock" title="No access" hint="Your role can't view inventory." /></Card>;
   }
   const loc = await getActiveLocationId();
-  const q = (await searchParams).q?.trim() || "";
+  const sp = await searchParams;
+  const q = sp.q?.trim() || "";
+  const cat = CATEGORIES.includes(sp.cat || "") ? sp.cat! : "";
+  const page = Math.max(1, Number(sp.page) || 1);
 
   const baseWhere = loc ? { locationId: loc } : {};
-  const productWhere = q
-    ? { ...baseWhere, OR: [{ name: { contains: q, mode: "insensitive" as const } }, { upc: { contains: q } }] }
-    : baseWhere;
+  const productWhere = {
+    ...baseWhere,
+    ...(cat ? { category: cat as never } : {}),
+    ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" as const } }, { upc: { contains: q } }] } : {}),
+  };
 
-  const [products, productCount, fuelReadings, suggestions, vendors] = await Promise.all([
-    prisma.product.findMany({ where: productWhere, orderBy: { name: "asc" }, take: 200 }),
+  const [products, productCount, filteredCount, fuelReadings, suggestions, vendors] = await Promise.all([
+    prisma.product.findMany({ where: productWhere, orderBy: { name: "asc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
     prisma.product.count({ where: baseWhere }),
+    prisma.product.count({ where: productWhere }),
     prisma.fuelInventory.findMany({ where: loc ? { locationId: loc } : {}, orderBy: { date: "desc" }, take: 40 }),
     reorderSuggestions(loc),
     prisma.vendor.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
   const vendorName = new Map(vendors.map((v) => [v.id, v.name]));
+  const pageCount = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
+  const qs = (p: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(cat ? { cat } : {}), page: String(p) })}`;
 
   const inventoryValue = money(products.reduce((s, p) => s + p.qtyOnHand * p.currentCost, 0));
   const lowStock = products.filter((p) => p.lowThreshold != null && p.qtyOnHand <= p.lowThreshold);
@@ -150,13 +162,17 @@ export default async function InventoryPage({
           <span className="font-semibold text-on-surface">
             Store Inventory
             <span className="text-on-surface-variant font-normal text-body-sm ml-2">
-              {q ? `${products.length} match${products.length === 1 ? "" : "es"}` : `showing ${Math.min(products.length, 200)} of ${productCount}`}
+              {q || cat ? `${filteredCount.toLocaleString()} of ${productCount.toLocaleString()}` : `${productCount.toLocaleString()} items`}
             </span>
           </span>
-          <form className="flex gap-2">
+          <form className="flex gap-2 flex-wrap">
+            <select name="cat" defaultValue={cat} className="ft-input h-9 w-40">
+              <option value="">All categories</option>
+              {CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
+            </select>
             <input name="q" defaultValue={q} placeholder="Search name or UPC…" className="ft-input h-9 w-56" />
             <button className="ft-btn-secondary h-9">Search</button>
-            {q && <a href="/inventory" className="ft-btn-ghost h-9 flex items-center px-3">Clear</a>}
+            {(q || cat) && <a href="/inventory" className="ft-btn-ghost h-9 flex items-center px-3">Clear</a>}
           </form>
         </div>
         {products.length === 0 ? (
@@ -175,6 +191,7 @@ export default async function InventoryPage({
                   <th className="px-4 py-3 text-right">Margin</th>
                   <th className="px-4 py-3 text-right">Value</th>
                   <th className="px-4 py-3">Status</th>
+                  {canEdit && <th className="px-2 py-3"></th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/40">
@@ -195,11 +212,32 @@ export default async function InventoryPage({
                       <td className="px-4 py-3 text-right tabular text-on-surface-variant">{margin > 0 ? `${margin}%` : "—"}</td>
                       <td className="px-4 py-3 text-right tabular font-semibold">{fmtMoney(p.qtyOnHand * p.currentCost)}</td>
                       <td className="px-4 py-3">{low ? <Badge tone="warning">Reorder</Badge> : <Badge tone="success">OK</Badge>}</td>
+                      {canEdit && (
+                        <td className="px-2 py-3 text-right">
+                          <EditProductButton
+                            vendors={vendors}
+                            product={{
+                              id: p.id, name: p.name, sellingPrice: p.sellingPrice, caseCost: p.caseCost,
+                              unitsPerCase: p.unitsPerCase, marginPct: p.marginPct, vendorId: p.vendorId,
+                              qtyOnHand: p.qtyOnHand, lowThreshold: p.lowThreshold, parLevel: p.parLevel,
+                            }}
+                          />
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+        {pageCount > 1 && (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-outline-variant/60 text-body-sm">
+            <span className="text-on-surface-variant">Page {page} of {pageCount.toLocaleString()}</span>
+            <div className="flex gap-2">
+              {page > 1 ? <a href={qs(page - 1)} className="ft-btn-secondary h-8">Prev</a> : <span className="ft-btn-secondary h-8 opacity-40 pointer-events-none">Prev</span>}
+              {page < pageCount ? <a href={qs(page + 1)} className="ft-btn-secondary h-8">Next</a> : <span className="ft-btn-secondary h-8 opacity-40 pointer-events-none">Next</span>}
+            </div>
           </div>
         )}
       </Card>

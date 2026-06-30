@@ -112,6 +112,56 @@ export async function createProduct(
   return { ok: true };
 }
 
+const updateSchema = z.object({
+  id: z.string().min(1),
+  sellingPrice: z.coerce.number().min(0),
+  caseCost: z.coerce.number().min(0).default(0),
+  unitsPerCase: z.coerce.number().int().min(1).default(1),
+  marginPct: z.coerce.number().min(0).max(95).optional(),
+  vendorId: z.string().optional(),
+  qtyOnHand: z.coerce.number().min(0).default(0),
+  lowThreshold: z.coerce.number().min(0).optional(),
+  parLevel: z.coerce.number().min(0).optional(),
+});
+
+/** Update an existing product's price, cost, stock and reorder settings. */
+export async function updateProduct(
+  _prev: { error?: string; ok?: boolean } | undefined,
+  formData: FormData
+): Promise<{ error?: string; ok?: boolean }> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "enterPurchases")) return { error: "You don't have permission." };
+
+  const parsed = updateSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  const v = parsed.data;
+  const unitCost = unitCostFromCase(v.caseCost, v.unitsPerCase);
+
+  try {
+    await prisma.product.update({
+      where: { id: v.id },
+      data: {
+        sellingPrice: money(v.sellingPrice),
+        caseCost: money(v.caseCost),
+        currentCost: unitCost,
+        unitsPerCase: v.unitsPerCase,
+        marginPct: v.marginPct ?? null,
+        vendorId: v.vendorId || null,
+        qtyOnHand: v.qtyOnHand,
+        lowThreshold: v.lowThreshold,
+        parLevel: v.parLevel,
+      },
+    });
+    await logAudit({ userId: session.userId, action: "UPDATE", entity: "Product", entityId: v.id, after: v });
+  } catch (e) {
+    console.error(e);
+    return { error: "Could not update the product." };
+  }
+  revalidatePath("/inventory");
+  return { ok: true };
+}
+
 /** Pull the current inventory from Modisoft (cookie session) and upsert Products. */
 export async function pullInventoryFromModisoft(): Promise<{ ok?: boolean; error?: string; message?: string }> {
   const session = await getSession();
