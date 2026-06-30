@@ -287,6 +287,7 @@ model Product {
   qtyOnHand    Float        @default(0) // units in stock
   lowThreshold Float? // reorder point — the "warning number" (units)
   parLevel     Float? // order-up-to level (units)
+  source       DataSource   @default(MANUAL)
   createdAt    DateTime     @default(now())
 
   purchases Purchase[]

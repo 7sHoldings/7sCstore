@@ -6,6 +6,7 @@ import { fmtMoney, fmtNumber, fmtDate, catLabel, gradeLabel } from "@/lib/format
 import { money } from "@/lib/calc";
 import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
 import { FuelReadingForm, ProductForm } from "./InventoryForms";
+import PullInventoryButton from "./PullInventoryButton";
 import { reorderSuggestions } from "@/lib/reorder";
 import { marginOf } from "@/lib/pricing";
 import { toISODate } from "@/lib/period";
@@ -45,7 +46,8 @@ export default async function InventoryPage() {
         subtitle="Store stock value and fuel tank reconciliation"
         actions={
           canEdit && (
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center flex-wrap">
+              <PullInventoryButton />
               <FuelReadingForm defaultDate={today} />
               <ProductForm vendors={vendors} />
             </div>

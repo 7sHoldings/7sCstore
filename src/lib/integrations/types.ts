@@ -23,12 +23,25 @@ export interface NormalizedSale {
   };
 }
 
+/** A single inventory item pulled from the POS item-wise inventory report. */
+export interface NormalizedInventoryItem {
+  upc: string;
+  name: string;
+  category: "FUEL" | "STORE" | "LOTTERY" | "TOBACCO" | "FOOD_DRINK" | "OTHER";
+  department?: string;
+  unitCost: number;
+  retailPrice: number;
+  qtyOnHand: number;
+}
+
 export interface PosAdapter {
   /** Stable identifier, e.g. "POS_MODI". */
   readonly id: string;
   readonly label: string;
   /** Whether the adapter has the config it needs to talk to the POS. */
   isConfigured(): boolean;
+  /** Pull the current item-wise inventory (UPC, cost, price, qty on hand). */
+  fetchInventory?(): Promise<NormalizedInventoryItem[]>;
   /** Pull sales recorded at/after `since`. */
   fetchSince(since: Date): Promise<NormalizedSale[]>;
   /** Pull sales for an explicit [from, to] day range (used for backfill). */

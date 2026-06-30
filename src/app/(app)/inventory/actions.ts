@@ -9,6 +9,7 @@ import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { money } from "@/lib/calc";
 import { unitCostFromCase, priceFromMargin, defaultMargin } from "@/lib/pricing";
+import { syncInventory } from "@/lib/integrations/sync";
 
 const readingSchema = z.object({
   date: z.string().min(1),
@@ -109,4 +110,27 @@ export async function createProduct(
   }
   revalidatePath("/inventory");
   return { ok: true };
+}
+
+/** Pull the current inventory from Modisoft (cookie session) and upsert Products. */
+export async function pullInventoryFromModisoft(): Promise<{ ok?: boolean; error?: string; message?: string }> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "enterPurchases")) return { error: "You don't have permission." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
+
+  try {
+    const r = await syncInventory(locationId);
+    await logAudit({ userId: session.userId, action: "IMPORT", entity: "Product", after: { created: r.created, updated: r.updated } });
+    revalidatePath("/inventory");
+    if (!r.live) {
+      return { error: "No live Modisoft connection. Set MODI_COOKIE (or the official API key) in the app environment, then try again." };
+    }
+    return { ok: true, message: `Pulled ${r.total} items — ${r.created} new, ${r.updated} updated.` };
+  } catch (e) {
+    console.error(e);
+    const msg = e instanceof Error ? e.message : "Inventory pull failed.";
+    return { error: msg };
+  }
 }

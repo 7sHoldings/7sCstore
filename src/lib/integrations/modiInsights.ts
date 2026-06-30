@@ -1,4 +1,4 @@
-import type { PosAdapter, NormalizedSale } from "./types";
+import type { PosAdapter, NormalizedSale, NormalizedInventoryItem } from "./types";
 import { mapFuelType, mapDeptToCategory } from "./modiMap";
 
 /**
@@ -219,7 +219,82 @@ export const modiInsightsAdapter: PosAdapter = {
     }
     return out;
   },
+
+  async fetchInventory(): Promise<NormalizedInventoryItem[]> {
+    const cookie = process.env.MODI_COOKIE!;
+    const storeId = process.env.MODI_STORE_ID || "16";
+    const ccode = process.env.MODI_CCODE || "854388";
+    await changeStore(cookie, storeId, ccode);
+
+    const today = fmtDate(new Date());
+    const pageSize = 500;
+    const out: NormalizedInventoryItem[] = [];
+    let page = 1;
+    let total = Infinity;
+    while ((page - 1) * pageSize < total && page <= 200) {
+      const { data, total: t } = await postGrid(cookie, "/Product/_SelectInventoryItemWise", {
+        sort: "UPC-asc", page: String(page), pageSize: String(pageSize), group: "", filter: "",
+        FromDate: `${today} 12:00 AM`, ToDate: `${today} 11:59 PM`,
+        DateRangeType: "1", SearchValue: "", IsADJOnly: "false", IsActiveOnly: "false",
+      });
+      if (t > 0) total = t;
+      for (const raw of data) {
+        const r = raw as Record<string, unknown>;
+        const upc = String(pick(r, ["UPC", "Upc", "Barcode", "ItemUPC"]) ?? "").trim();
+        const name = String(pick(r, ["ItemName", "Description", "ProductName", "Name", "ItemDescription"]) ?? "").trim();
+        if (!upc && !name) continue;
+        const department = String(pick(r, ["DeptName", "Department", "DepartmentName"]) ?? "").trim();
+        out.push({
+          upc,
+          name: name || upc,
+          department: department || undefined,
+          category: mapDeptToCategory(department),
+          unitCost: num(pick(r, ["UnitCost", "Cost", "AvgCost", "AverageCost", "CostPrice", "ItemCost"])),
+          retailPrice: num(pick(r, ["Retail", "RetailPrice", "UnitPrice", "Price", "RptRetail", "SellingPrice"])),
+          qtyOnHand: num(pick(r, ["QtyOnHand", "OnHand", "Quantity", "Qty", "StockQty", "CurrentStock", "InventoryQty", "ClosingQty"])),
+        });
+      }
+      if (!data.length) break;
+      page++;
+      await sleep(120);
+    }
+    return out;
+  },
 };
+
+/** First present (non-empty) value among candidate keys, case-insensitively. */
+function pick(row: Record<string, unknown>, keys: string[]): unknown {
+  const lower = new Map(Object.keys(row).map((k) => [k.toLowerCase(), k]));
+  for (const k of keys) {
+    const actual = lower.get(k.toLowerCase());
+    if (actual !== undefined && row[actual] !== null && row[actual] !== "") return row[actual];
+  }
+  return undefined;
+}
+
+/** POST a Kendo-grid endpoint and return both rows and the total row count. */
+async function postGrid(cookie: string, path: string, body: Record<string, string>): Promise<{ data: unknown[]; total: number }> {
+  const res = await fetch(BASE + path, {
+    method: "POST",
+    headers: {
+      cookie,
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "x-requested-with": "XMLHttpRequest",
+      "user-agent": UA,
+      accept: "application/json, text/javascript, */*; q=0.01",
+      origin: BASE,
+      referer: BASE + "/",
+    },
+    body: new URLSearchParams(body).toString(),
+    cache: "no-store",
+  });
+  if (res.status === 401 || res.status === 403) throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
+  if (!res.ok) throw new Error(`Modisoft ${path} responded ${res.status}`);
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("json")) throw new Error("Modisoft returned a non-JSON response (likely a login page) — refresh MODI_COOKIE.");
+  const json = (await res.json()) as { Data?: unknown[]; Total?: number };
+  return { data: Array.isArray(json.Data) ? json.Data : [], total: Number(json.Total) || 0 };
+}
 
 /** Split a (possibly negative) amount into CASH/CARD by ratio; CARD-only if unknown. */
 function splitAmount(amount: number, cashRatio: number | null): ["CASH" | "CARD", number][] {

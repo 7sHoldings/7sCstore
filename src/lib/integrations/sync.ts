@@ -303,6 +303,66 @@ export async function runSync(locationId: string): Promise<{ imported: number; l
   }
 }
 
+/**
+ * Pull the current item-wise inventory from the POS and upsert Products by UPC.
+ * POS is the source of truth for name, category, cost, price and on-hand qty;
+ * app-managed planning fields (case size, vendor, margin, reorder point, par)
+ * are preserved on existing products. Returns counts + the live/source flag.
+ */
+export async function syncInventory(
+  locationId: string
+): Promise<{ created: number; updated: number; total: number; live: boolean; sampleKeys: string[] }> {
+  const { adapter, live } = activeAdapter();
+  if (!adapter.fetchInventory) {
+    throw new Error(`The ${adapter.label} connection can't pull inventory yet.`);
+  }
+  const items = await adapter.fetchInventory();
+  let created = 0, updated = 0;
+  const sampleKeys: string[] = [];
+
+  for (const it of items) {
+    if (!it.upc) continue; // need a UPC to match/dedupe
+    const existing = await prisma.product.findFirst({ where: { locationId, upc: it.upc } });
+    if (existing) {
+      await prisma.product.update({
+        where: { id: existing.id },
+        data: {
+          name: it.name || existing.name,
+          category: it.category,
+          currentCost: money(it.unitCost),
+          sellingPrice: money(it.retailPrice),
+          qtyOnHand: it.qtyOnHand,
+        },
+      });
+      updated++;
+    } else {
+      await prisma.product.create({
+        data: {
+          locationId,
+          name: it.name || it.upc,
+          category: it.category,
+          upc: it.upc,
+          unitsPerCase: 1,
+          caseCost: money(it.unitCost),
+          currentCost: money(it.unitCost),
+          sellingPrice: money(it.retailPrice),
+          qtyOnHand: it.qtyOnHand,
+          source: "POS_MODI",
+        },
+      });
+      created++;
+    }
+  }
+
+  await prisma.syncLog.create({
+    data: {
+      source: "POS_MODI", status: "SUCCESS", locationId, finishedAt: new Date(),
+      recordsImported: created + updated, message: `Inventory pull: ${created} new, ${updated} updated.`,
+    },
+  });
+  return { created, updated, total: items.length, live, sampleKeys };
+}
+
 /** Write a one-line SyncLog summarizing a completed backfill. */
 export async function logBackfill(locationId: string, imported: number, fromISO: string, toISO: string): Promise<void> {
   await prisma.syncLog.create({
