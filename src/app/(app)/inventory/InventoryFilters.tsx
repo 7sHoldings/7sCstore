@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef } from "react";
+import { catLabel } from "@/lib/format";
 
 /**
  * Inventory filter bar. Department and Category apply immediately on change
@@ -13,14 +14,12 @@ export default function InventoryFilters({
   dept,
   departments,
   categories,
-  catLabel,
 }: {
   q: string;
   cat: string;
   dept: string;
   departments: string[];
   categories: string[];
-  catLabel: (c: string) => string;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);

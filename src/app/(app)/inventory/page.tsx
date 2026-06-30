@@ -186,7 +186,7 @@ export default async function InventoryPage({
             {canEdit && (cat || dept) && pushableCount > 0 && (
               <BulkPushButton filter={{ q, cat, dept }} count={pushableCount} scopeLabel={scopeLabel} />
             )}
-            <InventoryFilters q={q} cat={cat} dept={dept} departments={departments} categories={CATEGORIES} catLabel={catLabel} />
+            <InventoryFilters q={q} cat={cat} dept={dept} departments={departments} categories={CATEGORIES} />
           </div>
         </div>
         {products.length === 0 ? (
