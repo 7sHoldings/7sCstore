@@ -311,47 +311,63 @@ export async function runSync(locationId: string): Promise<{ imported: number; l
  */
 export async function syncInventory(
   locationId: string
-): Promise<{ created: number; updated: number; total: number; live: boolean; sampleKeys: string[] }> {
+): Promise<{ created: number; updated: number; total: number; live: boolean }> {
   const { adapter, live } = activeAdapter();
   if (!adapter.fetchInventory) {
     throw new Error(`The ${adapter.label} connection can't pull inventory yet.`);
   }
   const items = await adapter.fetchInventory();
-  let created = 0, updated = 0;
-  const sampleKeys: string[] = [];
 
-  for (const it of items) {
-    if (!it.upc) continue; // need a UPC to match/dedupe
-    const existing = await prisma.product.findFirst({ where: { locationId, upc: it.upc } });
-    if (existing) {
-      await prisma.product.update({
-        where: { id: existing.id },
-        data: {
-          name: it.name || existing.name,
-          category: it.category,
-          currentCost: money(it.unitCost),
-          sellingPrice: money(it.retailPrice),
-          qtyOnHand: it.qtyOnHand,
-        },
-      });
-      updated++;
-    } else {
-      await prisma.product.create({
-        data: {
-          locationId,
-          name: it.name || it.upc,
-          category: it.category,
-          upc: it.upc,
-          unitsPerCase: 1,
-          caseCost: money(it.unitCost),
-          currentCost: money(it.unitCost),
-          sellingPrice: money(it.retailPrice),
-          qtyOnHand: it.qtyOnHand,
-          source: "POS_MODI",
-        },
-      });
-      created++;
-    }
+  // Dedupe by POS ItemKey (the stable match key).
+  const byKey = new Map<number, (typeof items)[number]>();
+  for (const it of items) if (it.posItemId) byKey.set(it.posItemId, it);
+
+  // Existing POS-linked products for this location.
+  const existing = await prisma.product.findMany({
+    where: { locationId, posItemId: { not: null } },
+    select: { id: true, posItemId: true, name: true, sellingPrice: true, category: true },
+  });
+  const existingByKey = new Map(existing.map((p) => [p.posItemId!, p]));
+
+  // New items → bulk insert. POS owns name/category/price; cost & qty are left
+  // at 0 (POS doesn't track them) for you to set via wholesale + physical count.
+  const toCreate = [...byKey.values()].filter((it) => !existingByKey.has(it.posItemId));
+  let created = 0;
+  for (let i = 0; i < toCreate.length; i += 1000) {
+    const chunk = toCreate.slice(i, i + 1000).map((it) => ({
+      locationId,
+      name: it.name,
+      category: it.category as never,
+      posItemId: it.posItemId,
+      upc: it.upc || null,
+      unitsPerCase: it.unitsPerCase,
+      caseCost: 0,
+      currentCost: 0,
+      sellingPrice: money(it.retailPrice),
+      qtyOnHand: 0,
+      source: "POS_MODI" as const,
+    }));
+    const res = await prisma.product.createMany({ data: chunk, skipDuplicates: true });
+    created += res.count;
+  }
+
+  // Existing items → refresh only name/category/retail when they changed.
+  // Never touch cost, qty, case size, vendor, margin or reorder points.
+  let updated = 0;
+  const toUpdate = [...byKey.values()].filter((it) => {
+    const p = existingByKey.get(it.posItemId);
+    return p && (money(it.retailPrice) !== p.sellingPrice || (it.name && it.name !== p.name) || it.category !== p.category);
+  });
+  for (let i = 0; i < toUpdate.length; i += 50) {
+    await prisma.$transaction(
+      toUpdate.slice(i, i + 50).map((it) =>
+        prisma.product.update({
+          where: { id: existingByKey.get(it.posItemId)!.id },
+          data: { name: it.name || undefined, category: it.category as never, sellingPrice: money(it.retailPrice) },
+        })
+      )
+    );
+    updated += Math.min(50, toUpdate.length - i);
   }
 
   await prisma.syncLog.create({
@@ -360,7 +376,7 @@ export async function syncInventory(
       recordsImported: created + updated, message: `Inventory pull: ${created} new, ${updated} updated.`,
     },
   });
-  return { created, updated, total: items.length, live, sampleKeys };
+  return { created, updated, total: byKey.size, live };
 }
 
 /** Write a one-line SyncLog summarizing a completed backfill. */

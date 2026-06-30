@@ -12,16 +12,28 @@ import { marginOf } from "@/lib/pricing";
 import { toISODate } from "@/lib/period";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300; // the Modisoft inventory pull (~16k items) can run long
 
-export default async function InventoryPage() {
+export default async function InventoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
   const session = (await getSession())!;
   if (!can(session.role, "viewAll")) {
     return <Card className="p-8"><EmptyState icon="lock" title="No access" hint="Your role can't view inventory." /></Card>;
   }
   const loc = await getActiveLocationId();
+  const q = (await searchParams).q?.trim() || "";
 
-  const [products, fuelReadings, suggestions, vendors] = await Promise.all([
-    prisma.product.findMany({ where: loc ? { locationId: loc } : {}, orderBy: { name: "asc" } }),
+  const baseWhere = loc ? { locationId: loc } : {};
+  const productWhere = q
+    ? { ...baseWhere, OR: [{ name: { contains: q, mode: "insensitive" as const } }, { upc: { contains: q } }] }
+    : baseWhere;
+
+  const [products, productCount, fuelReadings, suggestions, vendors] = await Promise.all([
+    prisma.product.findMany({ where: productWhere, orderBy: { name: "asc" }, take: 200 }),
+    prisma.product.count({ where: baseWhere }),
     prisma.fuelInventory.findMany({ where: loc ? { locationId: loc } : {}, orderBy: { date: "desc" }, take: 40 }),
     reorderSuggestions(loc),
     prisma.vendor.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -57,7 +69,7 @@ export default async function InventoryPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <Tile label="Inventory Value" value={fmtMoney(inventoryValue)} />
-        <Tile label="Products" value={String(products.length)} />
+        <Tile label="Products" value={String(productCount)} />
         <Tile label="Low Stock" value={String(lowStock.length)} accent={lowStock.length ? "warning" : undefined} />
         <Tile label="Fuel Grades Tracked" value={String(latestByGrade.size)} />
       </div>
@@ -134,9 +146,21 @@ export default async function InventoryPage() {
 
       {/* Store products */}
       <Card className="overflow-hidden">
-        <div className="px-4 py-3 border-b border-outline-variant/60 font-semibold text-on-surface">Store Inventory</div>
+        <div className="px-4 py-3 border-b border-outline-variant/60 flex items-center justify-between gap-3 flex-wrap">
+          <span className="font-semibold text-on-surface">
+            Store Inventory
+            <span className="text-on-surface-variant font-normal text-body-sm ml-2">
+              {q ? `${products.length} match${products.length === 1 ? "" : "es"}` : `showing ${Math.min(products.length, 200)} of ${productCount}`}
+            </span>
+          </span>
+          <form className="flex gap-2">
+            <input name="q" defaultValue={q} placeholder="Search name or UPC…" className="ft-input h-9 w-56" />
+            <button className="ft-btn-secondary h-9">Search</button>
+            {q && <a href="/inventory" className="ft-btn-ghost h-9 flex items-center px-3">Clear</a>}
+          </form>
+        </div>
         {products.length === 0 ? (
-          <EmptyState icon="inventory_2" title="No products yet" hint="Add products to track stock and value." />
+          <EmptyState icon="inventory_2" title={q ? "No matches" : "No products yet"} hint={q ? "Try another search." : "Add products or pull from Modisoft."} />
         ) : (
           <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-left text-body-sm">

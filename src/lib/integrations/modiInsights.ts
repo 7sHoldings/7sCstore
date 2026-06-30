@@ -11,6 +11,9 @@ import { mapFuelType, mapDeptToCategory } from "./modiMap";
  * in Insights browser session.
  */
 const BASE = "https://insights1.modisoft.com";
+// The inventory endpoints were observed on insights.modisoft.com (cookies are
+// shared across *.modisoft.com). Override with MODI_INV_BASE if needed.
+const INV_BASE = process.env.MODI_INV_BASE || "https://insights.modisoft.com";
 
 // Cloudflare's cf_clearance cookie is bound to the browser's User-Agent, so we
 // send a matching one. Override with MODI_USER_AGENT if your browser differs.
@@ -224,57 +227,73 @@ export const modiInsightsAdapter: PosAdapter = {
     const cookie = process.env.MODI_COOKIE!;
     const storeId = process.env.MODI_STORE_ID || "16";
     const ccode = process.env.MODI_CCODE || "854388";
-    await changeStore(cookie, storeId, ccode);
+    await changeStore(cookie, storeId, ccode, INV_BASE);
+
+    // Map a department/tax-department id → name → our category. Best-effort.
+    const deptById = await loadDepartments(cookie);
 
     const today = fmtDate(new Date());
-    const pageSize = 500;
+    const pageSize = 1000;
     const out: NormalizedInventoryItem[] = [];
     let page = 1;
     let total = Infinity;
-    while ((page - 1) * pageSize < total && page <= 200) {
+    while ((page - 1) * pageSize < total && page <= 100) {
       const { data, total: t } = await postGrid(cookie, "/Product/_SelectInventoryItemWise", {
         sort: "UPC-asc", page: String(page), pageSize: String(pageSize), group: "", filter: "",
         FromDate: `${today} 12:00 AM`, ToDate: `${today} 11:59 PM`,
         DateRangeType: "1", SearchValue: "", IsADJOnly: "false", IsActiveOnly: "false",
-      });
+      }, INV_BASE);
       if (t > 0) total = t;
       for (const raw of data) {
         const r = raw as Record<string, unknown>;
-        const upc = String(pick(r, ["UPC", "Upc", "Barcode", "ItemUPC"]) ?? "").trim();
-        const name = String(pick(r, ["ItemName", "Description", "ProductName", "Name", "ItemDescription"]) ?? "").trim();
-        if (!upc && !name) continue;
-        const department = String(pick(r, ["DeptName", "Department", "DepartmentName"]) ?? "").trim();
+        const posItemId = num(r.ItemKey);
+        if (!posItemId) continue;
+        const name = String(r.Description ?? "").trim();
+        const deptName = String(r.DeptName ?? deptById.get(num(r.TaxDepart)) ?? "").trim();
         out.push({
-          upc,
-          name: name || upc,
-          department: department || undefined,
-          category: mapDeptToCategory(department),
-          unitCost: num(pick(r, ["UnitCost", "Cost", "AvgCost", "AverageCost", "CostPrice", "ItemCost"])),
-          retailPrice: num(pick(r, ["Retail", "RetailPrice", "UnitPrice", "Price", "RptRetail", "SellingPrice"])),
-          qtyOnHand: num(pick(r, ["QtyOnHand", "OnHand", "Quantity", "Qty", "StockQty", "CurrentStock", "InventoryQty", "ClosingQty"])),
+          posItemId,
+          upc: String(r.UPC ?? "").trim(),
+          name: name || String(r.UPC ?? "").trim() || `Item ${posItemId}`,
+          department: deptName || undefined,
+          category: mapDeptToCategory(deptName),
+          unitsPerCase: Math.max(1, Math.round(num(r.UnitsPerCase)) || 1),
+          unitCost: num(r.Cost),
+          retailPrice: num(r.Retail),
+          qtyOnHand: num(r.CurrentRptQty),
         });
       }
       if (!data.length) break;
       page++;
-      await sleep(120);
+      await sleep(80);
     }
     return out;
   },
 };
 
-/** First present (non-empty) value among candidate keys, case-insensitively. */
-function pick(row: Record<string, unknown>, keys: string[]): unknown {
-  const lower = new Map(Object.keys(row).map((k) => [k.toLowerCase(), k]));
-  for (const k of keys) {
-    const actual = lower.get(k.toLowerCase());
-    if (actual !== undefined && row[actual] !== null && row[actual] !== "") return row[actual];
+/** Department/tax-department id → name (for categorising item-wise rows). */
+async function loadDepartments(cookie: string): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  try {
+    const res = await fetch(INV_BASE + "/Report/LoadDepartments?text=", {
+      headers: { cookie, "x-requested-with": "XMLHttpRequest", "user-agent": UA, accept: "application/json, */*; q=0.01", referer: INV_BASE + "/" },
+      cache: "no-store",
+    });
+    if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
+      const list = (await res.json()) as { Text?: string; Value?: string }[];
+      for (const d of list) {
+        const id = Number(d.Value);
+        if (isFinite(id) && id > 0) map.set(id, String(d.Text ?? "").trim());
+      }
+    }
+  } catch {
+    // best-effort; categories fall back to STORE
   }
-  return undefined;
+  return map;
 }
 
 /** POST a Kendo-grid endpoint and return both rows and the total row count. */
-async function postGrid(cookie: string, path: string, body: Record<string, string>): Promise<{ data: unknown[]; total: number }> {
-  const res = await fetch(BASE + path, {
+async function postGrid(cookie: string, path: string, body: Record<string, string>, base: string = BASE): Promise<{ data: unknown[]; total: number }> {
+  const res = await fetch(base + path, {
     method: "POST",
     headers: {
       cookie,
@@ -282,8 +301,8 @@ async function postGrid(cookie: string, path: string, body: Record<string, strin
       "x-requested-with": "XMLHttpRequest",
       "user-agent": UA,
       accept: "application/json, text/javascript, */*; q=0.01",
-      origin: BASE,
-      referer: BASE + "/",
+      origin: base,
+      referer: base + "/",
     },
     body: new URLSearchParams(body).toString(),
     cache: "no-store",
@@ -365,8 +384,8 @@ function parseSalesTax(html: string): number | null {
 }
 
 /** Set the active store in the session (POST /Home/ChangeStore). */
-async function changeStore(cookie: string, id: string, ccode: string): Promise<void> {
-  const res = await fetch(BASE + "/Home/ChangeStore", {
+async function changeStore(cookie: string, id: string, ccode: string, base: string = BASE): Promise<void> {
+  const res = await fetch(base + "/Home/ChangeStore", {
     method: "POST",
     headers: {
       cookie,
@@ -374,8 +393,8 @@ async function changeStore(cookie: string, id: string, ccode: string): Promise<v
       "x-requested-with": "XMLHttpRequest",
       "user-agent": UA,
       accept: "*/*",
-      origin: BASE,
-      referer: BASE + "/Home/SelectStore",
+      origin: base,
+      referer: base + "/Home/SelectStore",
     },
     body: new URLSearchParams({ ID: id, CCode: ccode, IsLocked: "false", IsRedirectBilling: "false" }).toString(),
     cache: "no-store",

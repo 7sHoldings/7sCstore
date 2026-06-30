@@ -276,6 +276,7 @@ model Product {
   location     Location     @relation(fields: [locationId], references: [id])
   name         String
   category     SaleCategory @default(STORE)
+  posItemId    Int? // Modisoft ItemKey — stable match key for POS sync
   upc          String? // barcode / SKU — maps POS sales back to this product
   vendorId     String? // preferred supplier
   vendor       Vendor?      @relation(fields: [vendorId], references: [id])
@@ -292,6 +293,7 @@ model Product {
 
   purchases Purchase[]
 
+  @@unique([locationId, posItemId])
   @@index([locationId])
   @@index([vendorId])
 }

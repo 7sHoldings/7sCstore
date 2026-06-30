@@ -25,13 +25,15 @@ export interface NormalizedSale {
 
 /** A single inventory item pulled from the POS item-wise inventory report. */
 export interface NormalizedInventoryItem {
+  posItemId: number; // Modisoft ItemKey — stable match key
   upc: string;
   name: string;
   category: "FUEL" | "STORE" | "LOTTERY" | "TOBACCO" | "FOOD_DRINK" | "OTHER";
   department?: string;
-  unitCost: number;
+  unitsPerCase: number;
+  unitCost: number; // POS Cost (often 0 — POS doesn't track cost here)
   retailPrice: number;
-  qtyOnHand: number;
+  qtyOnHand: number; // POS qty (often 0/negative — POS stock not maintained)
 }
 
 export interface PosAdapter {
