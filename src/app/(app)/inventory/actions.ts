@@ -8,6 +8,7 @@ import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { money } from "@/lib/calc";
+import { unitCostFromCase, priceFromMargin, defaultMargin } from "@/lib/pricing";
 
 const readingSchema = z.object({
   date: z.string().min(1),
@@ -53,10 +54,15 @@ export async function recordFuelReading(
 const productSchema = z.object({
   name: z.string().min(1, "Name is required."),
   category: z.enum(["FUEL", "STORE", "LOTTERY", "TOBACCO", "FOOD_DRINK", "OTHER"]).default("STORE"),
-  currentCost: z.coerce.number().min(0).default(0),
-  sellingPrice: z.coerce.number().min(0).default(0),
+  upc: z.string().optional(),
+  vendorId: z.string().optional(),
+  unitsPerCase: z.coerce.number().int().min(1).default(1),
+  caseCost: z.coerce.number().min(0).default(0),
+  marginPct: z.coerce.number().min(0).max(95).optional(),
+  sellingPrice: z.coerce.number().min(0).default(0), // optional manual override
   qtyOnHand: z.coerce.number().min(0).default(0),
   lowThreshold: z.coerce.number().min(0).optional(),
+  parLevel: z.coerce.number().min(0).optional(),
 });
 
 export async function createProduct(
@@ -73,16 +79,27 @@ export async function createProduct(
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   const v = parsed.data;
 
+  // Unit cost from the case, retail from the target margin (manual price wins).
+  const unitCost = unitCostFromCase(v.caseCost, v.unitsPerCase);
+  const margin = v.marginPct ?? defaultMargin(v.category);
+  const sellingPrice = v.sellingPrice > 0 ? money(v.sellingPrice) : priceFromMargin(unitCost, margin);
+
   try {
     const product = await prisma.product.create({
       data: {
         locationId,
         name: v.name,
         category: v.category,
-        currentCost: money(v.currentCost),
-        sellingPrice: money(v.sellingPrice),
+        upc: v.upc || null,
+        vendorId: v.vendorId || null,
+        unitsPerCase: v.unitsPerCase,
+        caseCost: money(v.caseCost),
+        currentCost: unitCost,
+        marginPct: v.marginPct ?? null,
+        sellingPrice,
         qtyOnHand: v.qtyOnHand,
         lowThreshold: v.lowThreshold,
+        parLevel: v.parLevel,
       },
     });
     await logAudit({ userId: session.userId, action: "CREATE", entity: "Product", entityId: product.id, after: product });

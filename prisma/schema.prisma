@@ -276,15 +276,23 @@ model Product {
   location     Location     @relation(fields: [locationId], references: [id])
   name         String
   category     SaleCategory @default(STORE)
-  currentCost  Float        @default(0) // Average cost basis (Section 3, Average Cost)
-  sellingPrice Float        @default(0)
-  qtyOnHand    Float        @default(0)
-  lowThreshold Float? // low-inventory threshold (FR-28)
+  upc          String? // barcode / SKU — maps POS sales back to this product
+  vendorId     String? // preferred supplier
+  vendor       Vendor?      @relation(fields: [vendorId], references: [id])
+  unitsPerCase Int          @default(1) // units in a case/carton/box you buy
+  caseCost     Float        @default(0) // wholesale cost per case
+  currentCost  Float        @default(0) // Average UNIT cost basis (Section 3, Average Cost)
+  marginPct    Float? // target margin %, null = category default
+  sellingPrice Float        @default(0) // retail price per unit
+  qtyOnHand    Float        @default(0) // units in stock
+  lowThreshold Float? // reorder point — the "warning number" (units)
+  parLevel     Float? // order-up-to level (units)
   createdAt    DateTime     @default(now())
 
   purchases Purchase[]
 
   @@index([locationId])
+  @@index([vendorId])
 }
 
 model Vendor {
@@ -295,6 +303,7 @@ model Vendor {
   balanceOwed Float      @default(0) // outstanding balance (FR-25)
   createdAt   DateTime   @default(now())
   purchases   Purchase[]
+  products    Product[]
 }
 
 model Purchase {

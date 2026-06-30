@@ -7,6 +7,7 @@ import { money } from "@/lib/calc";
 import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
 import { FuelReadingForm, ProductForm } from "./InventoryForms";
 import { reorderSuggestions } from "@/lib/reorder";
+import { marginOf } from "@/lib/pricing";
 import { toISODate } from "@/lib/period";
 
 export const dynamic = "force-dynamic";
@@ -18,11 +19,13 @@ export default async function InventoryPage() {
   }
   const loc = await getActiveLocationId();
 
-  const [products, fuelReadings, suggestions] = await Promise.all([
+  const [products, fuelReadings, suggestions, vendors] = await Promise.all([
     prisma.product.findMany({ where: loc ? { locationId: loc } : {}, orderBy: { name: "asc" } }),
     prisma.fuelInventory.findMany({ where: loc ? { locationId: loc } : {}, orderBy: { date: "desc" }, take: 40 }),
     reorderSuggestions(loc),
+    prisma.vendor.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
+  const vendorName = new Map(vendors.map((v) => [v.id, v.name]));
 
   const inventoryValue = money(products.reduce((s, p) => s + p.qtyOnHand * p.currentCost, 0));
   const lowStock = products.filter((p) => p.lowThreshold != null && p.qtyOnHand <= p.lowThreshold);
@@ -44,7 +47,7 @@ export default async function InventoryPage() {
           canEdit && (
             <div className="flex gap-2">
               <FuelReadingForm defaultDate={today} />
-              <ProductForm />
+              <ProductForm vendors={vendors} />
             </div>
           )
         }
@@ -138,10 +141,12 @@ export default async function InventoryPage() {
               <thead>
                 <tr className="bg-surface-container-low text-label-caps uppercase text-on-surface-variant">
                   <th className="px-4 py-3">Product</th>
-                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Vendor</th>
                   <th className="px-4 py-3 text-right">On Hand</th>
+                  <th className="px-4 py-3 text-right">Reorder At</th>
                   <th className="px-4 py-3 text-right">Unit Cost</th>
-                  <th className="px-4 py-3 text-right">Sell Price</th>
+                  <th className="px-4 py-3 text-right">Retail</th>
+                  <th className="px-4 py-3 text-right">Margin</th>
                   <th className="px-4 py-3 text-right">Value</th>
                   <th className="px-4 py-3">Status</th>
                 </tr>
@@ -149,15 +154,21 @@ export default async function InventoryPage() {
               <tbody className="divide-y divide-outline-variant/40">
                 {products.map((p) => {
                   const low = p.lowThreshold != null && p.qtyOnHand <= p.lowThreshold;
+                  const margin = marginOf(p.currentCost, p.sellingPrice);
                   return (
                     <tr key={p.id} className="hover:bg-surface-container-low/50">
-                      <td className="px-4 py-3 font-medium text-on-surface">{p.name}</td>
-                      <td className="px-4 py-3 text-on-surface-variant">{catLabel(p.category)}</td>
-                      <td className="px-4 py-3 text-right tabular">{fmtNumber(p.qtyOnHand)}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-on-surface">{p.name}</div>
+                        <div className="text-on-surface-variant text-[11px]">{catLabel(p.category)}{p.unitsPerCase > 1 ? ` · ${p.unitsPerCase}/case` : ""}</div>
+                      </td>
+                      <td className="px-4 py-3 text-on-surface-variant">{(p.vendorId && vendorName.get(p.vendorId)) || "—"}</td>
+                      <td className="px-4 py-3 text-right tabular font-medium">{fmtNumber(p.qtyOnHand)}</td>
+                      <td className="px-4 py-3 text-right tabular text-on-surface-variant">{p.lowThreshold != null ? fmtNumber(p.lowThreshold) : "—"}</td>
                       <td className="px-4 py-3 text-right tabular">{fmtMoney(p.currentCost)}</td>
                       <td className="px-4 py-3 text-right tabular">{fmtMoney(p.sellingPrice)}</td>
+                      <td className="px-4 py-3 text-right tabular text-on-surface-variant">{margin > 0 ? `${margin}%` : "—"}</td>
                       <td className="px-4 py-3 text-right tabular font-semibold">{fmtMoney(p.qtyOnHand * p.currentCost)}</td>
-                      <td className="px-4 py-3">{low ? <Badge tone="warning">Low</Badge> : <Badge tone="success">OK</Badge>}</td>
+                      <td className="px-4 py-3">{low ? <Badge tone="warning">Reorder</Badge> : <Badge tone="success">OK</Badge>}</td>
                     </tr>
                   );
                 })}
