@@ -4,11 +4,12 @@ import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { fmtMoney, fmtNumber, fmtDate, catLabel, gradeLabel } from "@/lib/format";
 import { money } from "@/lib/calc";
-import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
+import { Card, PageHeader, Badge, EmptyState, Icon } from "@/components/ui";
 import { FuelReadingForm, ProductForm } from "./InventoryForms";
 import PullInventoryButton from "./PullInventoryButton";
 import EditProductButton from "./EditProductButton";
 import BulkPushButton from "./BulkPushButton";
+import InventoryFilters from "./InventoryFilters";
 import { reorderSuggestions } from "@/lib/reorder";
 import { marginOf } from "@/lib/pricing";
 import { toISODate } from "@/lib/period";
@@ -173,22 +174,19 @@ export default async function InventoryPage({
             </span>
           </span>
           <div className="flex gap-2 flex-wrap items-center">
+            {canEdit && (
+              <a
+                href={`/api/inventory/export?${new URLSearchParams({ ...(q ? { q } : {}), ...(cat ? { cat } : {}), ...(dept ? { dept } : {}) })}`}
+                className="ft-btn-secondary h-9 whitespace-nowrap"
+                title="Download this view as a CSV to bulk-edit prices"
+              >
+                <Icon name="download" className="text-[18px]" /> Export CSV
+              </a>
+            )}
             {canEdit && (cat || dept) && pushableCount > 0 && (
               <BulkPushButton filter={{ q, cat, dept }} count={pushableCount} scopeLabel={scopeLabel} />
             )}
-            <form className="flex gap-2 flex-wrap">
-              <select name="dept" defaultValue={dept} className="ft-input h-9 w-44">
-                <option value="">All departments</option>
-                {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <select name="cat" defaultValue={cat} className="ft-input h-9 w-40">
-                <option value="">All categories</option>
-                {CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
-              </select>
-              <input name="q" defaultValue={q} placeholder="Search name or UPC…" className="ft-input h-9 w-56" />
-              <button className="ft-btn-secondary h-9">Search</button>
-              {(q || cat || dept) && <a href="/inventory" className="ft-btn-ghost h-9 flex items-center px-3">Clear</a>}
-            </form>
+            <InventoryFilters q={q} cat={cat} dept={dept} departments={departments} categories={CATEGORIES} catLabel={catLabel} />
           </div>
         </div>
         {products.length === 0 ? (

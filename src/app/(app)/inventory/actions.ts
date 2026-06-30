@@ -271,7 +271,7 @@ export async function pullInventoryFromModisoft(): Promise<{ ok?: boolean; error
     if (!r.live) {
       return { error: "No live Modisoft connection. Set MODI_COOKIE (or the official API key) in the app environment, then try again." };
     }
-    return { ok: true, message: `Pulled ${r.total} items — ${r.created} new, ${r.updated} updated.` };
+    return { ok: true, message: `Pulled ${r.total} items — ${r.created} new, ${r.updated} updated · ${r.mappedDept} mapped to a department.` };
   } catch (e) {
     console.error(e);
     const msg = e instanceof Error ? e.message : "Inventory pull failed.";

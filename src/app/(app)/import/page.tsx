@@ -2,7 +2,7 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import ImportForm from "./ImportForm";
-import { importSales, importExpenses, importDailySales, importDailyReconciliation, importHouseAccounts, importMoneyIncoming, importMonthlySummary, importWholesaleCosts } from "./actions";
+import { importSales, importExpenses, importDailySales, importDailyReconciliation, importHouseAccounts, importMoneyIncoming, importMonthlySummary, importWholesaleCosts, importInventoryPrices } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,15 @@ export default async function ImportPage() {
         subtitle="Bulk-import sales or expenses from a CSV / Excel export — the manual side of the integration layer"
       />
       <div className="max-w-2xl space-y-6">
+        {canPurchases && (
+          <ImportForm
+            action={importInventoryPrices}
+            title="Import Price Updates (CSV)"
+            description="Bulk-update retail prices and push them to the POS. Edit the newRetail column of an Inventory → Export CSV (or use the template), then upload here. Matches by posItemId or upc. Columns: posItemId, upc, newRetail."
+            templateHref="/api/import/template?type=prices"
+            entityLabel="prices pushed"
+          />
+        )}
         {canPurchases && (
           <ImportForm
             action={importWholesaleCosts}

@@ -64,7 +64,8 @@ export default function ImportForm({
       {state?.ok && (
         <Card className="p-4 border-secondary/40 bg-secondary-container/20">
           <div className="flex items-center gap-2 text-secondary font-medium">
-            <Icon name="check_circle" className="text-[20px]" /> Imported {state.imported} {entityLabel} successfully.
+            <Icon name="check_circle" className="text-[20px] shrink-0" />
+            {state.message ?? `Imported ${state.imported} ${entityLabel} successfully.`}
           </div>
         </Card>
       )}

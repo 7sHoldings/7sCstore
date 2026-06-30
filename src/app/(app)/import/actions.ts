@@ -7,6 +7,7 @@ import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { parseCSV, SALES_TEMPLATE_HEADERS, EXPENSE_TEMPLATE_HEADERS, DAILY_SALES_TEMPLATE_HEADERS } from "@/lib/csv";
+import { pushPrices } from "@/lib/integrations/sync";
 import { money, perGallon } from "@/lib/calc";
 import { unitCostFromCase } from "@/lib/pricing";
 import { setLotteryManual } from "@/lib/lottery";
@@ -24,6 +25,7 @@ const EXPENSE_PAYMENTS = ["CASH", "CARD", "CHECK", "OTHER"];
 export interface ImportResult {
   ok?: boolean;
   imported?: number;
+  message?: string; // optional rich summary (overrides the default success line)
   errors?: { row: number; message: string }[];
   error?: string;
 }
@@ -842,5 +844,101 @@ export async function importWholesaleCosts(
   } catch (e) {
     console.error(e);
     return { error: "Import failed while saving." };
+  }
+}
+
+/**
+ * Bulk price update from a CSV (the Inventory → "Export CSV" round-trip). Matches
+ * each row to a product by posItemId (preferred) or upc, then for every changed
+ * price: pushes it to the POS when the item is POS-linked (price mirrors locally
+ * only on a successful push), or updates the local price directly otherwise.
+ * Validation is all-or-nothing; POS push failures are reported in the summary.
+ */
+export async function importInventoryPrices(
+  _prev: ImportResult | undefined,
+  formData: FormData
+): Promise<ImportResult> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "enterPurchases")) return { error: "You don't have permission to update prices." };
+  const locationId = await getActiveLocationId();
+  if (!locationId) return { error: "No location assigned." };
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { error: "Choose a CSV file to import." };
+
+  const rows = parseCSV(await file.text());
+  if (rows.length < 2) return { error: "The file has no data rows." };
+
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const idx = (name: string) => header.indexOf(name.toLowerCase());
+  const newRetailIdx = idx("newretail");
+  const posIdx = idx("positemid");
+  const upcIdx = idx("upc");
+  if (newRetailIdx === -1) return { error: "Missing the 'newRetail' column. Download the template or use Inventory → Export CSV." };
+  if (posIdx === -1 && upcIdx === -1) return { error: "Need a 'posItemId' or 'upc' column to match products." };
+
+  const products = await prisma.product.findMany({
+    where: { locationId },
+    select: { id: true, posItemId: true, posDeptId: true, upc: true, sellingPrice: true, name: true },
+  });
+  const byPos = new Map(products.filter((p) => p.posItemId != null).map((p) => [p.posItemId!, p]));
+  const byUpc = new Map(products.filter((p) => p.upc).map((p) => [p.upc!.trim(), p]));
+
+  const errors: { row: number; message: string }[] = [];
+  const matched: { p: (typeof products)[number]; price: number }[] = [];
+  const seen = new Set<string>();
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const priceStr = (r[newRetailIdx] ?? "").trim();
+    if (priceStr === "") continue; // blank newRetail = leave this item alone
+    const price = Number(priceStr.replace(/[$,]/g, ""));
+    const posId = posIdx >= 0 ? Number((r[posIdx] ?? "").trim()) : NaN;
+    const upc = upcIdx >= 0 ? (r[upcIdx] ?? "").trim() : "";
+    if (!isFinite(price) || price < 0) { errors.push({ row: i + 1, message: `Invalid newRetail "${priceStr}".` }); continue; }
+    const p = (isFinite(posId) && byPos.get(posId)) || (upc && byUpc.get(upc)) || null;
+    if (!p) { errors.push({ row: i + 1, message: `No product matched (posItemId=${isFinite(posId) ? posId : "—"}, upc=${upc || "—"}).` }); continue; }
+    if (seen.has(p.id)) continue; // first row for a product wins
+    seen.add(p.id);
+    matched.push({ p, price: money(price) });
+  }
+  if (errors.length) return { errors }; // validation failed — nothing committed
+
+  const changed = matched.filter((m) => m.price !== m.p.sellingPrice);
+  if (!changed.length) return { ok: true, imported: 0, message: "No price changes found — every row already matches the catalog." };
+
+  try {
+    // POS-linked items: push (the helper mirrors the price locally on success).
+    const pushable = changed.filter((m) => m.p.posItemId && m.p.posDeptId);
+    let pushed = 0, pushSkipped = 0, pushFailed = 0;
+    if (pushable.length) {
+      const { results } = await pushPrices(
+        locationId,
+        pushable.map((m) => ({ productId: m.p.id, posItemId: m.p.posItemId!, posDeptId: m.p.posDeptId, newRetail: m.price }))
+      );
+      pushed = results.filter((r) => r.ok && !r.skipped).length;
+      pushSkipped = results.filter((r) => r.skipped).length;
+      pushFailed = results.filter((r) => !r.ok).length;
+    }
+
+    // Non-POS items: just update the local price.
+    const localOnly = changed.filter((m) => !(m.p.posItemId && m.p.posDeptId));
+    for (let i = 0; i < localOnly.length; i += 50) {
+      await prisma.$transaction(
+        localOnly.slice(i, i + 50).map((m) =>
+          prisma.product.update({ where: { id: m.p.id }, data: { sellingPrice: m.price } })
+        )
+      );
+    }
+
+    await logAudit({ userId: session.userId, action: "IMPORT", entity: "Product", after: { priceImport: { changed: changed.length, pushed, pushSkipped, pushFailed, localOnly: localOnly.length } } });
+    revalidatePath("/inventory");
+    const parts = [`${changed.length} price${changed.length === 1 ? "" : "s"} updated`];
+    if (pushable.length) parts.push(`${pushed} pushed to POS`, `${pushSkipped} already current`, `${pushFailed} failed`);
+    if (localOnly.length) parts.push(`${localOnly.length} app-only (not POS-linked)`);
+    return { ok: true, imported: pushed || changed.length, message: parts.join(" · ") + "." };
+  } catch (e) {
+    console.error(e);
+    return { error: e instanceof Error ? e.message : "Price import failed while saving." };
   }
 }

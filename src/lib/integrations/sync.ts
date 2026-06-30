@@ -311,7 +311,7 @@ export async function runSync(locationId: string): Promise<{ imported: number; l
  */
 export async function syncInventory(
   locationId: string
-): Promise<{ created: number; updated: number; total: number; live: boolean }> {
+): Promise<{ created: number; updated: number; total: number; mappedDept: number; live: boolean }> {
   const { adapter, live } = activeAdapter();
   if (!adapter.fetchInventory) {
     throw new Error(`The ${adapter.label} connection can't pull inventory yet.`);
@@ -321,6 +321,7 @@ export async function syncInventory(
   // Dedupe by POS ItemKey (the stable match key).
   const byKey = new Map<number, (typeof items)[number]>();
   for (const it of items) if (it.posItemId) byKey.set(it.posItemId, it);
+  const mappedDept = [...byKey.values()].filter((it) => it.posDeptId != null).length;
 
   // Existing POS-linked products for this location.
   const existing = await prisma.product.findMany({
@@ -390,7 +391,7 @@ export async function syncInventory(
       recordsImported: created + updated, message: `Inventory pull: ${created} new, ${updated} updated.`,
     },
   });
-  return { created, updated, total: byKey.size, live };
+  return { created, updated, total: byKey.size, mappedDept, live };
 }
 
 /**

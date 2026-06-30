@@ -158,6 +158,19 @@ export const SUMMARY_TEMPLATE_CSV =
   ["2025,Total Inside Sales,0,0,0,0,0,13646.2,110638.4,115570.7,104754,111570.6,105730.9,109514,671424.8"].join("\n") +
   "\n";
 
+export const PRICE_TEMPLATE_HEADERS = ["posItemId", "upc", "name", "department", "newRetail"];
+
+export const PRICE_TEMPLATE_CSV =
+  PRICE_TEMPLATE_HEADERS.join(",") +
+  "\n" +
+  [
+    // Match by posItemId (preferred) or upc; set newRetail to the price you want.
+    // Tip: use Inventory → "Export CSV" to get this pre-filled with current prices.
+    "437457,0080310011160,Kinder Joy,Candy,3.49",
+    "512233,0049000000443,Coke 20oz,Beverages,2.29",
+  ].join("\n") +
+  "\n";
+
 export const COST_TEMPLATE_HEADERS = ["upc", "caseCost", "unitsPerCase", "vendor"];
 
 export const COST_TEMPLATE_CSV =

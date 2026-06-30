@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SALES_TEMPLATE_CSV, EXPENSE_TEMPLATE_CSV, DAILY_SALES_TEMPLATE_CSV, RECON_TEMPLATE_CSV, HOUSE_TEMPLATE_CSV, MONEY_INCOMING_TEMPLATE_CSV, SUMMARY_TEMPLATE_CSV, COST_TEMPLATE_CSV } from "@/lib/csv";
+import { SALES_TEMPLATE_CSV, EXPENSE_TEMPLATE_CSV, DAILY_SALES_TEMPLATE_CSV, RECON_TEMPLATE_CSV, HOUSE_TEMPLATE_CSV, MONEY_INCOMING_TEMPLATE_CSV, SUMMARY_TEMPLATE_CSV, COST_TEMPLATE_CSV, PRICE_TEMPLATE_CSV } from "@/lib/csv";
 
 export const runtime = "nodejs";
 
@@ -11,6 +11,7 @@ const TEMPLATES: Record<string, { csv: string; filename: string }> = {
   income: { csv: MONEY_INCOMING_TEMPLATE_CSV, filename: "7scstores_money_incoming_template.csv" },
   summary: { csv: SUMMARY_TEMPLATE_CSV, filename: "7scstores_monthly_summary_template.csv" },
   cost: { csv: COST_TEMPLATE_CSV, filename: "7scstores_wholesale_cost_template.csv" },
+  prices: { csv: PRICE_TEMPLATE_CSV, filename: "7scstores_price_update_template.csv" },
 };
 
 export async function GET(req: NextRequest) {
