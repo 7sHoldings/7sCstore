@@ -217,7 +217,10 @@ export default async function InventoryPage({
                     <tr key={p.id} className="hover:bg-surface-container-low/50">
                       <td className="px-4 py-3">
                         <div className="font-medium text-on-surface">{p.name}</div>
-                        <div className="text-on-surface-variant text-[11px]">{catLabel(p.category)}{p.unitsPerCase > 1 ? ` · ${p.unitsPerCase}/case` : ""}</div>
+                        <div className="text-on-surface-variant text-[11px]">
+                          {catLabel(p.category)}{p.unitsPerCase > 1 ? ` · ${p.unitsPerCase}/case` : ""}
+                          {p.upc ? <span className="ml-1 tabular font-mono">· {p.upc}</span> : ""}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-on-surface-variant">{p.department || "—"}</td>
                       <td className="px-4 py-3 text-on-surface-variant">{(p.vendorId && vendorName.get(p.vendorId)) || "—"}</td>
