@@ -277,6 +277,8 @@ model Product {
   name         String
   category     SaleCategory @default(STORE)
   posItemId    Int? // Modisoft ItemKey — stable match key for POS sync
+  posDeptId    Int? // Modisoft merchandise department id (needed to push prices)
+  department   String? // Modisoft department name
   upc          String? // barcode / SKU — maps POS sales back to this product
   vendorId     String? // preferred supplier
   vendor       Vendor?      @relation(fields: [vendorId], references: [id])

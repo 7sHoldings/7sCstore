@@ -1,4 +1,4 @@
-import type { PosAdapter, NormalizedSale, NormalizedInventoryItem } from "./types";
+import type { PosAdapter, NormalizedSale, NormalizedInventoryItem, PricepushRequest, PricePushResult } from "./types";
 import { mapFuelType, mapDeptToCategory } from "./modiMap";
 
 /**
@@ -266,9 +266,146 @@ export const modiInsightsAdapter: PosAdapter = {
       page++;
       await sleep(80);
     }
+
+    // Second pass: stamp each item with its MERCHANDISE department id. The
+    // item-wise report only carries TaxDepart (tax dept ≠ the dept that scopes a
+    // price update), so we walk each merchandise department's grid and map
+    // ItemKey → deptId. Best-effort: items we can't place just can't be pushed.
+    try {
+      const byKey = new Map(out.map((it) => [it.posItemId, it]));
+      for (const [deptId, deptName] of deptById) {
+        const rows = await fetchDeptGrid(cookie, deptId, INV_BASE);
+        for (const raw of rows) {
+          const r = raw as Record<string, unknown>;
+          const it = byKey.get(num(r.ItemKey));
+          if (!it) continue;
+          it.posDeptId = deptId;
+          const dn = String(r.DeptName ?? deptName).trim();
+          if (dn) { it.department = dn; it.category = mapDeptToCategory(dn); }
+        }
+        await sleep(50);
+      }
+    } catch {
+      // best-effort; price-push stays disabled for unmapped items
+    }
+
     return out;
   },
+
+  async pushItemPrice(req: PricepushRequest): Promise<PricePushResult> {
+    return (await this.pushItemPricesBulk!([req]))[0];
+  },
+
+  async pushItemPricesBulk(reqs: PricepushRequest[]): Promise<PricePushResult[]> {
+    const cookie = process.env.MODI_COOKIE!;
+    const storeId = process.env.MODI_STORE_ID || "16";
+    const ccode = process.env.MODI_CCODE || "854388";
+    await changeStore(cookie, storeId, ccode, INV_BASE);
+
+    const today = fmtDate(new Date());
+    const results: PricePushResult[] = [];
+
+    // Group by department so each department's grid is fetched only once.
+    const byDept = new Map<number, PricepushRequest[]>();
+    for (const r of reqs) {
+      if (!r.posDeptId) { results.push({ posItemId: r.posItemId, ok: false, oldPrice: null, error: "No POS department mapped — pull inventory again first." }); continue; }
+      const list = byDept.get(r.posDeptId) ?? [];
+      list.push(r);
+      byDept.set(r.posDeptId, list);
+    }
+
+    for (const [deptId, items] of byDept) {
+      let rowByKey: Map<number, Record<string, unknown>>;
+      try {
+        const rows = await fetchDeptGrid(cookie, deptId, INV_BASE);
+        rowByKey = new Map(rows.map((raw) => [num((raw as Record<string, unknown>).ItemKey), raw as Record<string, unknown>]));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Could not load department.";
+        for (const it of items) results.push({ posItemId: it.posItemId, ok: false, oldPrice: null, error: msg });
+        continue;
+      }
+
+      for (const it of items) {
+        const row = rowByKey.get(it.posItemId);
+        if (!row) { results.push({ posItemId: it.posItemId, ok: false, oldPrice: null, error: "Item not found in its POS department." }); continue; }
+        const oldPrice = round2(num(row.Retail));
+        const newRetail = round2(it.newRetail);
+        if (oldPrice === newRetail) { results.push({ posItemId: it.posItemId, ok: true, oldPrice, skipped: true }); continue; }
+        try {
+          await postForm(
+            cookie,
+            `/SnapShot/UpdateInventoryItemsDetails?ID=${deptId}&FromDate=${encodeURIComponent(today)}&SID=`,
+            rowToForm(row, newRetail),
+            INV_BASE
+          );
+          results.push({ posItemId: it.posItemId, ok: true, oldPrice });
+        } catch (e) {
+          results.push({ posItemId: it.posItemId, ok: false, oldPrice, error: e instanceof Error ? e.message : "Push failed." });
+        }
+        await sleep(120); // be gentle on Cloudflare between writes
+      }
+    }
+
+    // Preserve caller order.
+    const order = new Map(reqs.map((r, i) => [r.posItemId, i]));
+    results.sort((a, b) => (order.get(a.posItemId) ?? 0) - (order.get(b.posItemId) ?? 0));
+    return results;
+  },
 };
+
+/** Load one merchandise department's inventory grid (paginated, all rows). */
+async function fetchDeptGrid(cookie: string, deptId: number, base: string): Promise<unknown[]> {
+  const today = fmtDate(new Date());
+  const pageSize = 2000;
+  const out: unknown[] = [];
+  let page = 1;
+  let total = Infinity;
+  while ((page - 1) * pageSize < total && page <= 50) {
+    const { data, total: t } = await postGrid(cookie, "/SnapShot/InventoryItemsDetails", {
+      sort: "", page: String(page), pageSize: String(pageSize), group: "", filter: "",
+      ID: String(deptId), FromDate: today, InvFilterFor: String(deptId),
+    }, base);
+    if (t > 0) total = t;
+    out.push(...data);
+    if (!data.length) break;
+    page++;
+    await sleep(40);
+  }
+  return out;
+}
+
+/** Serialize a Kendo grid row to form fields, overriding Retail with the new price. */
+function rowToForm(row: Record<string, unknown>, newRetail: number): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(row)) {
+    if (v === null || v === undefined) { out[k] = ""; continue; }
+    if (typeof v === "object") continue; // skip nested objects/arrays Kendo doesn't post
+    out[k] = typeof v === "boolean" ? (v ? "true" : "false") : String(v);
+  }
+  out.Retail = String(newRetail);
+  return out;
+}
+
+/** POST a form-urlencoded body and return the parsed JSON (or null). */
+async function postForm(cookie: string, path: string, body: Record<string, string>, base: string): Promise<unknown> {
+  const res = await fetch(base + path, {
+    method: "POST",
+    headers: {
+      cookie,
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "x-requested-with": "XMLHttpRequest",
+      "user-agent": UA,
+      accept: "application/json, text/javascript, */*; q=0.01",
+      origin: base,
+      referer: base + "/",
+    },
+    body: new URLSearchParams(body).toString(),
+    cache: "no-store",
+  });
+  if (res.status === 401 || res.status === 403) throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
+  if (!res.ok) throw new Error(`Modisoft ${path} responded ${res.status}`);
+  try { return await res.json(); } catch { return null; }
+}
 
 /** Department/tax-department id → name (for categorising item-wise rows). */
 async function loadDepartments(cookie: string): Promise<Map<number, string>> {

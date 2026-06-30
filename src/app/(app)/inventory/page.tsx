@@ -8,6 +8,7 @@ import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
 import { FuelReadingForm, ProductForm } from "./InventoryForms";
 import PullInventoryButton from "./PullInventoryButton";
 import EditProductButton from "./EditProductButton";
+import BulkPushButton from "./BulkPushButton";
 import { reorderSuggestions } from "@/lib/reorder";
 import { marginOf } from "@/lib/pricing";
 import { toISODate } from "@/lib/period";
@@ -21,7 +22,7 @@ const PAGE_SIZE = 100;
 export default async function InventoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; cat?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; cat?: string; dept?: string; page?: string }>;
 }) {
   const session = (await getSession())!;
   if (!can(session.role, "viewAll")) {
@@ -31,26 +32,32 @@ export default async function InventoryPage({
   const sp = await searchParams;
   const q = sp.q?.trim() || "";
   const cat = CATEGORIES.includes(sp.cat || "") ? sp.cat! : "";
+  const dept = sp.dept?.trim() || "";
   const page = Math.max(1, Number(sp.page) || 1);
 
   const baseWhere = loc ? { locationId: loc } : {};
   const productWhere = {
     ...baseWhere,
     ...(cat ? { category: cat as never } : {}),
+    ...(dept ? { department: dept } : {}),
     ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" as const } }, { upc: { contains: q } }] } : {}),
   };
 
-  const [products, productCount, filteredCount, fuelReadings, suggestions, vendors] = await Promise.all([
+  const [products, productCount, filteredCount, pushableCount, deptRows, fuelReadings, suggestions, vendors] = await Promise.all([
     prisma.product.findMany({ where: productWhere, orderBy: { name: "asc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
     prisma.product.count({ where: baseWhere }),
     prisma.product.count({ where: productWhere }),
+    prisma.product.count({ where: { ...productWhere, posItemId: { not: null }, posDeptId: { not: null } } }),
+    prisma.product.findMany({ where: { ...baseWhere, department: { not: null } }, distinct: ["department"], select: { department: true }, orderBy: { department: "asc" } }),
     prisma.fuelInventory.findMany({ where: loc ? { locationId: loc } : {}, orderBy: { date: "desc" }, take: 40 }),
     reorderSuggestions(loc),
     prisma.vendor.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
   const vendorName = new Map(vendors.map((v) => [v.id, v.name]));
+  const departments = deptRows.map((d) => d.department!).filter(Boolean);
   const pageCount = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
-  const qs = (p: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(cat ? { cat } : {}), page: String(p) })}`;
+  const qs = (p: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(cat ? { cat } : {}), ...(dept ? { dept } : {}), page: String(p) })}`;
+  const scopeLabel = dept || (cat ? catLabel(cat) : "") || "this view";
 
   const inventoryValue = money(products.reduce((s, p) => s + p.qtyOnHand * p.currentCost, 0));
   const lowStock = products.filter((p) => p.lowThreshold != null && p.qtyOnHand <= p.lowThreshold);
@@ -165,15 +172,24 @@ export default async function InventoryPage({
               {q || cat ? `${filteredCount.toLocaleString()} of ${productCount.toLocaleString()}` : `${productCount.toLocaleString()} items`}
             </span>
           </span>
-          <form className="flex gap-2 flex-wrap">
-            <select name="cat" defaultValue={cat} className="ft-input h-9 w-40">
-              <option value="">All categories</option>
-              {CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
-            </select>
-            <input name="q" defaultValue={q} placeholder="Search name or UPC…" className="ft-input h-9 w-56" />
-            <button className="ft-btn-secondary h-9">Search</button>
-            {(q || cat) && <a href="/inventory" className="ft-btn-ghost h-9 flex items-center px-3">Clear</a>}
-          </form>
+          <div className="flex gap-2 flex-wrap items-center">
+            {canEdit && (cat || dept) && pushableCount > 0 && (
+              <BulkPushButton filter={{ q, cat, dept }} count={pushableCount} scopeLabel={scopeLabel} />
+            )}
+            <form className="flex gap-2 flex-wrap">
+              <select name="dept" defaultValue={dept} className="ft-input h-9 w-44">
+                <option value="">All departments</option>
+                {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <select name="cat" defaultValue={cat} className="ft-input h-9 w-40">
+                <option value="">All categories</option>
+                {CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
+              </select>
+              <input name="q" defaultValue={q} placeholder="Search name or UPC…" className="ft-input h-9 w-56" />
+              <button className="ft-btn-secondary h-9">Search</button>
+              {(q || cat || dept) && <a href="/inventory" className="ft-btn-ghost h-9 flex items-center px-3">Clear</a>}
+            </form>
+          </div>
         </div>
         {products.length === 0 ? (
           <EmptyState icon="inventory_2" title={q ? "No matches" : "No products yet"} hint={q ? "Try another search." : "Add products or pull from Modisoft."} />
@@ -183,6 +199,7 @@ export default async function InventoryPage({
               <thead>
                 <tr className="bg-surface-container-low text-label-caps uppercase text-on-surface-variant">
                   <th className="px-4 py-3">Product</th>
+                  <th className="px-4 py-3">Department</th>
                   <th className="px-4 py-3">Vendor</th>
                   <th className="px-4 py-3 text-right">On Hand</th>
                   <th className="px-4 py-3 text-right">Reorder At</th>
@@ -204,6 +221,7 @@ export default async function InventoryPage({
                         <div className="font-medium text-on-surface">{p.name}</div>
                         <div className="text-on-surface-variant text-[11px]">{catLabel(p.category)}{p.unitsPerCase > 1 ? ` · ${p.unitsPerCase}/case` : ""}</div>
                       </td>
+                      <td className="px-4 py-3 text-on-surface-variant">{p.department || "—"}</td>
                       <td className="px-4 py-3 text-on-surface-variant">{(p.vendorId && vendorName.get(p.vendorId)) || "—"}</td>
                       <td className="px-4 py-3 text-right tabular font-medium">{fmtNumber(p.qtyOnHand)}</td>
                       <td className="px-4 py-3 text-right tabular text-on-surface-variant">{p.lowThreshold != null ? fmtNumber(p.lowThreshold) : "—"}</td>
@@ -220,6 +238,7 @@ export default async function InventoryPage({
                               id: p.id, name: p.name, sellingPrice: p.sellingPrice, caseCost: p.caseCost,
                               unitsPerCase: p.unitsPerCase, marginPct: p.marginPct, vendorId: p.vendorId,
                               qtyOnHand: p.qtyOnHand, lowThreshold: p.lowThreshold, parLevel: p.parLevel,
+                              posLinked: p.posItemId != null && p.posDeptId != null,
                             }}
                           />
                         </td>

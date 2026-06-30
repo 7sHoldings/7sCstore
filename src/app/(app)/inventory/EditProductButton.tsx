@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
-import { updateProduct } from "./actions";
+import { useActionState, useEffect, useState, useTransition } from "react";
+import { updateProduct, pushPriceToPos } from "./actions";
 import { Icon } from "@/components/ui";
 import Modal from "@/components/Modal";
 import { fmtMoney } from "@/lib/format";
@@ -18,6 +18,7 @@ export type EditProduct = {
   qtyOnHand: number;
   lowThreshold: number | null;
   parLevel: number | null;
+  posLinked: boolean; // has posItemId + posDeptId → price can be pushed to the POS
 };
 
 export default function EditProductButton({ product, vendors }: { product: EditProduct; vendors: { id: string; name: string }[] }) {
@@ -26,8 +27,21 @@ export default function EditProductButton({ product, vendors }: { product: EditP
   const [caseCost, setCaseCost] = useState(String(product.caseCost || ""));
   const [units, setUnits] = useState(String(product.unitsPerCase || 1));
   const [price, setPrice] = useState(String(product.sellingPrice || ""));
+  const [pushing, startPush] = useTransition();
+  const [pushMsg, setPushMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Reset the push status whenever the price field changes.
+  useEffect(() => { setPushMsg(null); }, [price]);
   useEffect(() => { if (state?.ok) setOpen(false); }, [state?.ok]);
+
+  function doPush() {
+    const p = Number(price);
+    if (!(p > 0)) { setPushMsg({ ok: false, text: "Enter a valid price first." }); return; }
+    startPush(async () => {
+      const r = await pushPriceToPos(product.id, p);
+      setPushMsg({ ok: Boolean(r.ok), text: r.message || r.error || "Done." });
+    });
+  }
 
   if (!open) {
     return (
@@ -92,6 +106,29 @@ export default function EditProductButton({ product, vendors }: { product: EditP
             <Icon name="error" className="text-[18px]" /> {state.error}
           </div>
         )}
+
+        {/* Push the current price straight to the POS (Modisoft). */}
+        {product.posLinked ? (
+          <div className="rounded-lg border border-outline-variant/60 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-body-sm font-medium text-on-surface">Push price to POS</div>
+                <div className="text-[11px] text-on-surface-variant">Sets the register retail to {fmtMoney(Number(price) || 0)} at the store.</div>
+              </div>
+              <button type="button" onClick={doPush} disabled={pushing} className="ft-btn-secondary h-9 whitespace-nowrap">
+                <Icon name="cloud_upload" className="text-[18px]" /> {pushing ? "Pushing…" : "Push to POS"}
+              </button>
+            </div>
+            {pushMsg && (
+              <div className={`flex items-center gap-2 text-body-sm px-2 py-1.5 rounded-md ${pushMsg.ok ? "text-secondary bg-secondary-container/40" : "text-error bg-error-container/50"}`}>
+                <Icon name={pushMsg.ok ? "check_circle" : "error"} className="text-[16px]" /> {pushMsg.text}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-[11px] text-on-surface-variant px-1">Not linked to the POS — pull inventory to enable price push.</div>
+        )}
+
         <div className="flex gap-2 pt-1">
           <button type="button" onClick={() => setOpen(false)} className="ft-btn-secondary flex-1 justify-center">Cancel</button>
           <button type="submit" disabled={pending} className="ft-btn-primary flex-1 justify-center">{pending ? "Saving…" : "Save"}</button>

@@ -5,7 +5,7 @@ import { money, perGallon } from "../calc";
 import { modiAdapter } from "./modi";
 import { modiInsightsAdapter } from "./modiInsights";
 import { mockModiAdapter } from "./mockModi";
-import type { PosAdapter, NormalizedSale } from "./types";
+import type { PosAdapter, NormalizedSale, PricePushResult } from "./types";
 
 /**
  * Pick the active adapter: official API (MODI_API_URL+KEY) → Insights session
@@ -325,7 +325,7 @@ export async function syncInventory(
   // Existing POS-linked products for this location.
   const existing = await prisma.product.findMany({
     where: { locationId, posItemId: { not: null } },
-    select: { id: true, posItemId: true, name: true, sellingPrice: true, category: true },
+    select: { id: true, posItemId: true, name: true, sellingPrice: true, category: true, posDeptId: true, department: true },
   });
   const existingByKey = new Map(existing.map((p) => [p.posItemId!, p]));
 
@@ -339,6 +339,8 @@ export async function syncInventory(
       name: it.name,
       category: it.category as never,
       posItemId: it.posItemId,
+      posDeptId: it.posDeptId ?? null,
+      department: it.department ?? null,
       upc: it.upc || null,
       unitsPerCase: it.unitsPerCase,
       caseCost: 0,
@@ -356,14 +358,26 @@ export async function syncInventory(
   let updated = 0;
   const toUpdate = [...byKey.values()].filter((it) => {
     const p = existingByKey.get(it.posItemId);
-    return p && (money(it.retailPrice) !== p.sellingPrice || (it.name && it.name !== p.name) || it.category !== p.category);
+    return p && (
+      money(it.retailPrice) !== p.sellingPrice ||
+      (it.name && it.name !== p.name) ||
+      it.category !== p.category ||
+      (it.posDeptId != null && it.posDeptId !== p.posDeptId) ||
+      (it.department != null && it.department !== p.department)
+    );
   });
   for (let i = 0; i < toUpdate.length; i += 50) {
     await prisma.$transaction(
       toUpdate.slice(i, i + 50).map((it) =>
         prisma.product.update({
           where: { id: existingByKey.get(it.posItemId)!.id },
-          data: { name: it.name || undefined, category: it.category as never, sellingPrice: money(it.retailPrice) },
+          data: {
+            name: it.name || undefined,
+            category: it.category as never,
+            sellingPrice: money(it.retailPrice),
+            posDeptId: it.posDeptId ?? undefined,
+            department: it.department ?? undefined,
+          },
         })
       )
     );
@@ -377,6 +391,65 @@ export async function syncInventory(
     },
   });
   return { created, updated, total: byKey.size, live };
+}
+
+/**
+ * Push app retail prices → POS for the given products. Each item must already
+ * carry posItemId + posDeptId (set on inventory pull). On a successful push we
+ * mirror the new price into the local Product so the app and POS stay in lock-
+ * step. Returns the per-product outcome plus the live/source flag.
+ */
+export async function pushPrices(
+  locationId: string,
+  items: { productId: string; posItemId: number; posDeptId: number | null; newRetail: number }[]
+): Promise<{ live: boolean; results: (PricePushResult & { productId: string })[] }> {
+  const { adapter, live } = activeAdapter();
+  if (!adapter.pushItemPricesBulk) {
+    throw new Error(`The ${adapter.label} connection can't push prices.`);
+  }
+  if (!live) {
+    return {
+      live,
+      results: items.map((it) => ({ productId: it.productId, posItemId: it.posItemId, ok: false, oldPrice: null, error: "No live Modisoft connection (set MODI_COOKIE)." })),
+    };
+  }
+
+  const reqs = items
+    .filter((it) => it.posItemId && it.posDeptId)
+    .map((it) => ({ posItemId: it.posItemId, posDeptId: it.posDeptId!, newRetail: it.newRetail }));
+  const pushed = await adapter.pushItemPricesBulk(reqs);
+  const byItem = new Map(pushed.map((r) => [r.posItemId, r]));
+
+  const results: (PricePushResult & { productId: string })[] = [];
+  const toMirror: { id: string; price: number }[] = [];
+  for (const it of items) {
+    if (!it.posItemId || !it.posDeptId) {
+      results.push({ productId: it.productId, posItemId: it.posItemId, ok: false, oldPrice: null, error: "No POS department mapped — pull inventory again first." });
+      continue;
+    }
+    const r = byItem.get(it.posItemId) ?? { posItemId: it.posItemId, ok: false, oldPrice: null, error: "No response from POS." };
+    results.push({ ...r, productId: it.productId });
+    if (r.ok && !r.skipped) toMirror.push({ id: it.productId, price: money(it.newRetail) });
+  }
+
+  // Mirror successfully-pushed prices into the local catalog.
+  for (let i = 0; i < toMirror.length; i += 50) {
+    await prisma.$transaction(
+      toMirror.slice(i, i + 50).map((m) =>
+        prisma.product.update({ where: { id: m.id }, data: { sellingPrice: m.price } })
+      )
+    );
+  }
+
+  const okCount = results.filter((r) => r.ok && !r.skipped).length;
+  await prisma.syncLog.create({
+    data: {
+      source: "POS_MODI", status: "SUCCESS", locationId, finishedAt: new Date(),
+      recordsImported: okCount, message: `Price push: ${okCount} updated, ${results.filter((r) => r.skipped).length} unchanged, ${results.filter((r) => !r.ok).length} failed.`,
+    },
+  });
+
+  return { live, results };
 }
 
 /** Write a one-line SyncLog summarizing a completed backfill. */

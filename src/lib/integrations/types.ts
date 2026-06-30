@@ -26,6 +26,7 @@ export interface NormalizedSale {
 /** A single inventory item pulled from the POS item-wise inventory report. */
 export interface NormalizedInventoryItem {
   posItemId: number; // Modisoft ItemKey — stable match key
+  posDeptId?: number; // Modisoft merchandise department id — required to push prices back
   upc: string;
   name: string;
   category: "FUEL" | "STORE" | "LOTTERY" | "TOBACCO" | "FOOD_DRINK" | "OTHER";
@@ -36,6 +37,22 @@ export interface NormalizedInventoryItem {
   qtyOnHand: number; // POS qty (often 0/negative — POS stock not maintained)
 }
 
+/** A request to set a new retail price on one POS item (scoped to its dept). */
+export interface PricepushRequest {
+  posItemId: number;
+  posDeptId: number;
+  newRetail: number;
+}
+
+/** The per-item result of a price push. */
+export interface PricePushResult {
+  posItemId: number;
+  ok: boolean;
+  oldPrice: number | null;
+  skipped?: boolean; // POS already at this price — nothing sent
+  error?: string;
+}
+
 export interface PosAdapter {
   /** Stable identifier, e.g. "POS_MODI". */
   readonly id: string;
@@ -44,6 +61,10 @@ export interface PosAdapter {
   isConfigured(): boolean;
   /** Pull the current item-wise inventory (UPC, cost, price, qty on hand). */
   fetchInventory?(): Promise<NormalizedInventoryItem[]>;
+  /** Push a new retail price to the POS for one item (scoped to its merchandise dept). */
+  pushItemPrice?(req: PricepushRequest): Promise<PricePushResult>;
+  /** Push new retail prices for many items at once (grouped by dept for efficiency). */
+  pushItemPricesBulk?(reqs: PricepushRequest[]): Promise<PricePushResult[]>;
   /** Pull sales recorded at/after `since`. */
   fetchSince(since: Date): Promise<NormalizedSale[]>;
   /** Pull sales for an explicit [from, to] day range (used for backfill). */
