@@ -90,10 +90,12 @@ export default function PayoutTreeEditor({
                 <select
                   name="payoutSub"
                   value={r.sub}
+                  required={!!r.parent}
+                  title={r.parent ? "Pick a sub-category" : undefined}
                   onChange={(e) => (e.target.value === "__add__" ? setSubAddRow(i) : setRow(i, { sub: e.target.value }))}
                   className="ft-input"
                 >
-                  <option value="">{r.parent ? "— Sub-category —" : "—"}</option>
+                  <option value="">{r.parent ? "— Sub-category (required) —" : "—"}</option>
                   {subsFor(r.parent, r.sub).map((s) => <option key={s} value={s}>{s}</option>)}
                   {r.parent && <option value="__add__">+ Add new…</option>}
                 </select>
