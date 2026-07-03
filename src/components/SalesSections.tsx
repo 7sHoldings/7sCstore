@@ -486,10 +486,11 @@ export function DeptTable({
   );
 }
 
-export function FuelTable({ byGrade, gallons, total }: { byGrade: FuelGrade[]; gallons: number; total: number }) {
+export function FuelTable({ byGrade, gallons, total, promotions = 0 }: { byGrade: FuelGrade[]; gallons: number; total: number; promotions?: number }) {
   if (byGrade.length === 0) {
     return <div className="text-on-surface-variant text-body-sm py-8 text-center">No fuel sales this period.</div>;
   }
+  const hasPromo = promotions > 0;
   return (
     <div className="overflow-x-auto custom-scrollbar">
       <table className="w-full text-left text-body-sm">
@@ -512,12 +513,28 @@ export function FuelTable({ byGrade, gallons, total }: { byGrade: FuelGrade[]; g
           ))}
         </tbody>
         <tfoot>
-          <tr className="bg-surface-container font-bold">
-            <td className="px-5 py-3">Total</td>
+          <tr className={hasPromo ? "font-medium" : "bg-surface-container font-bold"}>
+            <td className="px-5 py-3">{hasPromo ? "Sales (net)" : "Total"}</td>
             <td className="px-5 py-3 text-right tabular">{fmtNumber(gallons)}</td>
             <td className="px-5 py-3"></td>
             <td className="px-5 py-3 text-right tabular">{fmtMoney(total)}</td>
           </tr>
+          {hasPromo && (
+            <>
+              <tr className="text-secondary">
+                <td className="px-5 py-2" colSpan={3}>
+                  <span className="inline-flex items-center gap-1">
+                    <Icon name="add" className="text-[16px]" /> Promotions added back
+                  </span>
+                </td>
+                <td className="px-5 py-2 text-right tabular">+{fmtMoney(promotions)}</td>
+              </tr>
+              <tr className="bg-surface-container font-bold">
+                <td className="px-5 py-3" colSpan={3}>Total incl. promotions</td>
+                <td className="px-5 py-3 text-right tabular">{fmtMoney(total + promotions)}</td>
+              </tr>
+            </>
+          )}
         </tfoot>
       </table>
     </div>

@@ -267,8 +267,8 @@ export default async function DailySalesPage({
             <DeptTable rows={view.merch.depts} total={view.merch.split.total} refundTotal={view.merch.refund} />
           </SalesSection>
 
-          <SalesSection id="fuel" title="Fuel Sales" s={view.fuel.split} extra={`${fmtNumber(view.fuel.gallons)} gal`} className="mb-6">
-            <FuelTable byGrade={view.fuel.byGrade} gallons={view.fuel.gallons} total={view.fuel.split.total} />
+          <SalesSection id="fuel" title="Fuel Sales" s={view.fuel.split} extra={promo.fuel > 0 ? `${fmtNumber(view.fuel.gallons)} gal · incl. ${fmtMoney(promo.fuel)} promotions` : `${fmtNumber(view.fuel.gallons)} gal`} className="mb-6">
+            <FuelTable byGrade={view.fuel.byGrade} gallons={view.fuel.gallons} total={view.fuel.split.total} promotions={promo.fuel} />
           </SalesSection>
 
           <SalesSection id="lottery" title="Lottery / Lotto Sales & Payouts" s={view.lotto.split}>
