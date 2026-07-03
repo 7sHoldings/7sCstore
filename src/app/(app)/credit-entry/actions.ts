@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
-import { setCreditManual, addHouseAccount as addHA, addPayoutCategory as addPC, getHouseAccounts, getPayoutCategories, type HouseCharge } from "@/lib/credit";
+import { setCreditManual, addHouseAccount as addHA, addPayoutCategory as addPC, getHouseAccounts, getPayoutCategories, getPayoutTree, addPayoutParent, addPayoutSub, type HouseCharge, type PayoutTree } from "@/lib/credit";
 import { uploadReceiptsFromForm } from "@/lib/storage";
 import { setReceipts } from "@/lib/receipts";
 import { logAudit } from "@/lib/audit";
@@ -26,12 +26,41 @@ export async function addHouseAccountInline(name: string): Promise<string[]> {
   return getHouseAccounts();
 }
 
+/** Add a top-level payout category (parent) inline; returns the updated tree. */
+export async function addPayoutParentInline(name: string): Promise<PayoutTree> {
+  const session = await getSession();
+  if (!session || !can(session.role, "enterSales")) return getPayoutTree();
+  return name.trim() ? addPayoutParent(name) : getPayoutTree();
+}
+
+/** Add a sub-category under a parent inline; returns the updated tree. */
+export async function addPayoutSubInline(parent: string, name: string): Promise<PayoutTree> {
+  const session = await getSession();
+  if (!session || !can(session.role, "enterSales")) return getPayoutTree();
+  return parent.trim() && name.trim() ? addPayoutSub(parent, name) : getPayoutTree();
+}
+
 /** Pair up parallel select+amount fields into positive line items. */
 function readLines(formData: FormData, nameField: string, amountField: string): HouseCharge[] {
   const names = formData.getAll(nameField).map((v) => String(v).trim());
   const amounts = formData.getAll(amountField).map((v) => Number(v));
   return names
     .map((account, i) => ({ account, amount: isFinite(amounts[i]) && amounts[i] > 0 ? amounts[i] : 0 }))
+    .filter((h) => h.account && h.amount > 0);
+}
+
+/** Read parent+sub payout rows into line items (account = "Parent · Sub"). */
+function readPayouts(formData: FormData): HouseCharge[] {
+  const parents = formData.getAll("payoutParent").map((v) => String(v).trim());
+  const subs = formData.getAll("payoutSub").map((v) => String(v).trim());
+  const amounts = formData.getAll("payoutAmount").map((v) => Number(v));
+  return parents
+    .map((parent, i) => {
+      const sub = subs[i] ?? "";
+      const account = parent && sub ? `${parent} · ${sub}` : parent;
+      const amount = isFinite(amounts[i]) && amounts[i] > 0 ? amounts[i] : 0;
+      return { account, amount };
+    })
     .filter((h) => h.account && h.amount > 0);
 }
 
@@ -51,7 +80,7 @@ export async function saveCreditManual(formData: FormData): Promise<void> {
   };
 
   const house = readLines(formData, "houseAccount", "houseAmount");
-  const payouts = readLines(formData, "payoutCategory", "payoutAmount");
+  const payouts = readPayouts(formData);
 
   const data = { ebt: num("ebt"), otherCredit: num("otherCredit"), payouts, house };
   await setCreditManual(loc, date, data);

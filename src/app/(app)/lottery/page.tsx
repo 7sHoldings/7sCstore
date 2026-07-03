@@ -35,12 +35,12 @@ export default async function LotteryEntryPage({
         title="Lottery Entry"
         subtitle="Enter the day's lottery sales and lotto payout from the machine / register."
         actions={
-          <form className="flex items-end gap-2">
+          <form action="/daily" className="flex items-end gap-2">
             <div>
               <label className="ft-label" htmlFor="pick">Day</label>
               <input id="pick" name="date" type="date" defaultValue={dateISO} className="ft-input" />
             </div>
-            <button type="submit" className="ft-btn-ghost">Go</button>
+            <button type="submit" className="ft-btn-ghost" title="Open this day in Daily Sales">Go to Daily</button>
           </form>
         }
       />

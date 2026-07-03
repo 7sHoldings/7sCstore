@@ -19,7 +19,7 @@ export default function EditCashButton({
 }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(setCashForDay, {});
-  const [amount, setAmount] = useState(String(effective || ""));
+  const [amount, setAmount] = useState(""); // start empty so you type a fresh number
   const [resetting, startReset] = useTransition();
 
   useEffect(() => { if (state?.ok) setOpen(false); }, [state?.ok]);
@@ -45,7 +45,7 @@ export default function EditCashButton({
 
         <div>
           <label className="ft-label" htmlFor="cash-amt">Cash amount</label>
-          <input id="cash-amt" name="amount" type="number" step="0.01" min="0" className="ft-input" value={amount} onChange={(e) => setAmount(e.target.value)} required autoFocus />
+          <input id="cash-amt" name="amount" type="number" step="0.01" min="0" className="ft-input" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" required autoFocus />
           <p className="text-[11px] text-on-surface-variant mt-1">Saved as a manual override — it wins over the POS Safe Drop and survives the next sync.</p>
         </div>
 

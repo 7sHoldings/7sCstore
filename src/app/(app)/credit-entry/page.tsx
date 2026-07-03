@@ -1,13 +1,14 @@
 import { getSession } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { getActiveLocationId } from "@/lib/location";
-import { getCreditManual, getHouseAccounts, getPayoutCategories } from "@/lib/credit";
+import { getCreditManual, getHouseAccounts, getPayoutTree } from "@/lib/credit";
 import { todayISO } from "@/lib/day";
 import { getReceipts } from "@/lib/receipts";
 import { signedUrls, isStorageConfigured } from "@/lib/storage";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
-import { saveCreditManual, addPayoutCategoryInline, addHouseAccountInline } from "./actions";
+import { saveCreditManual, addHouseAccountInline, addPayoutParentInline, addPayoutSubInline } from "./actions";
 import LineItemEditor from "./LineItemEditor";
+import PayoutTreeEditor from "./PayoutTreeEditor";
 import ReceiptInput from "./ReceiptInput";
 
 export const dynamic = "force-dynamic";
@@ -24,13 +25,21 @@ export default async function CreditEntryPage({
   const loc = await getActiveLocationId();
   const sp = await searchParams;
   const dateISO = sp.date || todayISO();
-  const [existing, houseAccounts, payoutCategories, receiptPaths] = await Promise.all([
+  const [existing, houseAccounts, payoutTree, receiptPaths] = await Promise.all([
     loc ? getCreditManual(loc, dateISO) : Promise.resolve(null),
     getHouseAccounts(),
-    getPayoutCategories(),
+    getPayoutTree(),
     loc ? getReceipts(loc, "credit", dateISO) : Promise.resolve([]),
   ]);
   const receiptUrls = await signedUrls(receiptPaths);
+
+  // Split saved payouts ("Parent · Sub") back into the two-level rows.
+  const payoutRows = (existing?.payouts ?? []).map((p) => {
+    const idx = p.account.indexOf(" · ");
+    return idx >= 0
+      ? { parent: p.account.slice(0, idx), sub: p.account.slice(idx + 3), amount: p.amount }
+      : { parent: p.account, sub: "", amount: p.amount };
+  });
 
   return (
     <div>
@@ -38,12 +47,12 @@ export default async function CreditEntryPage({
         title="Credit Entry"
         subtitle="Enter the day's EBT, other credit-card sales, cash payouts, and house-account charges."
         actions={
-          <form className="flex items-end gap-2">
+          <form action="/daily" className="flex items-end gap-2">
             <div>
               <label className="ft-label" htmlFor="pick">Day</label>
               <input id="pick" name="date" type="date" defaultValue={dateISO} className="ft-input" />
             </div>
-            <button type="submit" className="ft-btn-ghost">Go</button>
+            <button type="submit" className="ft-btn-ghost" title="Open this day in Daily Sales">Go to Daily</button>
           </form>
         }
       />
@@ -73,13 +82,11 @@ export default async function CreditEntryPage({
             </div>
           </div>
 
-          <LineItemEditor
-            title="Payout in Cash"
-            selectName="payoutCategory"
-            amountName="payoutAmount"
-            initialOptions={payoutCategories}
-            rows={existing?.payouts ?? []}
-            addAction={addPayoutCategoryInline}
+          <PayoutTreeEditor
+            tree={payoutTree}
+            rows={payoutRows}
+            addParentAction={addPayoutParentInline}
+            addSubAction={addPayoutSubInline}
           />
 
           <LineItemEditor

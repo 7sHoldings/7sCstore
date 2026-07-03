@@ -48,6 +48,52 @@ export const addHouseAccount = (name: string) => addToList("houseaccounts", DEFA
 export const getPayoutCategories = () => getList("payoutcategories", DEFAULT_PAYOUT);
 export const addPayoutCategory = (name: string) => addToList("payoutcategories", DEFAULT_PAYOUT, name);
 
+/**
+ * Two-level cash-payout categories: parent → sub-categories. e.g.
+ * { "Product Buying": ["Rave","Frontline"], "Store Expenses": ["Employee Pay", ...] }.
+ * Stored as a JSON object under "payouttree". A payout is saved with
+ * account = "Parent · Sub" so all existing totals/breakdowns keep working.
+ */
+export type PayoutTree = Record<string, string[]>;
+const DEFAULT_PAYOUT_TREE: PayoutTree = {
+  "Product Buying": ["Rave", "Frontline"],
+  "Store Expenses": ["Employee Pay", "Pest Control", "Lawn", "Laundry"],
+};
+
+export async function getPayoutTree(): Promise<PayoutTree> {
+  const raw = await getSetting("payouttree");
+  if (!raw) return DEFAULT_PAYOUT_TREE;
+  try {
+    const o = JSON.parse(raw);
+    if (o && typeof o === "object" && !Array.isArray(o)) {
+      const out: PayoutTree = {};
+      for (const [k, v] of Object.entries(o)) out[String(k)] = Array.isArray(v) ? v.map(String) : [];
+      return Object.keys(out).length ? out : DEFAULT_PAYOUT_TREE;
+    }
+  } catch { /* fall through */ }
+  return DEFAULT_PAYOUT_TREE;
+}
+
+/** Add a top-level payout category (parent). Returns the updated tree. */
+export async function addPayoutParent(name: string): Promise<PayoutTree> {
+  const n = name.trim();
+  const tree = await getPayoutTree();
+  if (n && !Object.keys(tree).some((k) => k.toLowerCase() === n.toLowerCase())) tree[n] = [];
+  await setSetting("payouttree", JSON.stringify(tree));
+  return tree;
+}
+
+/** Add a sub-category under a parent. Returns the updated tree. */
+export async function addPayoutSub(parent: string, name: string): Promise<PayoutTree> {
+  const p = parent.trim(), n = name.trim();
+  const tree = await getPayoutTree();
+  const pk = Object.keys(tree).find((k) => k.toLowerCase() === p.toLowerCase()) ?? p;
+  if (!tree[pk]) tree[pk] = [];
+  if (n && !tree[pk].some((x) => x.toLowerCase() === n.toLowerCase())) tree[pk].push(n);
+  await setSetting("payouttree", JSON.stringify(tree));
+  return tree;
+}
+
 /** Sum the amounts of a set of line items. */
 export function sumLines(items: HouseCharge[]): number {
   return money(items.reduce((s, h) => s + h.amount, 0));
