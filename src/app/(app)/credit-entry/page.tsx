@@ -48,7 +48,16 @@ export default async function CreditEntryPage({
         }
       />
 
-      {sp.saved && <Banner>Credit entry saved for {dateISO}.</Banner>}
+      {sp.saved && (
+        <Banner>
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            Credit entry saved for {dateISO}.
+            <a href={`/daily?date=${dateISO}`} className="inline-flex items-center gap-1 font-semibold underline underline-offset-2">
+              <Icon name="arrow_back" className="text-[16px]" /> Back to Daily Sales for {dateISO}
+            </a>
+          </span>
+        </Banner>
+      )}
 
       <Card className="p-5 max-w-3xl">
         <form action={saveCreditManual} className="space-y-5">

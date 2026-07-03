@@ -70,7 +70,7 @@ export default async function DailySalesPage({
   const trendStart = new Date(range.end.getTime() - trendDays * dayMs);
   trendStart.setHours(0, 0, 0, 0);
 
-  const [sales, fuelSales, prevSales, prevFuel, trendRows] = await Promise.all([
+  const [sales, fuelSales, prevSales, prevFuel, trendSales, trendFuel, trendTaxRows] = await Promise.all([
     prisma.sale.findMany({
       where: { ...locWhere, date: { gte: range.start, lt: range.end } },
       select: { paymentType: true, amount: true, refund: true, category: true, note: true },
@@ -78,7 +78,9 @@ export default async function DailySalesPage({
     prisma.fuelSale.findMany({ where: { ...locWhere, date: { gte: range.start, lt: range.end } }, select: { grade: true, gallons: true, total: true, pricePerGallon: true } }),
     prisma.sale.findMany({ where: { ...locWhere, date: { gte: prev.start, lt: prev.end } }, select: { paymentType: true, amount: true, refund: true, category: true, note: true } }),
     prisma.fuelSale.findMany({ where: { ...locWhere, date: { gte: prev.start, lt: prev.end } }, select: { grade: true, gallons: true, total: true, pricePerGallon: true } }),
-    prisma.sale.findMany({ where: { ...locWhere, date: { gte: trendStart, lt: range.end } }, select: { amount: true, date: true } }),
+    prisma.sale.findMany({ where: { ...locWhere, date: { gte: trendStart, lt: range.end } }, select: { paymentType: true, amount: true, refund: true, category: true, note: true, date: true } }),
+    prisma.fuelSale.findMany({ where: { ...locWhere, date: { gte: trendStart, lt: range.end } }, select: { grade: true, gallons: true, total: true, pricePerGallon: true, date: true } }),
+    loc ? prisma.setting.findMany({ where: { key: { startsWith: `tax:${loc}:` } } }) : Promise.resolve([] as { key: string; value: string }[]),
   ]);
 
   const view = buildSalesView(sales, fuelSales);
@@ -159,15 +161,33 @@ export default async function DailySalesPage({
   ];
   const shortOver = money(reconParts.reduce((s, p) => s + p.value, 0));
 
-  // Per-day total-sales trend across the trend window (oldest → newest).
-  const trend7: { label: string; value: number; date: string }[] = [];
+  // Per-day sales trend across the window, broken down into Daily / Fuel /
+  // Lottery / Sales Tax so each bar shows its composition (oldest → newest).
+  const taxByDayTrend = new Map<string, number>();
+  for (const r of trendTaxRows) taxByDayTrend.set(r.key.split(":").pop()!, Number(r.value) || 0);
+  const trendSalesByDay = new Map<string, typeof trendSales>();
+  const trendFuelByDay = new Map<string, typeof trendFuel>();
+  for (const s of trendSales) {
+    const k = s.date.toISOString().slice(0, 10);
+    (trendSalesByDay.get(k) ?? trendSalesByDay.set(k, []).get(k)!).push(s);
+  }
+  for (const f of trendFuel) {
+    const k = f.date.toISOString().slice(0, 10);
+    (trendFuelByDay.get(k) ?? trendFuelByDay.set(k, []).get(k)!).push(f);
+  }
+
+  const trend7: { label: string; value: number; date: string; daily: number; fuel: number; lottery: number; tax: number }[] = [];
   for (let i = 0; i < trendDays; i++) {
     const d = new Date(trendStart);
     d.setDate(d.getDate() + i);
-    const next = new Date(d);
-    next.setDate(next.getDate() + 1);
-    const sum = trendRows.reduce((s, x) => (x.date >= d && x.date < next ? s + x.amount : s), 0);
-    trend7.push({ label: String(d.getDate()), value: money(sum), date: d.toISOString().slice(0, 10) });
+    const dISO = d.toISOString().slice(0, 10);
+    const dv = buildSalesView(trendSalesByDay.get(dISO) ?? [], trendFuelByDay.get(dISO) ?? []);
+    const dTax = taxByDayTrend.has(dISO) ? money(taxByDayTrend.get(dISO)!) : money(dv.merch.taxable * (taxRate / 100));
+    const daily = money(dv.merch.split.total);
+    const fuel = money(dv.fuel.split.total);
+    const lottery = money(dv.lotto.split.total);
+    const value = money(daily + fuel + lottery + dTax);
+    trend7.push({ label: String(d.getDate()), value, date: dISO, daily, fuel, lottery, tax: dTax });
   }
 
   const empty = sales.length === 0 && fuelSales.length === 0;

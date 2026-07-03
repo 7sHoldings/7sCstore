@@ -45,7 +45,16 @@ export default async function LotteryEntryPage({
         }
       />
 
-      {sp.saved && <Banner>Lottery entry saved for {dateISO}.</Banner>}
+      {sp.saved && (
+        <Banner>
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            Lottery entry saved for {dateISO}.
+            <a href={`/daily?date=${dateISO}`} className="inline-flex items-center gap-1 font-semibold underline underline-offset-2">
+              <Icon name="arrow_back" className="text-[16px]" /> Back to Daily Sales for {dateISO}
+            </a>
+          </span>
+        </Banner>
+      )}
 
       <Card className="p-5 max-w-xl">
         <form action={saveLotteryManual} className="space-y-4">

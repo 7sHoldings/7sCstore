@@ -302,35 +302,90 @@ export function TotalSalesBar({
   );
 }
 
-function shortMoney(v: number): string {
-  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
-  return `$${v.toFixed(0)}`;
+/** Whole-dollar amount with thousands separators (e.g. $7,800) — no k-abbreviation. */
+function wholeMoney(v: number): string {
+  return `$${Math.round(v).toLocaleString("en-US")}`;
 }
 
-/** Per-day total-sales trend; each bar links to that day's Daily Sales. */
-export function SalesTrend({ data }: { data: { label: string; value: number; date: string }[] }) {
+export interface TrendDatum {
+  label: string;
+  value: number;
+  date: string;
+  daily?: number;
+  fuel?: number;
+  lottery?: number;
+  tax?: number;
+}
+
+const TREND_SEGMENTS: { key: "daily" | "fuel" | "lottery" | "tax"; label: string; cls: string }[] = [
+  { key: "daily", label: "Daily", cls: "bg-primary" },
+  { key: "fuel", label: "Fuel", cls: "bg-secondary" },
+  { key: "lottery", label: "Lottery", cls: "bg-tertiary" },
+  { key: "tax", label: "Sales Tax", cls: "bg-on-surface-variant/50" },
+];
+
+/**
+ * Per-day sales trend; each bar links to that day's Daily Sales. When the data
+ * carries a Daily/Fuel/Lottery/Sales-Tax breakdown, bars are stacked and a
+ * legend is shown; the full total sits above every bar.
+ */
+export function SalesTrend({ data }: { data: TrendDatum[] }) {
   const max = Math.max(1, ...data.map((d) => d.value));
+  const hasBreakdown = data.some((d) => d.daily != null || d.fuel != null || d.lottery != null || d.tax != null);
+  const showLabels = data.length <= 12;
+
   return (
     <div>
-      <div className="flex items-end justify-between gap-1.5 h-32">
-        {data.map((d, i) => (
-          <a
-            key={i}
-            href={`/daily?date=${d.date}`}
-            className="flex-1 flex flex-col justify-end h-full group relative"
-            title={`${d.date}: ${fmtMoney(d.value)}`}
-          >
-            <span className="absolute -top-1 left-1/2 -translate-x-1/2 -translate-y-full opacity-0 group-hover:opacity-100 transition-opacity bg-inverse-surface text-inverse-on-surface text-[10px] rounded px-1.5 py-0.5 whitespace-nowrap z-10 pointer-events-none">
-              {shortMoney(d.value)}
-            </span>
-            <span
-              className={`w-full rounded-t-sm transition-colors ${i === data.length - 1 ? "bg-primary" : "bg-primary/40 group-hover:bg-primary/70"}`}
-              style={{ height: `${Math.max(2, (d.value / max) * 100)}%` }}
-            />
-          </a>
-        ))}
+      {hasBreakdown && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3">
+          {TREND_SEGMENTS.map((s) => (
+            <div key={s.key} className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
+              <span className={`w-2.5 h-2.5 rounded-sm ${s.cls}`} /> {s.label}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-end justify-between gap-2 h-44">
+        {data.map((d, i) => {
+          const barH = Math.max(2, (Math.max(0, d.value) / max) * 100);
+          const pos = TREND_SEGMENTS.map((s) => Math.max(0, (d[s.key] ?? 0) as number));
+          const posSum = pos.reduce((a, b) => a + b, 0);
+          const isLast = i === data.length - 1;
+          return (
+            <a
+              key={i}
+              href={`/daily?date=${d.date}`}
+              className="flex-1 flex flex-col items-center justify-end h-full group"
+              title={`${d.date}: ${fmtMoney(d.value)}`}
+            >
+              {showLabels && (
+                <span className="text-[10px] sm:text-[11px] font-semibold text-on-surface mb-1 tabular whitespace-nowrap">
+                  {wholeMoney(d.value)}
+                </span>
+              )}
+              <span
+                className={`w-full rounded-t-sm overflow-hidden flex flex-col-reverse ring-1 ring-black/5 ${hasBreakdown ? "" : isLast ? "bg-primary" : "bg-primary/40 group-hover:bg-primary/70"}`}
+                style={{ height: `${barH}%` }}
+              >
+                {hasBreakdown && posSum > 0 && TREND_SEGMENTS.map((s, si) => {
+                  const frac = pos[si] / posSum;
+                  if (frac <= 0) return null;
+                  return (
+                    <span
+                      key={s.key}
+                      className={`${s.cls} ${isLast ? "" : "opacity-90 group-hover:opacity-100"} transition-opacity`}
+                      style={{ height: `${frac * 100}%` }}
+                      title={`${s.label}: ${fmtMoney((d[s.key] ?? 0) as number)}`}
+                    />
+                  );
+                })}
+              </span>
+            </a>
+          );
+        })}
       </div>
-      <div className="flex justify-between gap-1.5 mt-2">
+      <div className="flex justify-between gap-2 mt-2">
         {data.map((d, i) => (
           <div key={i} className="flex-1 text-center text-[11px] text-on-surface-variant">{d.label}</div>
         ))}
