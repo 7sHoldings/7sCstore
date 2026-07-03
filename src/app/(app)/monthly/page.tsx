@@ -79,7 +79,7 @@ export default async function MonthlySalesPage({
   const taxByDay = new Map<string, number>();
   const tenderByDay = new Map<string, { cash: number; card: number }>();
   const cashManualByDay = new Map<string, number>();
-  const lottoManualByDay = new Map<string, { sales: number; payout: number }>();
+  const lottoManualByDay = new Map<string, { sales: number; payout: number; credit: number }>();
   const creditByDay = new Map<string, { ebt: number; otherCredit: number; payout: number; house: number }>();
   for (const r of settings) {
     const parts = r.key.split(":");
@@ -98,7 +98,7 @@ export default async function MonthlySalesPage({
     } else if (kind === "lottomanual") {
       try {
         const o = JSON.parse(r.value);
-        lottoManualByDay.set(date, { sales: Number(o.sales) || 0, payout: Number(o.payout) || 0 });
+        lottoManualByDay.set(date, { sales: Number(o.sales) || 0, payout: Number(o.payout) || 0, credit: Number(o.credit) || 0 });
       } catch { /* skip */ }
     } else if (kind === "creditmanual") {
       try {
@@ -150,7 +150,7 @@ export default async function MonthlySalesPage({
     const card = tender ? money(tender.card) : money(view.total.card + salesTax * (1 - cashRatio));
     const cm = creditByDay.get(date);
     const lm = lottoManualByDay.get(date);
-    const lottoOver = lm ? money(view.lotto.split.total - money(lm.sales - lm.payout)) : 0;
+    const lottoOver = lm ? money(view.lotto.split.total - money(lm.sales - lm.payout + lm.credit)) : 0;
     const shortOver = money(card + cash + (cm?.ebt ?? 0) + (cm?.otherCredit ?? 0) + (cm?.payout ?? 0) + (cm?.house ?? 0) + lottoOver - posSales);
     computedByDay.set(date, {
       date, daily: view.merch.split.total, fuel: view.fuel.split.total,

@@ -102,7 +102,7 @@ export default async function DashboardPage({
   }
   const systemLotto = { sales: money(lottoSales), payout: money(lottoPayout), net: view.lotto.split.total };
   const manualLotto = manualRaw
-    ? { sales: manualRaw.sales, payout: manualRaw.payout, net: money(manualRaw.sales - manualRaw.payout) }
+    ? { sales: manualRaw.sales, payout: manualRaw.payout, credit: manualRaw.credit, net: money(manualRaw.sales - manualRaw.payout + manualRaw.credit) }
     : null;
   const lottoOver = manualLotto ? money(systemLotto.net - manualLotto.net) : 0;
   const creditManual = await getCreditManualRange(loc ?? "", range.start, range.end);

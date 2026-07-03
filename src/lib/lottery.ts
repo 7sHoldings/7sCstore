@@ -11,6 +11,7 @@ import { money } from "./calc";
 export interface LottoManual {
   sales: number;
   payout: number;
+  credit: number; // free tickets / credit from the lottery company — adds to net
 }
 
 function key(locationId: string, dateISO: string): string {
@@ -23,7 +24,7 @@ export async function getLotteryManual(locationId: string, dateISO: string): Pro
   if (!raw) return null;
   try {
     const o = JSON.parse(raw);
-    return { sales: money(Number(o.sales) || 0), payout: money(Number(o.payout) || 0) };
+    return { sales: money(Number(o.sales) || 0), payout: money(Number(o.payout) || 0), credit: money(Number(o.credit) || 0) };
   } catch {
     return null;
   }
@@ -31,9 +32,9 @@ export async function getLotteryManual(locationId: string, dateISO: string): Pro
 
 /** Save (upsert) the employee's manual lottery entry for a day. */
 export async function setLotteryManual(
-  locationId: string, dateISO: string, sales: number, payout: number
+  locationId: string, dateISO: string, sales: number, payout: number, credit: number = 0
 ): Promise<void> {
-  await setSetting(key(locationId, dateISO), JSON.stringify({ sales: money(sales), payout: money(payout) }));
+  await setSetting(key(locationId, dateISO), JSON.stringify({ sales: money(sales), payout: money(payout), credit: money(credit) }));
 }
 
 /** Sum manual lottery entries across a [start, end) range, or null if none. */
@@ -41,7 +42,7 @@ export async function getLotteryManualRange(
   locationId: string, start: Date, end: Date
 ): Promise<LottoManual | null> {
   const rows = await prisma.setting.findMany({ where: { key: { startsWith: `lottomanual:${locationId}:` } } });
-  let sales = 0, payout = 0, seen = false;
+  let sales = 0, payout = 0, credit = 0, seen = false;
   for (const r of rows) {
     const dateISO = r.key.split(":").pop()!;
     const d = new Date(dateISO + "T00:00:00");
@@ -50,10 +51,11 @@ export async function getLotteryManualRange(
       const o = JSON.parse(r.value);
       sales += Number(o.sales) || 0;
       payout += Number(o.payout) || 0;
+      credit += Number(o.credit) || 0;
       seen = true;
     } catch {
       // skip malformed
     }
   }
-  return seen ? { sales: money(sales), payout: money(payout) } : null;
+  return seen ? { sales: money(sales), payout: money(payout), credit: money(credit) } : null;
 }

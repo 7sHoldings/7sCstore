@@ -26,7 +26,7 @@ export default async function LotteryEntryPage({
   const sp = await searchParams;
   const dateISO = sp.date || todayISO();
   const existing = loc ? await getLotteryManual(loc, dateISO) : null;
-  const net = existing ? money(existing.sales - existing.payout) : 0;
+  const net = existing ? money(existing.sales - existing.payout + existing.credit) : 0;
   const receiptUrls = await signedUrls(loc ? await getReceipts(loc, "lottery", dateISO) : []);
 
   return (
@@ -59,7 +59,7 @@ export default async function LotteryEntryPage({
       <Card className="p-5 max-w-xl">
         <form action={saveLotteryManual} className="space-y-4">
           <input type="hidden" name="date" value={dateISO} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="ft-label" htmlFor="sales">Lottery Sales ($)</label>
               <input id="sales" name="sales" type="number" step="0.01" min="0" defaultValue={existing?.sales ?? ""} className="ft-input" placeholder="0.00" required />
@@ -68,10 +68,15 @@ export default async function LotteryEntryPage({
               <label className="ft-label" htmlFor="payout">Lotto Payout ($)</label>
               <input id="payout" name="payout" type="number" step="0.01" min="0" defaultValue={existing?.payout ?? ""} className="ft-input" placeholder="0.00" required />
             </div>
+            <div>
+              <label className="ft-label" htmlFor="credit">Lotto Credit ($)</label>
+              <input id="credit" name="credit" type="number" step="0.01" min="0" defaultValue={existing?.credit ?? ""} className="ft-input" placeholder="0.00" />
+            </div>
           </div>
+          <p className="text-[11px] text-on-surface-variant -mt-2">Lotto Credit = free tickets / credit given by the lottery machine. It adds to the lottery net.</p>
 
           <div className="flex items-center justify-between rounded-md bg-surface-container-low px-3 py-2">
-            <span className="text-label-caps uppercase text-on-surface-variant">Net (sales − payout)</span>
+            <span className="text-label-caps uppercase text-on-surface-variant">Net (sales − payout + credit)</span>
             <span className="tabular font-bold">{fmtMoney(net)}</span>
           </div>
 

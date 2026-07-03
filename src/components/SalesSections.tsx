@@ -65,7 +65,7 @@ export function InfoCard({
   return href ? <a href={href} className="block">{card}</a> : card;
 }
 
-type Lotto = { sales: number; payout: number; net: number };
+type Lotto = { sales: number; payout: number; net: number; credit?: number };
 
 /**
  * Wide Lottery panel reconciling the POS (system) lottery/payout/net against the
@@ -94,6 +94,9 @@ export function LotteryReconcileCard({
         <div className="space-y-1 text-body-sm">
           <div className="flex justify-between"><span className="text-on-surface-variant">Lottery</span><span className="tabular font-semibold">{fmtMoney(d.sales)}</span></div>
           <div className="flex justify-between"><span className="text-on-surface-variant">Payout</span><span className="tabular font-semibold text-error">{d.payout > 0 ? `-${fmtMoney(d.payout)}` : fmtMoney(0)}</span></div>
+          {d.credit != null && (
+            <div className="flex justify-between"><span className="text-on-surface-variant">Credit</span><span className="tabular font-semibold text-secondary">{d.credit > 0 ? `+${fmtMoney(d.credit)}` : fmtMoney(0)}</span></div>
+          )}
           <div className="flex justify-between border-t border-outline-variant/40 pt-1"><span className="text-on-surface-variant">Net</span><span className="tabular font-bold">{fmtMoney(d.net)}</span></div>
         </div>
       ) : (
@@ -146,6 +149,7 @@ export function LotteryReconcileStrip({
           <span className="text-on-surface-variant">
             Lottery <span className="tabular font-semibold text-on-surface">{fmtMoney(manual.sales)}</span>
             {" · "}Payout <span className="tabular font-semibold text-error">{manual.payout > 0 ? `-${fmtMoney(manual.payout)}` : fmtMoney(0)}</span>
+            {manual.credit != null && manual.credit > 0 && <>{" · "}Credit <span className="tabular font-semibold text-secondary">+{fmtMoney(manual.credit)}</span></>}
             {" · "}Net <span className="tabular font-bold text-on-surface">{fmtMoney(manual.net)}</span>
           </span>
         ) : (

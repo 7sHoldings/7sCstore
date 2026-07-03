@@ -25,11 +25,12 @@ export async function saveLotteryNumbers(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Pick a valid date." };
   const sales = Number(formData.get("sales"));
   const payout = Number(formData.get("payout"));
-  if (!isFinite(sales) || !isFinite(payout) || sales < 0 || payout < 0) return { error: "Enter valid amounts." };
+  const credit = Number(formData.get("credit")) || 0;
+  if (!isFinite(sales) || !isFinite(payout) || sales < 0 || payout < 0 || credit < 0) return { error: "Enter valid amounts." };
 
   try {
-    await setLotteryManual(loc, date, sales, payout);
-    await logAudit({ userId: session.userId, action: "UPDATE", entity: "Setting", entityId: `lottomanual:${loc}:${date}`, after: { sales, payout } });
+    await setLotteryManual(loc, date, sales, payout, credit);
+    await logAudit({ userId: session.userId, action: "UPDATE", entity: "Setting", entityId: `lottomanual:${loc}:${date}`, after: { sales, payout, credit } });
     revalidatePath("/lottery");
     revalidatePath("/daily");
     revalidatePath("/dashboard");
@@ -52,9 +53,10 @@ export async function saveLotteryManual(formData: FormData): Promise<void> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
   const sales = Number(formData.get("sales"));
   const payout = Number(formData.get("payout"));
-  if (!isFinite(sales) || !isFinite(payout) || sales < 0 || payout < 0) return;
+  const credit = Number(formData.get("credit")) || 0;
+  if (!isFinite(sales) || !isFinite(payout) || sales < 0 || payout < 0 || credit < 0) return;
 
-  await setLotteryManual(loc, date, sales, payout);
+  await setLotteryManual(loc, date, sales, payout, credit);
 
   const photos = await uploadReceiptsFromForm(formData, "photos", `${loc}/lottery/${date}`);
   await addReceipts(loc, "lottery", date, photos);
@@ -64,7 +66,7 @@ export async function saveLotteryManual(formData: FormData): Promise<void> {
     action: "UPDATE",
     entity: "Setting",
     entityId: `lottomanual:${loc}:${date}`,
-    after: { sales, payout },
+    after: { sales, payout, credit },
   });
   revalidatePath("/lottery");
   revalidatePath("/daily");

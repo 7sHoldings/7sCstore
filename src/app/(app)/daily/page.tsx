@@ -134,7 +134,7 @@ export default async function DailySalesPage({
     ? await getLotteryManualRange(loc ?? "", range.start, range.end)
     : await getLotteryManual(loc ?? "", navDate);
   const manualLotto = manualRaw
-    ? { sales: manualRaw.sales, payout: manualRaw.payout, net: money(manualRaw.sales - manualRaw.payout) }
+    ? { sales: manualRaw.sales, payout: manualRaw.payout, credit: manualRaw.credit, net: money(manualRaw.sales - manualRaw.payout + manualRaw.credit) }
     : null;
   const lottoOver = manualLotto ? money(systemLotto.net - manualLotto.net) : 0;
 
@@ -232,7 +232,7 @@ export default async function DailySalesPage({
               trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)}
               entryHref={`/lottery?date=${navDate}`}
               manualEdit={!isRange && canEditManual && manualLotto ? (
-                <EditLotteryButton date={navDate} sales={manualLotto.sales} payout={manualLotto.payout} />
+                <EditLotteryButton date={navDate} sales={manualLotto.sales} payout={manualLotto.payout} credit={manualLotto.credit} />
               ) : undefined}
             />
           </div>
@@ -279,7 +279,7 @@ export default async function DailySalesPage({
               over={lottoOver}
               entryHref={`/lottery?date=${navDate}`}
               manualEdit={!isRange && canEditManual && manualLotto ? (
-                <EditLotteryButton date={navDate} sales={manualLotto.sales} payout={manualLotto.payout} />
+                <EditLotteryButton date={navDate} sales={manualLotto.sales} payout={manualLotto.payout} credit={manualLotto.credit} />
               ) : undefined}
             />
           </SalesSection>
