@@ -2,24 +2,14 @@ import { Fragment } from "react";
 import { getSession } from "@/lib/auth";
 import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
-import { prisma } from "@/lib/db";
 import { fmtMoney } from "@/lib/format";
 import { Card, PageHeader, EmptyState, Icon } from "@/components/ui";
+import { availableSummaryYears, buildYearSummary, type SummaryRow } from "@/lib/monthlySummary";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-// Section a category falls under, and whether it's a highlighted subtotal/profit row.
-const SECTION_START: Record<string, string> = {
-  "Total Inside Sales": "Income & Sales",
-  "Total Item Purchase": "Expenses",
-  "Total other exp": "Summary & Profit",
-};
-const TOTAL_ROWS = new Set(["Total other exp", "Total Amount", "Total Exp"]);
-const PROFIT_ROWS = new Set(["Gross Net", "Gross Net - Sales Tax(profit)", "Remaining Balance"]);
-
-type Row = { id: string; category: string; months: number[]; annual: number };
 
 export default async function MonthlySummaryPage({
   searchParams,
@@ -32,41 +22,21 @@ export default async function MonthlySummaryPage({
   }
   const loc = await getActiveLocationId();
   const sp = await searchParams;
+  if (!loc) return <Card className="p-8"><EmptyState icon="table_chart" title="No location" /></Card>;
 
-  const years = loc
-    ? (await prisma.monthlySummary.findMany({ where: { locationId: loc }, distinct: ["year"], select: { year: true }, orderBy: { year: "asc" } })).map((y) => y.year)
-    : [];
+  const years = await availableSummaryYears(loc);
   const year = Number(sp.year) || years[years.length - 1] || new Date().getFullYear();
-
-  const raw = loc
-    ? await prisma.monthlySummary.findMany({ where: { locationId: loc, year }, orderBy: { sortOrder: "asc" } })
-    : [];
-  const rows: Row[] = raw.map((r) => ({ id: r.id, category: r.category.trim(), months: (r.months as number[]) ?? [], annual: r.annual }));
-  const byCat = (name: string) => rows.find((r) => r.category === name)?.annual ?? 0;
-
-  // Headline KPIs (annual)
-  const revenue = byCat("Total Amount");
-  const expenses = byCat("Total Exp");
-  const profit = byCat("Gross Net - Sales Tax(profit)");
-
-  const fmt = (v: number, opts?: { strong?: boolean }) => {
-    const r = Math.round(v * 100) / 100;
-    if (r === 0) return <span className="text-on-surface-variant/35">—</span>;
-    const neg = r < 0;
-    return <span className={`${neg ? "text-error" : opts?.strong ? "text-on-surface" : "text-on-surface-variant"} ${opts?.strong ? "font-semibold" : ""}`}>{fmtMoney(r)}</span>;
-  };
+  const { rows, kpis } = await buildYearSummary(loc, year);
 
   return (
     <div>
-      <PageHeader title="Monthly Summary" subtitle="Profit & loss by month" />
+      <PageHeader title="Monthly Summary" subtitle="Profit & loss by month — computed from your sales, expenses, cash and fuel data" />
 
-      {rows.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-          <Kpi label={`Revenue · ${year}`} value={fmtMoney(revenue)} icon="trending_up" tone="primary" />
-          <Kpi label={`Expenses · ${year}`} value={fmtMoney(expenses)} icon="trending_down" tone="error" />
-          <Kpi label={`Net Profit · ${year}`} value={fmtMoney(profit)} icon="account_balance_wallet" tone={profit >= 0 ? "secondary" : "error"} />
-        </div>
-      )}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <Kpi label={`Income · ${year}`} value={fmtMoney(kpis.income)} icon="trending_up" tone="primary" />
+        <Kpi label={`Expenses · ${year}`} value={fmtMoney(kpis.expenses)} icon="trending_down" tone="error" />
+        <Kpi label={`Net Profit · ${year}`} value={fmtMoney(kpis.profit)} icon="account_balance_wallet" tone={kpis.profit >= 0 ? "secondary" : "error"} />
+      </div>
 
       {years.length > 1 && (
         <div className="inline-flex p-1 mb-4 rounded-lg bg-surface-container-low border border-outline-variant/60">
@@ -85,53 +55,67 @@ export default async function MonthlySummaryPage({
       )}
 
       <Card className="overflow-hidden p-0">
-        {rows.length === 0 ? (
-          <EmptyState icon="table_chart" title="No summary imported" hint="Import the monthly summary from Excel via Import Data." />
-        ) : (
-          <div className="overflow-x-auto custom-scrollbar max-h-[75vh]">
-            <table className="w-full border-separate border-spacing-0 text-body-sm whitespace-nowrap">
-              <thead className="sticky top-0 z-20">
-                <tr className="bg-surface-container text-label-caps uppercase text-on-surface-variant">
-                  <th className="sticky left-0 z-10 bg-surface-container px-4 py-3 text-left font-semibold border-b border-outline-variant">Category</th>
-                  {MONTHS.map((m) => <th key={m} className="px-3 py-3 text-right font-semibold border-b border-outline-variant">{m}</th>)}
-                  <th className="px-4 py-3 text-right font-bold text-on-surface border-b border-l border-outline-variant bg-surface-container-high">Annual</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const section = SECTION_START[r.category];
-                  const isTotal = TOTAL_ROWS.has(r.category);
-                  const isProfit = PROFIT_ROWS.has(r.category);
-                  // Opaque tokens (sticky first column must mask scrolled content).
-                  const bg = isProfit ? "bg-secondary-container" : isTotal ? "bg-surface-container-low" : "bg-surface-container-lowest";
-                  const strong = isTotal || isProfit;
-                  return (
-                    <Fragment key={r.id}>
-                      {section && (
-                        <tr>
-                          <td colSpan={14} className="sticky left-0 bg-surface-container-low px-4 pt-4 pb-1.5 text-label-caps uppercase tracking-wide text-primary font-bold border-t border-outline-variant">
-                            {section}
-                          </td>
-                        </tr>
-                      )}
-                      <tr className={`${bg} group`}>
-                        <td className={`sticky left-0 z-[1] ${bg} px-4 py-2.5 text-left font-bold text-on-surface border-b border-outline-variant/40 group-hover:text-primary transition-colors`}>
-                          {r.category}
-                        </td>
-                        {r.months.map((v, i) => (
-                          <td key={i} className="px-3 py-2.5 text-right tabular border-b border-outline-variant/40">{fmt(v, { strong })}</td>
-                        ))}
-                        <td className={`px-4 py-2.5 text-right tabular border-b border-l border-outline-variant/40 font-semibold ${isProfit ? "bg-secondary-container" : "bg-surface-container-high/50"}`}>{fmt(r.annual, { strong: true })}</td>
-                      </tr>
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <div className="overflow-x-auto custom-scrollbar max-h-[75vh]">
+          <table className="w-full border-separate border-spacing-0 text-body-sm whitespace-nowrap">
+            <thead className="sticky top-0 z-20">
+              <tr className="bg-surface-container text-label-caps uppercase text-on-surface-variant">
+                <th className="sticky left-0 z-10 bg-surface-container px-4 py-3 text-left font-semibold border-b border-outline-variant">Category</th>
+                {MONTHS.map((m) => <th key={m} className="px-3 py-3 text-right font-semibold border-b border-outline-variant">{m}</th>)}
+                <th className="px-4 py-3 text-right font-bold text-on-surface border-b border-l border-outline-variant bg-surface-container-high">Annual</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => <Row key={r.label} r={r} last={i === rows.length - 1} />)}
+            </tbody>
+          </table>
+        </div>
       </Card>
+
+      <p className="text-body-sm text-on-surface-variant mt-3 max-w-3xl">
+        <Icon name="info" className="text-[16px] align-text-bottom mr-1" />
+        Income = Inside + Fuel + Net Lottery (sales − payout) + Other Income. Expenses = Inventory Purchases + Gas Invoices + Operating Expenses.
+        Net Profit = Income − Expenses. Cash, Credit/Debit and Sales Tax are shown for reference only — sales tax is a pass-through and isn&rsquo;t part of profit.
+        Historical months use your imported daily figures; recent months are computed live from the POS.
+      </p>
     </div>
+  );
+}
+
+function Row({ r, last }: { r: SummaryRow; last: boolean }) {
+  const bg =
+    r.kind === "profit" ? "bg-secondary-container"
+    : r.kind === "total" ? "bg-surface-container-low"
+    : r.kind === "info" ? "bg-surface-container-lowest/60"
+    : "bg-surface-container-lowest";
+  const strong = r.kind === "total" || r.kind === "profit";
+  const labelTone = r.kind === "info" ? "text-on-surface-variant" : "text-on-surface";
+
+  const cell = (v: number) => {
+    const val = Math.round(v * 100) / 100;
+    if (val === 0) return <span className="text-on-surface-variant/30">—</span>;
+    const neg = val < 0;
+    return <span className={neg ? "text-error" : strong ? "text-on-surface font-semibold" : "text-on-surface-variant"}>{fmtMoney(val)}</span>;
+  };
+
+  return (
+    <Fragment>
+      {r.section && (
+        <tr>
+          <td colSpan={14} className="sticky left-0 bg-surface-container-low px-4 pt-4 pb-1.5 text-label-caps uppercase tracking-wide text-primary font-bold border-t border-outline-variant">
+            {r.section}
+          </td>
+        </tr>
+      )}
+      <tr className={`${bg} group`}>
+        <td className={`sticky left-0 z-[1] ${bg} px-4 py-2.5 text-left ${strong ? "font-bold" : "font-medium"} ${labelTone} border-b border-outline-variant/40 ${last ? "" : ""}`}>
+          {r.label}
+        </td>
+        {r.months.map((v, i) => (
+          <td key={i} className="px-3 py-2.5 text-right tabular border-b border-outline-variant/40">{cell(v)}</td>
+        ))}
+        <td className={`px-4 py-2.5 text-right tabular border-b border-l border-outline-variant/40 font-semibold ${r.kind === "profit" ? "bg-secondary-container" : "bg-surface-container-high/50"}`}>{cell(r.annual)}</td>
+      </tr>
+    </Fragment>
   );
 }
 
