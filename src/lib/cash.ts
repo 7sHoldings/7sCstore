@@ -40,6 +40,17 @@ export async function listCash(loc: string, start: Date, end: Date): Promise<Cas
   return out;
 }
 
+/** Cash for a single day (POS Safe Drop + manual override, effective value). */
+export async function getCashDay(loc: string, dateISO: string): Promise<CashDay> {
+  const [posRow, manRow] = await Promise.all([
+    prisma.setting.findUnique({ where: { key: `cashdrop:${loc}:${dateISO}` } }),
+    prisma.setting.findUnique({ where: { key: `cashmanual:${loc}:${dateISO}` } }),
+  ]);
+  const pos = posRow ? Number(posRow.value) || 0 : null;
+  const manual = manRow ? Number(manRow.value) || 0 : null;
+  return { date: dateISO, pos, manual, effective: manual ?? pos ?? 0 };
+}
+
 /** Effective cash total over [start, end). */
 export async function sumCash(loc: string, start: Date, end: Date): Promise<number> {
   const days = await listCash(loc, start, end);

@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { fmtMoney } from "@/lib/format";
-import { rangeFor, customRange, startOfMonth, toISODate } from "@/lib/period";
+import { rangeFor, customRange, startOfMonth, startOfWeek, toISODate } from "@/lib/period";
 import { listCash, sumCash } from "@/lib/cash";
 import { Card, PageHeader, EmptyState, Icon } from "@/components/ui";
 import Filters from "@/components/Filters";
@@ -31,6 +31,20 @@ export default async function CashPage({
   const range = customRange(fromISO, toISO);
   const week = rangeFor("wtd", now);
   const month = rangeFor("mtd", now);
+
+  // Quick-range presets (This Month is the default when no filter is set).
+  const wkMon = startOfWeek(now);
+  const lastWkStart = new Date(wkMon); lastWkStart.setDate(wkMon.getDate() - 7);
+  const lastWkEnd = new Date(wkMon); lastWkEnd.setDate(wkMon.getDate() - 1);
+  const twoWkStart = new Date(wkMon); twoWkStart.setDate(wkMon.getDate() - 14);
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const presets = [
+    { label: "This Month", from: toISODate(startOfMonth(now)), to: toISODate(now) },
+    { label: "Last Month", from: toISODate(lastMonthStart), to: toISODate(lastMonthEnd) },
+    { label: "Last Week", from: toISODate(lastWkStart), to: toISODate(lastWkEnd) },
+    { label: "Last 2 Weeks", from: toISODate(twoWkStart), to: toISODate(lastWkEnd) },
+  ];
 
   const [days, weekTotal, monthTotal] = loc
     ? await Promise.all([
@@ -66,6 +80,23 @@ export default async function CashPage({
         <Kpi label="This Week" value={fmtMoney(weekTotal)} icon="calendar_view_week" tone="secondary" sub={week.label} />
         <Kpi label="This Month" value={fmtMoney(monthTotal)} icon="calendar_month" tone="secondary" sub={month.label} />
         <Kpi label="Selected Range" value={fmtMoney(rangeTotal)} icon="functions" tone="primary" featured sub={`${fromISO} → ${toISO}`} />
+      </div>
+
+      <div className="flex flex-wrap gap-2 mb-3">
+        {presets.map((p) => {
+          const active = fromISO === p.from && toISO === p.to;
+          return (
+            <a
+              key={p.label}
+              href={`/cash?from=${p.from}&to=${p.to}`}
+              className={active
+                ? "px-3 py-1.5 rounded-full text-body-sm font-semibold bg-primary text-on-primary"
+                : "px-3 py-1.5 rounded-full text-body-sm font-medium bg-surface-container text-on-surface-variant hover:bg-surface-container-high"}
+            >
+              {p.label}
+            </a>
+          );
+        })}
       </div>
 
       <Filters showDates />

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Card, TrendChip, Icon } from "./ui";
 import { fmtMoney, fmtMoney4, fmtNumber, gradeLabel } from "@/lib/format";
 import type { Split, Dept, FuelGrade } from "@/lib/salesView";
@@ -226,7 +227,7 @@ export function ManualCreditPanel({
 
 /** Hero card for Total Sales: big total, the component breakdown (the formula), and cash/credit. */
 export function TotalSalesBar({
-  s, parts, trend, sub, partsLabel, reconcile,
+  s, parts, trend, sub, partsLabel, reconcile, cashEdit,
 }: {
   s: Split;
   parts: { label: string; value: number; op?: "+" | "−" }[];
@@ -235,6 +236,8 @@ export function TotalSalesBar({
   partsLabel?: string;
   /** Optional Short/Over reconciliation. Each part is a signed contribution to the short/over. */
   reconcile?: { parts: { label: string; value: number }[]; shortOver: number };
+  /** Optional control rendered by the Cash figure (e.g. an edit button). */
+  cashEdit?: ReactNode;
 }) {
   const partsSum = parts.reduce((acc, p) => (p.op === "−" ? acc - p.value : acc + p.value), 0);
   const signed = (v: number) => (v < 0 ? `-${fmtMoney(-v)}` : fmtMoney(v));
@@ -267,7 +270,10 @@ export function TotalSalesBar({
         </div>
         <div className="grid grid-cols-2 gap-2 text-body-sm lg:w-72 shrink-0">
           <div className="bg-surface-container-low rounded-md px-3 py-2">
-            <div className="text-label-caps uppercase text-on-surface-variant">Cash</div>
+            <div className="flex items-center justify-between gap-1">
+              <div className="text-label-caps uppercase text-on-surface-variant">Cash</div>
+              {cashEdit}
+            </div>
             <div className="tabular font-semibold text-base">{fmtMoney(s.cash)}</div>
           </div>
           <div className="bg-surface-container-low rounded-md px-3 py-2">
