@@ -134,7 +134,7 @@ export default async function DailySalesPage({
     ? await getLotteryManualRange(loc ?? "", range.start, range.end)
     : await getLotteryManual(loc ?? "", navDate);
   const manualLotto = manualRaw
-    ? { sales: manualRaw.sales, payout: manualRaw.payout, credit: manualRaw.credit, net: money(manualRaw.sales - manualRaw.payout + manualRaw.credit) }
+    ? { sales: manualRaw.sales, payout: manualRaw.payout, credit: manualRaw.credit, net: money(manualRaw.sales - manualRaw.payout - manualRaw.credit) }
     : null;
   const lottoOver = manualLotto ? money(systemLotto.net - manualLotto.net) : 0;
 

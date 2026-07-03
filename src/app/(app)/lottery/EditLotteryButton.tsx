@@ -27,7 +27,7 @@ export default function EditLotteryButton({
 
   useEffect(() => { if (state?.ok) setOpen(false); }, [state?.ok]);
 
-  const net = (Number(salesV) || 0) - (Number(payoutV) || 0) + (Number(creditV) || 0);
+  const net = (Number(salesV) || 0) - (Number(payoutV) || 0) - (Number(creditV) || 0);
   const dayLabel = new Date(date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
 
   if (!open) {
@@ -57,7 +57,7 @@ export default function EditLotteryButton({
           </div>
         </div>
         <div className="flex items-center justify-between rounded-lg bg-surface-container-low px-3 py-2">
-          <span className="text-label-caps uppercase text-on-surface-variant">Net (sales − payout + credit)</span>
+          <span className="text-label-caps uppercase text-on-surface-variant">Net (sales − payout − credit)</span>
           <span className="tabular font-bold text-on-surface">{fmtMoney(net)}</span>
         </div>
         <p className="text-[11px] text-on-surface-variant">Quick numbers-only edit. To attach a receipt photo, use the full Lottery Entry page.</p>

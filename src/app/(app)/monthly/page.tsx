@@ -150,7 +150,7 @@ export default async function MonthlySalesPage({
     const card = tender ? money(tender.card) : money(view.total.card + salesTax * (1 - cashRatio));
     const cm = creditByDay.get(date);
     const lm = lottoManualByDay.get(date);
-    const lottoOver = lm ? money(view.lotto.split.total - money(lm.sales - lm.payout + lm.credit)) : 0;
+    const lottoOver = lm ? money(view.lotto.split.total - money(lm.sales - lm.payout - lm.credit)) : 0;
     const shortOver = money(card + cash + (cm?.ebt ?? 0) + (cm?.otherCredit ?? 0) + (cm?.payout ?? 0) + (cm?.house ?? 0) + lottoOver - posSales);
     computedByDay.set(date, {
       date, daily: view.merch.split.total, fuel: view.fuel.split.total,

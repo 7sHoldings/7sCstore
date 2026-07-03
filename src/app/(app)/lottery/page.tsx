@@ -26,7 +26,7 @@ export default async function LotteryEntryPage({
   const sp = await searchParams;
   const dateISO = sp.date || todayISO();
   const existing = loc ? await getLotteryManual(loc, dateISO) : null;
-  const net = existing ? money(existing.sales - existing.payout + existing.credit) : 0;
+  const net = existing ? money(existing.sales - existing.payout - existing.credit) : 0;
   const receiptUrls = await signedUrls(loc ? await getReceipts(loc, "lottery", dateISO) : []);
 
   return (
@@ -73,10 +73,10 @@ export default async function LotteryEntryPage({
               <input id="credit" name="credit" type="number" step="0.01" min="0" defaultValue={existing?.credit ?? ""} className="ft-input" placeholder="0.00" />
             </div>
           </div>
-          <p className="text-[11px] text-on-surface-variant -mt-2">Lotto Credit = free tickets / credit given by the lottery machine. It adds to the lottery net.</p>
+          <p className="text-[11px] text-on-surface-variant -mt-2">Lotto Credit = free tickets / credit given by the lottery machine. It is subtracted from the lottery net.</p>
 
           <div className="flex items-center justify-between rounded-md bg-surface-container-low px-3 py-2">
-            <span className="text-label-caps uppercase text-on-surface-variant">Net (sales − payout + credit)</span>
+            <span className="text-label-caps uppercase text-on-surface-variant">Net (sales − payout − credit)</span>
             <span className="tabular font-bold">{fmtMoney(net)}</span>
           </div>
 
