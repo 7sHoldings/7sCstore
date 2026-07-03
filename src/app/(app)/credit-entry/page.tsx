@@ -91,7 +91,7 @@ export default async function CreditEntryPage({
             addAction={addHouseAccountInline}
           />
 
-          <ReceiptInput existing={receiptUrls} configured={isStorageConfigured()} required />
+          <ReceiptInput existing={receiptUrls} configured={isStorageConfigured()} required={session.role !== "OWNER"} />
 
           <button type="submit" className="ft-btn-primary"><Icon name="save" className="text-[18px]" /> Save entry · {dateISO}</button>
         </form>

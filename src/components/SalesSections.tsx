@@ -72,7 +72,7 @@ type Lotto = { sales: number; payout: number; net: number };
  * employee's manual entry, with the short/over between the two nets.
  */
 export function LotteryReconcileCard({
-  system, manual, over, trend, entryHref, className,
+  system, manual, over, trend, entryHref, className, manualEdit,
 }: {
   system: Lotto;
   manual: Lotto | null;
@@ -80,11 +80,16 @@ export function LotteryReconcileCard({
   trend?: number | null;
   entryHref?: string;
   className?: string;
+  /** Optional inline edit control for the manual (employee) block. */
+  manualEdit?: ReactNode;
 }) {
   const signed = (v: number) => (v < 0 ? `-${fmtMoney(-v)}` : fmtMoney(v));
-  const Block = ({ title, d, muted }: { title: string; d: Lotto | null; muted?: boolean }) => (
+  const Block = ({ title, d, muted, edit }: { title: string; d: Lotto | null; muted?: boolean; edit?: ReactNode }) => (
     <div className={`rounded-md p-3 ${muted ? "bg-surface-container-low/60" : "bg-surface-container-low"}`}>
-      <div className="text-label-caps uppercase text-on-surface-variant mb-1.5">{title}</div>
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="text-label-caps uppercase text-on-surface-variant">{title}</div>
+        {d && edit}
+      </div>
       {d ? (
         <div className="space-y-1 text-body-sm">
           <div className="flex justify-between"><span className="text-on-surface-variant">Lottery</span><span className="tabular font-semibold">{fmtMoney(d.sales)}</span></div>
@@ -111,7 +116,7 @@ export function LotteryReconcileCard({
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <Block title="System (POS)" d={system} />
-        <Block title="Manual (employee)" d={manual} muted />
+        <Block title="Manual (employee)" d={manual} muted edit={manualEdit} />
       </div>
       <div className="mt-2 flex items-center justify-between rounded-md px-3 py-2 bg-surface-container">
         <span className="text-label-caps uppercase text-on-surface-variant">Short / Over</span>
@@ -125,11 +130,12 @@ export function LotteryReconcileCard({
 
 /** Compact strip showing the employee's manual lottery entry + short/over, for the detailed section. */
 export function LotteryReconcileStrip({
-  manual, over, entryHref,
+  manual, over, entryHref, manualEdit,
 }: {
   manual: Lotto | null;
   over: number;
   entryHref?: string;
+  manualEdit?: ReactNode;
 }) {
   const signed = (v: number) => (v < 0 ? `-${fmtMoney(-v)}` : fmtMoney(v));
   return (
@@ -145,6 +151,7 @@ export function LotteryReconcileStrip({
         ) : (
           <span className="text-on-surface-variant">No manual entry yet.{entryHref && <> <a href={entryHref} className="text-primary font-medium underline">Add</a></>}</span>
         )}
+        {manual && manualEdit}
       </div>
       <div className="flex items-center gap-2">
         <span className="text-label-caps uppercase text-on-surface-variant">Short / Over</span>
@@ -377,13 +384,26 @@ export function SalesTrend({ data }: { data: TrendDatum[] }) {
                 {hasBreakdown && posSum > 0 && TREND_SEGMENTS.map((s, si) => {
                   const frac = pos[si] / posSum;
                   if (frac <= 0) return null;
+                  // Label the segment when it's tall enough to fit a number.
+                  const barPx = (barH / 100) * 176; // h-44 ≈ 176px
+                  const showAmt = frac * barPx >= 16;
+                  const light = s.key === "tax"; // muted segment → dark text
                   return (
                     <span
                       key={s.key}
-                      className={`${s.cls} ${isLast ? "" : "opacity-90 group-hover:opacity-100"} transition-opacity`}
+                      className={`${s.cls} ${isLast ? "" : "opacity-90 group-hover:opacity-100"} transition-opacity flex items-center justify-center overflow-hidden`}
                       style={{ height: `${frac * 100}%` }}
                       title={`${s.label}: ${fmtMoney((d[s.key] ?? 0) as number)}`}
-                    />
+                    >
+                      {showAmt && (
+                        <span
+                          className={`text-[9px] sm:text-[10px] font-semibold leading-none px-0.5 truncate ${light ? "text-on-surface/80" : "text-white/95"}`}
+                          style={light ? undefined : { textShadow: "0 1px 1.5px rgba(0,0,0,0.3)" }}
+                        >
+                          {wholeMoney((d[s.key] ?? 0) as number)}
+                        </span>
+                      )}
+                    </span>
                   );
                 })}
               </span>

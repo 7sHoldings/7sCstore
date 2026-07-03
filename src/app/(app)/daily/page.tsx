@@ -16,6 +16,7 @@ import { getReceipts } from "@/lib/receipts";
 import { signedUrls } from "@/lib/storage";
 import { getCashDay } from "@/lib/cash";
 import EditCashButton from "../cash/EditCashButton";
+import EditLotteryButton from "../lottery/EditLotteryButton";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import DailyActions from "./DailyActions";
@@ -196,7 +197,7 @@ export default async function DailySalesPage({
   const comparisonSub = isRange ? "vs previous period" : "vs previous day";
 
   // Single-day cash is editable inline (manual override wins over the Safe Drop).
-  const canEditCash = can(session.role, "enterSales");
+  const canEditManual = can(session.role, "enterSales");
   const cashDay = !isRange && loc ? await getCashDay(loc, navDate) : null;
 
   return (
@@ -233,6 +234,9 @@ export default async function DailySalesPage({
               over={lottoOver}
               trend={pctChange(view.lotto.split.total, prevView.lotto.split.total)}
               entryHref={`/lottery?date=${navDate}`}
+              manualEdit={!isRange && canEditManual && manualLotto ? (
+                <EditLotteryButton date={navDate} sales={manualLotto.sales} payout={manualLotto.payout} />
+              ) : undefined}
             />
           </div>
 
@@ -248,7 +252,7 @@ export default async function DailySalesPage({
               { label: "Sales Tax", value: salesTax },
             ]}
             reconcile={tender ? { parts: reconParts, shortOver } : undefined}
-            cashEdit={!isRange && canEditCash && cashDay ? (
+            cashEdit={!isRange && canEditManual && cashDay ? (
               <EditCashButton date={navDate} pos={cashDay.pos} manual={cashDay.manual} effective={cashDay.effective} />
             ) : undefined}
           />
@@ -273,7 +277,14 @@ export default async function DailySalesPage({
 
           <SalesSection id="lottery" title="Lottery / Lotto Sales & Payouts" s={view.lotto.split}>
             <DeptTable rows={view.lotto.depts} total={view.lotto.split.total} refundTotal={0} allowNegative />
-            <LotteryReconcileStrip manual={manualLotto} over={lottoOver} entryHref={`/lottery?date=${navDate}`} />
+            <LotteryReconcileStrip
+              manual={manualLotto}
+              over={lottoOver}
+              entryHref={`/lottery?date=${navDate}`}
+              manualEdit={!isRange && canEditManual && manualLotto ? (
+                <EditLotteryButton date={navDate} sales={manualLotto.sales} payout={manualLotto.payout} />
+              ) : undefined}
+            />
           </SalesSection>
         </>
       )}
