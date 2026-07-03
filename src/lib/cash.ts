@@ -36,7 +36,7 @@ export async function listCash(loc: string, start: Date, end: Date): Promise<Cas
     const m = man.has(date) ? man.get(date)! : null;
     out.push({ date, pos: p, manual: m, effective: m ?? p ?? 0 });
   }
-  out.sort((a, b) => (a.date < b.date ? 1 : -1));
+  out.sort((a, b) => (a.date < b.date ? -1 : 1)); // oldest → newest (1st → month end)
   return out;
 }
 
