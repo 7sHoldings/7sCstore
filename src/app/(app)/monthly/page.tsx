@@ -5,7 +5,6 @@ import { prisma } from "@/lib/db";
 import { money } from "@/lib/calc";
 import { fmtMoney } from "@/lib/format";
 import { buildSalesView, type SaleRow, type FuelRow } from "@/lib/salesView";
-import { getTaxRate } from "@/lib/settings";
 import { todayISO } from "@/lib/day";
 import { Card, PageHeader, EmptyState, Icon } from "@/components/ui";
 
@@ -37,7 +36,7 @@ export default async function MonthlySalesPage({
   const nextMonth = new Date(Date.UTC(yy, mm, 1)).toISOString().slice(0, 7);
   const monthLabel = monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 
-  const [sales, fuelSales, settings, taxRate] = await Promise.all([
+  const [sales, fuelSales, settings] = await Promise.all([
     prisma.sale.findMany({
       where: { ...locWhere, date: { gte: monthStart, lt: monthEnd } },
       select: { paymentType: true, amount: true, refund: true, category: true, note: true, date: true },
@@ -55,7 +54,6 @@ export default async function MonthlySalesPage({
           },
         })
       : Promise.resolve([] as { key: string; value: string }[]),
-    getTaxRate(),
   ]);
 
   // Imported per-day summaries (from the Excel daily sheet) take precedence.
@@ -144,7 +142,7 @@ export default async function MonthlySalesPage({
       else lottoPayout += -d.sales;
     }
     const realTax = taxByDay.get(date);
-    const salesTax = realTax != null ? money(realTax) : money(view.merch.taxable * (taxRate / 100));
+    const salesTax = realTax != null ? money(realTax) : 0; // POS only, no estimate
     const posSales = money(view.total.total + salesTax);
     const tender = tenderByDay.get(date);
     const cashRatio = view.total.total > 0 ? view.total.cash / view.total.total : 0;

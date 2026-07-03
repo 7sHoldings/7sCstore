@@ -7,7 +7,6 @@ import { fmtMoney, fmtNumber, gradeLabel } from "@/lib/format";
 import { rangeFor, customRange, previousRange, type PeriodKey, type Range } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
 import { getReportData } from "@/lib/reports";
-import { getTaxRate } from "@/lib/settings";
 import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
 import { getLotteryManualRange } from "@/lib/lottery";
 import { getCreditManualRange } from "@/lib/credit";
@@ -66,16 +65,14 @@ export default async function DashboardPage({
 
   const view = buildSalesView(sales, fuelSales);
   const prevTotal = money(prevSales.reduce((s, x) => s + x.amount, 0));
-  const taxRate = await getTaxRate();
-  const estTax = money(view.merch.taxable * (taxRate / 100));
 
-  // Prefer the real Sales Tax from Modisoft (report 36); estimate is the fallback.
+  // Sales Tax comes from the POS (report 36) only — never estimated. 0 until synced.
   const [realTax, prevRealTax] = await Promise.all([
     getTaxRange(loc ?? "", range.start, range.end),
     getTaxRange(loc ?? "", prev.start, prev.end),
   ]);
   const taxIsReal = realTax > 0;
-  const salesTax = taxIsReal ? money(realTax) : estTax;
+  const salesTax = money(realTax);
 
   // Total Sales = POS sales (Daily + Fuel + Lottery + Sales Tax). Cash/Credit show
   // the actual tender (Safe Drop / Credit Card Jobber); the gap is the Short/Over.
@@ -195,7 +192,7 @@ export default async function DashboardPage({
               <Stat label="Gross Profit" value={fmtMoney(report.pnl.grossProfit)} tone="good" />
               <Stat label="Expenses" value={fmtMoney(report.pnl.operatingExpenses)} tone="bad" href="/expenses" />
               <Stat label="Net Profit" value={fmtMoney(report.pnl.netProfit)} tone={report.pnl.netProfit >= 0 ? "good" : "bad"} />
-              <Stat label="Sales Tax" value={fmtMoney(salesTax)} sub={taxIsReal ? "from POS closing" : `est. @ ${taxRate}% · liability`} />
+              <Stat label="Sales Tax" value={taxIsReal ? fmtMoney(salesTax) : "—"} sub={taxIsReal ? "from POS closing" : "not synced — run POS sync"} />
             </div>
           )}
 

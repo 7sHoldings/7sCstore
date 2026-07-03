@@ -8,7 +8,6 @@ import { customRange, previousRange } from "@/lib/period";
 import { cookies } from "next/headers";
 import { yesterdayISO } from "@/lib/day";
 import { buildSalesView } from "@/lib/salesView";
-import { getTaxRate } from "@/lib/settings";
 import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
 import { getLotteryManual, getLotteryManualRange } from "@/lib/lottery";
 import { getCreditManual, getCreditManualRange } from "@/lib/credit";
@@ -88,18 +87,16 @@ export default async function DailySalesPage({
 
   const view = buildSalesView(sales, fuelSales);
   const prevView = buildSalesView(prevSales, prevFuel);
-  const taxRate = await getTaxRate();
-  const estTax = money(view.merch.taxable * (taxRate / 100));
 
-  // Prefer the REAL Sales Tax pulled from Modisoft (report 36); fall back to the
-  // rate estimate for days that haven't been re-synced yet.
+  // Sales Tax comes from the POS (report 36) only — never estimated. It stays 0
+  // (shown as "not synced") until the day is pulled from Modisoft.
   const [realTax, prevRealTax] = await Promise.all([
     getTaxRange(loc ?? "", range.start, range.end),
     getTaxRange(loc ?? "", prev.start, prev.end),
   ]);
   const taxIsReal = realTax > 0;
-  const salesTax = taxIsReal ? money(realTax) : estTax;
-  const prevSalesTax = prevRealTax > 0 ? money(prevRealTax) : money(prevView.merch.taxable * (taxRate / 100));
+  const salesTax = money(realTax);
+  const prevSalesTax = money(prevRealTax);
 
   // Total Sales = the POS sales (Daily + Fuel + Lottery + Sales Tax). Cash/Credit
   // show the actual tender (Safe Drop / Credit Card Jobber); any gap between them
@@ -185,7 +182,7 @@ export default async function DailySalesPage({
     d.setDate(d.getDate() + i);
     const dISO = d.toISOString().slice(0, 10);
     const dv = buildSalesView(trendSalesByDay.get(dISO) ?? [], trendFuelByDay.get(dISO) ?? []);
-    const dTax = taxByDayTrend.has(dISO) ? money(taxByDayTrend.get(dISO)!) : money(dv.merch.taxable * (taxRate / 100));
+    const dTax = taxByDayTrend.has(dISO) ? money(taxByDayTrend.get(dISO)!) : 0; // POS only
     const daily = money(dv.merch.split.total);
     const fuel = money(dv.fuel.split.total);
     const lottery = money(dv.lotto.split.total);
@@ -220,7 +217,7 @@ export default async function DailySalesPage({
             <MetricCard label="Daily Sales" sub="Merchandise only (net of promotions)" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} href="#merch"
               cells={[
                 { label: "Promotions", value: promo.merch > 0 ? `-${fmtMoney(promo.merch)}` : fmtMoney(0), tone: "error" },
-                { label: taxIsReal ? "Sales Tax (POS)" : "Sales Tax (est.)", value: fmtMoney(salesTax) },
+                { label: "Sales Tax (POS)", value: taxIsReal ? fmtMoney(salesTax) : "— not synced" },
               ]} />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} href="#fuel"
               cells={[
@@ -267,7 +264,7 @@ export default async function DailySalesPage({
             <SalesTrend data={trend7} />
           </Card>
 
-          <SalesSection id="merch" title="Daily Sales — Merchandise" s={view.merch.split} extra={taxIsReal ? `Sales tax = ${fmtMoney(salesTax)}` : `Est. tax @ ${taxRate}% = ${fmtMoney(estTax)}`} className="mb-6">
+          <SalesSection id="merch" title="Daily Sales — Merchandise" s={view.merch.split} extra={taxIsReal ? `Sales tax = ${fmtMoney(salesTax)}` : "Sales tax not synced from POS yet"} className="mb-6">
             <DeptTable rows={view.merch.depts} total={view.merch.split.total} refundTotal={view.merch.refund} />
           </SalesSection>
 

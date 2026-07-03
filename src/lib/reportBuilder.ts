@@ -17,7 +17,6 @@ import {
 } from "./format";
 import { purchaseMargin, money } from "./calc";
 import { buildSalesView } from "./salesView";
-import { getTaxRate } from "./settings";
 import { getTaxRange, getTenderRange } from "./integrations/sync";
 
 export type ReportType =
@@ -87,11 +86,9 @@ export async function buildReport(
       prisma.fuelSale.findMany({ where, select: { grade: true, gallons: true, total: true, pricePerGallon: true } }),
     ]);
     const view = buildSalesView(sales, fuelSales);
-    const taxRate = await getTaxRate();
-    const estTax = money(view.merch.taxable * (taxRate / 100));
+    // Sales Tax comes from the POS (report 36) only — never estimated. 0 until synced.
     const realTax = await getTaxRange(locationId ?? "", range.start, range.end);
-    const taxIsReal = realTax > 0;
-    const salesTax = taxIsReal ? money(realTax) : estTax;
+    const salesTax = money(realTax);
     // Total Sales = POS sales; Cash/Credit show actual tender (Safe Drop / Credit Card Jobber).
     const tender = await getTenderRange(locationId ?? "", range.start, range.end);
     const cash = tender ? money(tender.cash) : view.total.cash;
@@ -104,7 +101,7 @@ export async function buildReport(
         { label: "Merchandise", value: fmtMoney(view.merch.split.total) },
         { label: "Lottery / Lotto", value: fmtMoney(view.lotto.split.total) },
         { label: "Fuel", value: fmtMoney(view.fuel.split.total) },
-        { label: taxIsReal ? "Sales Tax" : `Sales Tax (est. @ ${taxRate}%)`, value: fmtMoney(salesTax) },
+        { label: "Sales Tax", value: fmtMoney(salesTax) },
         { label: "Total Sales", value: fmtMoney(totalSales) },
         { label: tender ? "Cash (Safe Drop)" : "Cash", value: fmtMoney(cash) },
         { label: tender ? "Credit (Card Jobber)" : "Credit / Debit", value: fmtMoney(card) },
