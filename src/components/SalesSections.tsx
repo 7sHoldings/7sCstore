@@ -330,17 +330,20 @@ export interface TrendDatum {
   tax?: number;
 }
 
-const TREND_SEGMENTS: { key: "daily" | "fuel" | "lottery" | "tax"; label: string; cls: string }[] = [
-  { key: "daily", label: "Daily", cls: "bg-primary" },
-  { key: "fuel", label: "Fuel", cls: "bg-secondary" },
-  { key: "lottery", label: "Lottery", cls: "bg-tertiary" },
-  { key: "tax", label: "Sales Tax", cls: "bg-on-surface-variant/50" },
+// Distinct categorical colors (teal / blue / amber / violet) so the segments
+// are easy to tell apart; all dark enough for white labels.
+const TREND_SEGMENTS: { key: "daily" | "fuel" | "lottery" | "tax"; label: string; color: string }[] = [
+  { key: "daily", label: "Daily", color: "#0f766e" },
+  { key: "fuel", label: "Fuel", color: "#2563eb" },
+  { key: "lottery", label: "Lottery", color: "#d97706" },
+  { key: "tax", label: "Sales Tax", color: "#7c3aed" },
 ];
 
 /**
  * Per-day sales trend; each bar links to that day's Daily Sales. When the data
- * carries a Daily/Fuel/Lottery/Sales-Tax breakdown, bars are stacked and a
- * legend is shown; the full total sits above every bar.
+ * carries a Daily/Fuel/Lottery/Sales-Tax breakdown, bars are stacked (each
+ * segment labeled with its name + amount) and a legend is shown; the full total
+ * sits above every bar.
  */
 export function SalesTrend({ data }: { data: TrendDatum[] }) {
   const max = Math.max(1, ...data.map((d) => d.value));
@@ -353,13 +356,13 @@ export function SalesTrend({ data }: { data: TrendDatum[] }) {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3">
           {TREND_SEGMENTS.map((s) => (
             <div key={s.key} className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
-              <span className={`w-2.5 h-2.5 rounded-sm ${s.cls}`} /> {s.label}
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: s.color }} /> {s.label}
             </div>
           ))}
         </div>
       )}
 
-      <div className="flex items-end justify-between gap-2 h-44">
+      <div className="flex items-end justify-between gap-2 h-52">
         {data.map((d, i) => {
           const barH = Math.max(2, (Math.max(0, d.value) / max) * 100);
           const pos = TREND_SEGMENTS.map((s) => Math.max(0, (d[s.key] ?? 0) as number));
@@ -384,22 +387,19 @@ export function SalesTrend({ data }: { data: TrendDatum[] }) {
                 {hasBreakdown && posSum > 0 && TREND_SEGMENTS.map((s, si) => {
                   const frac = pos[si] / posSum;
                   if (frac <= 0) return null;
-                  // Label the segment when it's tall enough to fit a number.
-                  const barPx = (barH / 100) * 176; // h-44 ≈ 176px
-                  const showAmt = frac * barPx >= 16;
-                  const light = s.key === "tax"; // muted segment → dark text
+                  const segPx = frac * (barH / 100) * 208; // h-52 ≈ 208px
+                  const showName = segPx >= 26;
+                  const showAmt = segPx >= 14;
                   return (
                     <span
                       key={s.key}
-                      className={`${s.cls} ${isLast ? "" : "opacity-90 group-hover:opacity-100"} transition-opacity flex items-center justify-center overflow-hidden`}
-                      style={{ height: `${frac * 100}%` }}
+                      className="flex flex-col items-center justify-center overflow-hidden leading-tight px-0.5"
+                      style={{ height: `${frac * 100}%`, backgroundColor: s.color }}
                       title={`${s.label}: ${fmtMoney((d[s.key] ?? 0) as number)}`}
                     >
+                      {showName && <span className="text-[9px] text-white/85 truncate max-w-full">{s.label}</span>}
                       {showAmt && (
-                        <span
-                          className={`text-[9px] sm:text-[10px] font-semibold leading-none px-0.5 truncate ${light ? "text-on-surface/80" : "text-white/95"}`}
-                          style={light ? undefined : { textShadow: "0 1px 1.5px rgba(0,0,0,0.3)" }}
-                        >
+                        <span className="text-[10px] sm:text-[11px] font-semibold text-white truncate max-w-full" style={{ textShadow: "0 1px 1.5px rgba(0,0,0,0.35)" }}>
                           {wholeMoney((d[s.key] ?? 0) as number)}
                         </span>
                       )}

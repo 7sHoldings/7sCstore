@@ -220,7 +220,7 @@ export default async function DailySalesPage({
             <MetricCard label="Daily Sales" sub="Merchandise only (net of promotions)" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} href="#merch"
               cells={[
                 { label: "Promotions", value: promo.merch > 0 ? `-${fmtMoney(promo.merch)}` : fmtMoney(0), tone: "error" },
-                { label: "Sales Tax", value: fmtMoney(salesTax) },
+                { label: taxIsReal ? "Sales Tax (POS)" : "Sales Tax (est.)", value: fmtMoney(salesTax) },
               ]} />
             <MetricCard label="Fuel Sales" sub={`${fmtNumber(view.fuel.gallons)} gal`} s={view.fuel.split} icon="local_gas_station" trend={pctChange(view.fuel.split.total, prevView.fuel.split.total)} href="#fuel"
               cells={[
