@@ -182,21 +182,33 @@ export async function getPromoRange(
   return { merch, fuel };
 }
 
-/** Sum the stored real tender (Safe Drop cash + Credit Card Jobber) over a range. */
+/** Sum the stored real tender (Safe Drop cash + Credit Card Jobber) over a range.
+ *  A manual cash override (`cashmanual:`) wins over the POS Safe Drop for its day. */
 export async function getTenderRange(
   locationId: string, start: Date, end: Date
 ): Promise<{ cash: number; card: number } | null> {
   const rows = await prisma.setting.findMany({
-    where: { OR: [{ key: { startsWith: `cashdrop:${locationId}:` } }, { key: { startsWith: `ccjobber:${locationId}:` } }] },
+    where: { OR: [
+      { key: { startsWith: `cashdrop:${locationId}:` } },
+      { key: { startsWith: `cashmanual:${locationId}:` } },
+      { key: { startsWith: `ccjobber:${locationId}:` } },
+    ] },
   });
-  let cash = 0, card = 0, seen = false;
+  const posCash = new Map<string, number>();
+  const manCash = new Map<string, number>();
+  let card = 0, seen = false;
   for (const r of rows) {
     const dateISO = r.key.split(":").pop()!;
     const d = new Date(dateISO + "T00:00:00");
     if (d < start || d >= end) continue;
     seen = true;
-    if (r.key.startsWith(`cashdrop:`)) cash += Number(r.value) || 0;
+    if (r.key.startsWith(`cashmanual:`)) manCash.set(dateISO, Number(r.value) || 0);
+    else if (r.key.startsWith(`cashdrop:`)) posCash.set(dateISO, Number(r.value) || 0);
     else card += Number(r.value) || 0;
+  }
+  let cash = 0;
+  for (const dateISO of new Set([...posCash.keys(), ...manCash.keys()])) {
+    cash += manCash.has(dateISO) ? manCash.get(dateISO)! : posCash.get(dateISO)!;
   }
   return seen ? { cash, card } : null;
 }

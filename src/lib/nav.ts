@@ -19,6 +19,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/monthly", label: "Monthly Sales", icon: "calendar_month", perm: "viewProfit", section: "main" },
   { href: "/summary", label: "Monthly Summary", icon: "table_chart", perm: "viewProfit", section: "main" },
   { href: "/money-incoming", label: "Money Incoming", icon: "savings", perm: "viewProfit", section: "main" },
+  { href: "/cash", label: "Cash", icon: "payments", perm: "viewProfit", section: "main" },
   { href: "/fuel", label: "Fuel", icon: "local_gas_station", perm: "viewProfit", section: "main" },
   { href: "/reports", label: "Reports", icon: "assessment", perm: "viewProfit", section: "main", mobile: true },
   { href: "/insights", label: "AI Insights", icon: "auto_awesome", perm: "viewProfit", section: "main" },

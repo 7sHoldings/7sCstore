@@ -49,7 +49,7 @@ export default async function MonthlySalesPage({
     loc
       ? prisma.setting.findMany({
           where: {
-            OR: ["tax", "cashdrop", "ccjobber", "lottomanual", "creditmanual"].map((p) => ({
+            OR: ["tax", "cashdrop", "cashmanual", "ccjobber", "lottomanual", "creditmanual"].map((p) => ({
               key: { startsWith: `${p}:${loc}:` },
             })),
           },
@@ -80,6 +80,7 @@ export default async function MonthlySalesPage({
   // ---- index dated settings by day ----
   const taxByDay = new Map<string, number>();
   const tenderByDay = new Map<string, { cash: number; card: number }>();
+  const cashManualByDay = new Map<string, number>();
   const lottoManualByDay = new Map<string, { sales: number; payout: number }>();
   const creditByDay = new Map<string, { ebt: number; otherCredit: number; payout: number; house: number }>();
   for (const r of settings) {
@@ -94,6 +95,8 @@ export default async function MonthlySalesPage({
       if (kind === "cashdrop") t.cash += Number(r.value) || 0;
       else t.card += Number(r.value) || 0;
       tenderByDay.set(date, t);
+    } else if (kind === "cashmanual") {
+      cashManualByDay.set(date, Number(r.value) || 0);
     } else if (kind === "lottomanual") {
       try {
         const o = JSON.parse(r.value);
@@ -113,6 +116,13 @@ export default async function MonthlySalesPage({
         });
       } catch { /* skip */ }
     }
+  }
+
+  // A manual cash override wins over the POS Safe Drop for its day.
+  for (const [date, cash] of cashManualByDay) {
+    const t = tenderByDay.get(date) ?? { cash: 0, card: 0 };
+    t.cash = cash;
+    tenderByDay.set(date, t);
   }
 
   // ---- compute one row per day from the live records (used when there's no
