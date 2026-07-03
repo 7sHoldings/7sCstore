@@ -25,6 +25,14 @@ export default function EditLotteryButton({
   const [payoutV, setPayoutV] = useState(String(payout || ""));
   const [creditV, setCreditV] = useState(String(credit || ""));
 
+  // Re-sync the fields when the day (or its saved values) changes — otherwise a
+  // client-side date navigation keeps the previous day's numbers in state.
+  useEffect(() => {
+    setSalesV(String(sales || ""));
+    setPayoutV(String(payout || ""));
+    setCreditV(String(credit || ""));
+  }, [date, sales, payout, credit]);
+
   useEffect(() => { if (state?.ok) setOpen(false); }, [state?.ok]);
 
   const net = (Number(salesV) || 0) - (Number(payoutV) || 0) - (Number(creditV) || 0);
