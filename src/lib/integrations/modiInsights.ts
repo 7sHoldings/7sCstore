@@ -170,17 +170,27 @@ export const modiInsightsAdapter: PosAdapter = {
     const ccode = process.env.MODI_CCODE || "854388";
     await changeStore(cookie, storeId, ccode);
 
-    // The real Sales Tax lives in the "Sales – Daily Sales" report (ReportID 36),
-    // which returns HTML keyed by a single day (FromDate + Stores, no ToDate).
+    // Sales Tax comes from the SAME Daily Entry financial (EBDaily) that gives us
+    // the cash (Safe Drop) and card (Batch) totals — it lists a "Sales Tax" tran
+    // type alongside them. This is what the owner sees on the POS Closing screen.
     const out: { date: string; tax: number }[] = [];
     for (const day of daysBetween(from, to)) {
       try {
-        const html = await fetchHtml(cookie, "/ebreports/report36html", {
-          FromDate: fmtDateShort(day),
-          Stores: storeId,
+        const groups = await post(cookie, "/EBDaily/_SelectPOSFinancial", {
+          sort: "", page: "1", pageSize: "100", group: "TranTypeName-asc",
+          aggregate: "Amount-sum", filter: "", COAID: "-1",
+          CTDate: fmtDateShort(day), Shift: "-1", ExpType: "1",
         });
-        const tax = parseSalesTax(html);
-        if (tax != null) out.push({ date: day.toISOString().slice(0, 10), tax });
+        let salesTax: number | null = null, taxAlt: number | null = null;
+        for (const raw of groups) {
+          const g = raw as { Key?: unknown; Aggregates?: { Amount?: { Sum?: unknown } } };
+          const key = String(g.Key ?? "").trim().toLowerCase();
+          const sum = num(g.Aggregates?.Amount?.Sum);
+          if (key.includes("sales tax")) salesTax = sum;
+          else if (key === "tax") taxAlt = sum;
+        }
+        const tax = salesTax ?? taxAlt;
+        if (tax != null) out.push({ date: day.toISOString().slice(0, 10), tax: round2(tax) });
       } catch {
         // best-effort; skip the day on error
       }
@@ -486,38 +496,6 @@ async function setupReport(cookie: string, path: string, body: Record<string, st
   if (res.status === 401 || res.status === 403) {
     throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
   }
-}
-
-/** POST a report endpoint and return the raw HTML body (report 36 = Daily Sales). */
-async function fetchHtml(cookie: string, path: string, body: Record<string, string>): Promise<string> {
-  const res = await fetch(BASE + path, {
-    method: "POST",
-    headers: {
-      cookie,
-      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "x-requested-with": "XMLHttpRequest",
-      "user-agent": UA,
-      accept: "text/html, */*; q=0.01",
-      origin: BASE,
-      referer: BASE + "/",
-    },
-    body: new URLSearchParams(body).toString(),
-    cache: "no-store",
-  });
-  if (res.status === 401 || res.status === 403) {
-    throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
-  }
-  if (!res.ok) throw new Error(`Modisoft ${path} responded ${res.status}`);
-  return res.text();
-}
-
-/** Pull the "Sales Tax" amount out of the report-36 HTML, or null if absent. */
-function parseSalesTax(html: string): number | null {
-  // …Sales Tax <span …></span></td><td …text-right>422.04</td>…
-  const m = html.match(/Sales Tax[\s\S]{0,200}?text-right[^>]*>\s*\$?\s*([-\d,]+\.?\d*)/i);
-  if (!m) return null;
-  const n = Number(m[1].replace(/,/g, ""));
-  return isFinite(n) ? round2(n) : null;
 }
 
 /** Set the active store in the session (POST /Home/ChangeStore). */
