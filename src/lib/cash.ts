@@ -67,3 +67,29 @@ export async function setCashManual(loc: string, dateISO: string, amount: number
   const value = String(money(amount));
   await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
 }
+
+/**
+ * Card / Credit-Debit for a day. The POS sync writes `ccjobber:{loc}:{date}`
+ * (the Credit Card Jobber / Batch total); a manual correction is stored as
+ * `cardmanual:{loc}:{date}` and wins over it (survives the next sync).
+ */
+export async function getCardDay(loc: string, dateISO: string): Promise<CashDay> {
+  const [posRow, manRow] = await Promise.all([
+    prisma.setting.findUnique({ where: { key: `ccjobber:${loc}:${dateISO}` } }),
+    prisma.setting.findUnique({ where: { key: `cardmanual:${loc}:${dateISO}` } }),
+  ]);
+  const pos = posRow ? Number(posRow.value) || 0 : null;
+  const manual = manRow ? Number(manRow.value) || 0 : null;
+  return { date: dateISO, pos, manual, effective: manual ?? pos ?? 0 };
+}
+
+/** Set (or clear, when amount is null) the manual card override for a day. */
+export async function setCardManual(loc: string, dateISO: string, amount: number | null): Promise<void> {
+  const key = `cardmanual:${loc}:${dateISO}`;
+  if (amount == null) {
+    await prisma.setting.deleteMany({ where: { key } });
+    return;
+  }
+  const value = String(money(amount));
+  await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+}

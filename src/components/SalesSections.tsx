@@ -238,7 +238,7 @@ export function ManualCreditPanel({
 
 /** Hero card for Total Sales: big total, the component breakdown (the formula), and cash/credit. */
 export function TotalSalesBar({
-  s, parts, trend, sub, partsLabel, reconcile, cashEdit,
+  s, parts, trend, sub, partsLabel, reconcile, cashEdit, cardEdit,
 }: {
   s: Split;
   parts: { label: string; value: number; op?: "+" | "−" }[];
@@ -249,6 +249,8 @@ export function TotalSalesBar({
   reconcile?: { parts: { label: string; value: number }[]; shortOver: number };
   /** Optional control rendered by the Cash figure (e.g. an edit button). */
   cashEdit?: ReactNode;
+  /** Optional control rendered by the Credit/Debit figure. */
+  cardEdit?: ReactNode;
 }) {
   const partsSum = parts.reduce((acc, p) => (p.op === "−" ? acc - p.value : acc + p.value), 0);
   const signed = (v: number) => (v < 0 ? `-${fmtMoney(-v)}` : fmtMoney(v));
@@ -288,7 +290,10 @@ export function TotalSalesBar({
             <div className="tabular font-semibold text-base">{fmtMoney(s.cash)}</div>
           </div>
           <div className="bg-surface-container-low rounded-md px-3 py-2">
-            <div className="text-label-caps uppercase text-on-surface-variant">Credit/Debit</div>
+            <div className="flex items-center justify-between gap-1">
+              <div className="text-label-caps uppercase text-on-surface-variant">Credit/Debit</div>
+              {cardEdit}
+            </div>
             <div className="tabular font-semibold text-base">{fmtMoney(s.card)}</div>
           </div>
         </div>

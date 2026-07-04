@@ -60,7 +60,7 @@ export async function buildYearSummary(loc: string, year: number): Promise<YearS
     prisma.sale.findMany({ where: dateWhere, select: { category: true, amount: true, refund: true, date: true } }),
     prisma.fuelSale.findMany({ where: dateWhere, select: { total: true, date: true } }),
     prisma.setting.findMany({
-      where: { OR: ["tax", "cashdrop", "cashmanual", "ccjobber"].map((p) => ({ key: { startsWith: `${p}:${loc}:${year}` } })) },
+      where: { OR: ["tax", "cashdrop", "cashmanual", "ccjobber", "cardmanual"].map((p) => ({ key: { startsWith: `${p}:${loc}:${year}` } })) },
     }),
     prisma.expense.findMany({ where: dateWhere, select: { category: true, amount: true, date: true } }),
     prisma.moneyIncoming.findMany({ where: dateWhere, select: { total: true, date: true } }),
@@ -87,7 +87,8 @@ export async function buildYearSummary(loc: string, year: number): Promise<YearS
   for (const f of fuelSales) add(fuelByDay, dayISO(f.date), f.total);
 
   // ---- per-day tender from settings ----
-  const cashPos = new Map<string, number>(), cashMan = new Map<string, number>(), cardByDay = new Map<string, number>();
+  const cashPos = new Map<string, number>(), cashMan = new Map<string, number>();
+  const cardPos = new Map<string, number>(), cardMan = new Map<string, number>();
   const taxMonth = zeros();
   for (const r of settings) {
     const parts = r.key.split(":");
@@ -97,16 +98,19 @@ export async function buildYearSummary(loc: string, year: number): Promise<YearS
     if (kind === "tax") { taxMonth[Number(date.slice(5, 7)) - 1] += v; continue; }
     if (kind === "cashmanual") cashMan.set(date, v);
     else if (kind === "cashdrop") cashPos.set(date, v);
-    else if (kind === "ccjobber") cardByDay.set(date, v);
+    else if (kind === "cardmanual") cardMan.set(date, v);
+    else if (kind === "ccjobber") cardPos.set(date, v);
   }
   const cashForDay = (d: string) => (cashMan.has(d) ? cashMan.get(d)! : cashPos.get(d) ?? 0);
+  const cardForDay = (d: string) => (cardMan.has(d) ? cardMan.get(d)! : cardPos.get(d) ?? 0);
 
   // ---- merge per day (imported summary wins), aggregate to months ----
   const inside = zeros(), fuel = zeros(), lSales = zeros(), lPay = zeros(), cash = zeros(), card = zeros();
   const summaryByDay = new Map(summaries.map((s) => [dayISO(s.date), s]));
   const allDays = new Set<string>([
     ...summaryByDay.keys(), ...merchByDay.keys(), ...fuelByDay.keys(),
-    ...lSalesByDay.keys(), ...lPayByDay.keys(), ...cashPos.keys(), ...cashMan.keys(), ...cardByDay.keys(),
+    ...lSalesByDay.keys(), ...lPayByDay.keys(),
+    ...cashPos.keys(), ...cashMan.keys(), ...cardPos.keys(), ...cardMan.keys(),
   ]);
   for (const d of allDays) {
     const m = Number(d.slice(5, 7)) - 1;
@@ -119,7 +123,7 @@ export async function buildYearSummary(loc: string, year: number): Promise<YearS
     } else {
       inside[m] += merchByDay.get(d) ?? 0; fuel[m] += fuelByDay.get(d) ?? 0;
       lSales[m] += lSalesByDay.get(d) ?? 0; lPay[m] += lPayByDay.get(d) ?? 0;
-      cash[m] += cashForDay(d); card[m] += cardByDay.get(d) ?? 0;
+      cash[m] += cashForDay(d); card[m] += cardForDay(d);
     }
   }
 

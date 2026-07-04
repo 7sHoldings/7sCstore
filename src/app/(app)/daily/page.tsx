@@ -13,8 +13,9 @@ import { getLotteryManual, getLotteryManualRange } from "@/lib/lottery";
 import { getCreditManual, getCreditManualRange } from "@/lib/credit";
 import { getReceipts } from "@/lib/receipts";
 import { signedUrls } from "@/lib/storage";
-import { getCashDay } from "@/lib/cash";
+import { getCashDay, getCardDay } from "@/lib/cash";
 import EditCashButton from "../cash/EditCashButton";
+import EditCardButton from "../cash/EditCardButton";
 import EditLotteryButton from "../lottery/EditLotteryButton";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
@@ -193,9 +194,10 @@ export default async function DailySalesPage({
   const empty = sales.length === 0 && fuelSales.length === 0;
   const comparisonSub = isRange ? "vs previous period" : "vs previous day";
 
-  // Single-day cash is editable inline (manual override wins over the Safe Drop).
+  // Single-day cash & card are editable inline (manual override wins over the POS).
   const canEditManual = can(session.role, "enterSales");
   const cashDay = !isRange && loc ? await getCashDay(loc, navDate) : null;
+  const cardDay = !isRange && loc ? await getCardDay(loc, navDate) : null;
 
   return (
     <div>
@@ -251,6 +253,9 @@ export default async function DailySalesPage({
             reconcile={tender ? { parts: reconParts, shortOver } : undefined}
             cashEdit={!isRange && canEditManual && cashDay ? (
               <EditCashButton date={navDate} pos={cashDay.pos} manual={cashDay.manual} effective={cashDay.effective} />
+            ) : undefined}
+            cardEdit={!isRange && canEditManual && cardDay ? (
+              <EditCardButton date={navDate} pos={cardDay.pos} manual={cardDay.manual} effective={cardDay.effective} />
             ) : undefined}
           />
 

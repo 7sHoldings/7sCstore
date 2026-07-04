@@ -192,11 +192,12 @@ export async function getTenderRange(
       { key: { startsWith: `cashdrop:${locationId}:` } },
       { key: { startsWith: `cashmanual:${locationId}:` } },
       { key: { startsWith: `ccjobber:${locationId}:` } },
+      { key: { startsWith: `cardmanual:${locationId}:` } },
     ] },
   });
-  const posCash = new Map<string, number>();
-  const manCash = new Map<string, number>();
-  let card = 0, seen = false;
+  const posCash = new Map<string, number>(), manCash = new Map<string, number>();
+  const posCard = new Map<string, number>(), manCard = new Map<string, number>();
+  let seen = false;
   for (const r of rows) {
     const dateISO = r.key.split(":").pop()!;
     const d = new Date(dateISO + "T00:00:00");
@@ -204,11 +205,15 @@ export async function getTenderRange(
     seen = true;
     if (r.key.startsWith(`cashmanual:`)) manCash.set(dateISO, Number(r.value) || 0);
     else if (r.key.startsWith(`cashdrop:`)) posCash.set(dateISO, Number(r.value) || 0);
-    else card += Number(r.value) || 0;
+    else if (r.key.startsWith(`cardmanual:`)) manCard.set(dateISO, Number(r.value) || 0);
+    else posCard.set(dateISO, Number(r.value) || 0);
   }
-  let cash = 0;
+  let cash = 0, card = 0;
   for (const dateISO of new Set([...posCash.keys(), ...manCash.keys()])) {
     cash += manCash.has(dateISO) ? manCash.get(dateISO)! : posCash.get(dateISO)!;
+  }
+  for (const dateISO of new Set([...posCard.keys(), ...manCard.keys()])) {
+    card += manCard.has(dateISO) ? manCard.get(dateISO)! : posCard.get(dateISO)!;
   }
   return seen ? { cash, card } : null;
 }
