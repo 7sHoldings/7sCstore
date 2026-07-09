@@ -249,6 +249,21 @@ model MoneyIncoming {
   @@index([locationId, date])
 }
 
+// Owner profit distributions ("Profit Taken Out") — money the owner withdraws
+// from the business's net profit. A manual ledger with a running total.
+model ProfitDraw {
+  id          String     @id @default(cuid())
+  locationId  String
+  date        DateTime
+  amount      Float
+  note        String?
+  source      DataSource @default(MANUAL)
+  enteredById String?
+  createdAt   DateTime   @default(now())
+
+  @@index([locationId, date])
+}
+
 // Imported monthly P&L summary (Excel "Monthly_summary_*"). One row per
 // (year, category) with the 12 monthly values + annual total, in source order.
 model MonthlySummary {
