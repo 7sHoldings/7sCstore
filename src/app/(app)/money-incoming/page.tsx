@@ -5,10 +5,11 @@ import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { dateWhere } from "@/lib/filters";
 import { fmtMoney, fmtDate } from "@/lib/format";
-import { toISODate } from "@/lib/period";
+import { toISODate, rangeFor, type PeriodKey } from "@/lib/period";
 import { Card, PageHeader, EmptyState, Icon } from "@/components/ui";
 import DeleteButton from "@/components/DeleteButton";
 import MoneyIncomingForm from "./MoneyIncomingForm";
+import MoneyIncomingFilters from "./MoneyIncomingFilters";
 import EditMoneyIncoming from "./EditMoneyIncoming";
 import { deleteMoneyIncoming } from "./actions";
 
@@ -34,7 +35,16 @@ export default async function MoneyIncomingPage({
   const sp = await searchParams;
   const loc = await getActiveLocationId();
   const where: Record<string, unknown> = { ...dateWhere(sp) };
+  // Preset period (This Month / Last Month) applies when no explicit range is set.
+  if (!sp.from && !sp.to && sp.period) {
+    const r = rangeFor(sp.period as PeriodKey);
+    where.date = { gte: r.start, lt: r.end };
+  }
   if (loc) where.locationId = loc;
+  // Income-type filter: only entries that have that income recorded.
+  const typeKeys = ["rent", "gameMachine", "stagityInvestment", "beer"] as const;
+  const selectedType = typeKeys.find((k) => k === sp.type);
+  if (selectedType) where[selectedType] = { gt: 0 };
 
   const items = await prisma.moneyIncoming.findMany({ where, orderBy: { date: "desc" }, take: 500 });
   const sum = (k: keyof Row) => items.reduce((s, i) => s + (i[k] as number), 0);
@@ -67,6 +77,8 @@ export default async function MoneyIncomingPage({
           <Kpi key={k} label={label} value={fmtMoney(sum(k))} icon={icon} tone="secondary" />
         ))}
       </div>
+
+      <MoneyIncomingFilters />
 
       <Card className="overflow-hidden p-0">
         {items.length === 0 ? (

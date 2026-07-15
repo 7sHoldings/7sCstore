@@ -33,3 +33,7 @@ try {
   );
   process.exit(0);
 }
+
+// One-time data fixups (each is internally guarded + never fails the build).
+const { backfillPayoutExpenses } = await import("./backfill-payout-expenses.mjs");
+await backfillPayoutExpenses();

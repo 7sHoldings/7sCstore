@@ -9,6 +9,59 @@ import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { money } from "@/lib/calc";
+import { getCreditManual, setCreditManual } from "@/lib/credit";
+import { toISODate } from "@/lib/period";
+
+/** Marker linking a mirrored expense to the day's Credit Entry payout line. */
+const PAYOUT_NOTE = "Payout in Cash (Credit Entry)";
+
+type ExpenseRecord = { date: Date; amount: number; payee: string | null; note: string | null };
+
+/**
+ * Keep Credit Entry in sync when a mirrored payout-expense is edited or
+ * deleted: find the matching payout line (by payee + amount) on that day and
+ * update / move / remove it. Pass after=null for a deletion.
+ */
+async function syncExpenseEditToPayout(
+  locationId: string,
+  before: ExpenseRecord,
+  after: { date: Date; amount: number; payee: string | null } | null
+): Promise<void> {
+  if (before.note !== PAYOUT_NOTE) return;
+  const dateISO = toISODate(before.date);
+  const day = await getCreditManual(locationId, dateISO);
+  if (!day) return;
+
+  const idx = day.payouts.findIndex((p) => {
+    const [parent, sub] = p.account.split(" · ").map((s) => s.trim());
+    return (sub || parent) === (before.payee ?? "") && Math.abs(p.amount - before.amount) < 0.005;
+  });
+  if (idx === -1) return;
+  const line = day.payouts[idx];
+  const [parent] = line.account.split(" · ").map((s) => s.trim());
+
+  if (!after) {
+    day.payouts.splice(idx, 1);
+    await setCreditManual(locationId, dateISO, day);
+    return;
+  }
+
+  const newSub = (after.payee ?? "").trim() || (before.payee ?? "");
+  const newAccount = line.account.includes(" · ") ? `${parent} · ${newSub}` : newSub;
+  const newDateISO = toISODate(after.date);
+
+  if (newDateISO === dateISO) {
+    day.payouts[idx] = { account: newAccount, amount: money(after.amount) };
+    await setCreditManual(locationId, dateISO, day);
+  } else {
+    // Moved to a different day: remove here, append to the target day's entry.
+    day.payouts.splice(idx, 1);
+    await setCreditManual(locationId, dateISO, day);
+    const target = (await getCreditManual(locationId, newDateISO)) ?? { ebt: 0, otherCredit: 0, payouts: [], house: [] };
+    target.payouts.push({ account: newAccount, amount: money(after.amount) });
+    await setCreditManual(locationId, newDateISO, target);
+  }
+}
 
 const schema = z.object({
   date: z.string().min(1),
@@ -95,6 +148,8 @@ export async function updateExpense(
       },
     });
     await logAudit({ userId: session.userId, action: "UPDATE", entity: "Expense", entityId: exp.id, before, after: exp });
+    // Mirrored payout? Push the change back into the day's Credit Entry.
+    await syncExpenseEditToPayout(before.locationId, before, { date: exp.date, amount: exp.amount, payee: exp.payee });
   } catch (e) {
     console.error(e);
     return { error: "Could not save changes." };
@@ -102,6 +157,9 @@ export async function updateExpense(
 
   revalidatePath("/expenses");
   revalidatePath("/dashboard");
+  revalidatePath("/daily");
+  revalidatePath("/credit-entry");
+  revalidatePath("/payouts");
   return { ok: true };
 }
 
@@ -111,8 +169,13 @@ export async function deleteExpense(id: string): Promise<void> {
   const before = await prisma.expense.findUnique({ where: { id } });
   await prisma.expense.delete({ where: { id } });
   await logAudit({ userId: session.userId, action: "DELETE", entity: "Expense", entityId: id, before });
+  // Mirrored payout? Remove the matching line from the day's Credit Entry too.
+  if (before) await syncExpenseEditToPayout(before.locationId, before, null);
   revalidatePath("/expenses");
   revalidatePath("/dashboard");
+  revalidatePath("/daily");
+  revalidatePath("/credit-entry");
+  revalidatePath("/payouts");
 }
 
 // Add a custom option to a dropdown list ("Expense type" or "Vendor") so it
