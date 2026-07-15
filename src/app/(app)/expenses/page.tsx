@@ -5,13 +5,13 @@ import { prisma } from "@/lib/db";
 import { dateWhere } from "@/lib/filters";
 import { fmtMoney, fmtDate, expenseCatLabel, paymentLabel } from "@/lib/format";
 import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
-import Filters from "@/components/Filters";
+import ExpenseFilters from "./ExpenseFilters";
 import ExpenseForm from "./ExpenseForm";
 import QuickExpenseRow from "./QuickExpenseRow";
 import EditExpense from "./EditExpense";
 import DeleteButton from "@/components/DeleteButton";
 import { deleteExpense } from "./actions";
-import { toISODate } from "@/lib/period";
+import { toISODate, rangeFor, type PeriodKey } from "@/lib/period";
 import { STORE_OPERATING_EXPENSE_TYPES, INVENTORY_VENDORS } from "@/lib/expenseOptions";
 
 export const dynamic = "force-dynamic";
@@ -44,8 +44,16 @@ export default async function ExpensesPage({
 
   const loc = await getActiveLocationId();
   const where: Record<string, unknown> = { ...dateWhere(sp) };
+  // Preset period (This Month / Last Month) applies when no explicit range is set.
+  if (!sp.from && !sp.to && sp.period) {
+    const r = rangeFor(sp.period as PeriodKey);
+    where.date = { gte: r.start, lt: r.end };
+  }
   if (loc) where.locationId = loc;
   if (sp.category) where.category = sp.category;
+  // Multi-select expense type / vendor filter (comma-separated payee values).
+  const selectedTypes = (sp.types ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (selectedTypes.length) where.payee = { in: selectedTypes };
 
   const expenses = await prisma.expense.findMany({
     where,
@@ -95,9 +103,7 @@ export default async function ExpensesPage({
 
       {canAdd && <QuickExpenseRow defaultDate={toISODate(new Date())} operatingTypes={operatingTypes} vendors={vendors} />}
 
-      <Filters
-        selects={[{ name: "category", label: "Category", options: CATEGORIES.map((c) => ({ value: c, label: expenseCatLabel(c) })) }]}
-      />
+      <ExpenseFilters operatingTypes={operatingTypes} vendors={vendors} />
 
       <Card className="overflow-hidden">
         {expenses.length === 0 ? (

@@ -9,6 +9,46 @@ import { setCreditManual, addHouseAccount as addHA, addPayoutCategory as addPC, 
 import { uploadReceiptsFromForm } from "@/lib/storage";
 import { setReceipts } from "@/lib/receipts";
 import { logAudit } from "@/lib/audit";
+import { prisma } from "@/lib/db";
+import { money } from "@/lib/calc";
+
+/**
+ * Marker note that ties an Expense row to the day's Credit Entry payouts, so
+ * re-saving the day replaces the mirrored rows instead of duplicating them.
+ */
+const PAYOUT_EXPENSE_NOTE = "Payout in Cash (Credit Entry)";
+
+/**
+ * Mirror a day's cash payouts into the Expense table so they show up in
+ * Expenses (and the P&L). "Product Buying · X" becomes an Inventory Purchase
+ * from X; everything else becomes a Store Operating Expense. Paid in cash.
+ */
+async function syncPayoutExpenses(locationId: string, dateISO: string, payouts: HouseCharge[], userId: string): Promise<void> {
+  const dayStart = new Date(dateISO);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+  await prisma.expense.deleteMany({
+    where: { locationId, date: { gte: dayStart, lt: dayEnd }, note: PAYOUT_EXPENSE_NOTE },
+  });
+  for (const p of payouts) {
+    const [parent, sub] = p.account.split(" · ").map((s) => s.trim());
+    const isProductBuying = (parent ?? "").toLowerCase().includes("product buying");
+    await prisma.expense.create({
+      data: {
+        date: dayStart,
+        locationId,
+        category: isProductBuying ? "INVENTORY_PURCHASE" : "STORE_OPERATING_EXPENSES",
+        amount: money(p.amount),
+        payee: sub || parent || p.account,
+        paymentMethod: "CASH",
+        note: PAYOUT_EXPENSE_NOTE,
+        source: "MANUAL",
+        enteredById: userId,
+      },
+    });
+  }
+}
 
 /** Add a payout category inline and return the updated list. */
 export async function addPayoutCategoryInline(name: string): Promise<string[]> {
@@ -84,6 +124,7 @@ export async function saveCreditManual(formData: FormData): Promise<void> {
 
   const data = { ebt: num("ebt"), otherCredit: num("otherCredit"), payouts, house };
   await setCreditManual(loc, date, data);
+  await syncPayoutExpenses(loc, date, payouts, session.userId);
 
   // New photos replace the day's receipts (so an update doesn't keep the old image).
   const photos = await uploadReceiptsFromForm(formData, "photos", `${loc}/credit/${date}`);
@@ -94,6 +135,7 @@ export async function saveCreditManual(formData: FormData): Promise<void> {
   revalidatePath("/credit-entry");
   revalidatePath("/daily");
   revalidatePath("/dashboard");
+  revalidatePath("/expenses");
   redirect(`/credit-entry?date=${date}&saved=1`);
 }
 
