@@ -11,6 +11,7 @@ import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import { recordHousePayment, removeHousePayment } from "./actions";
 import PeriodBar from "@/components/PeriodBar";
 import AccountFilter from "./AccountFilter";
+import EditHouseEntry from "./EditHouseEntry";
 import ReceiptInput from "../credit-entry/ReceiptInput";
 import { ReceiptThumbs } from "@/components/ReceiptThumbs";
 
@@ -100,9 +101,33 @@ export default async function HouseAccountsPage({
   }
   const today = todayISO();
 
+  // Selection totals (respect the account filter + active period/range).
+  const totalCharged = balances.reduce((s, b) => s + (chargedMap.get(b.account) || 0), 0);
+  const totalPaid = balances.reduce((s, b) => s + (paidMap.get(b.account) || 0), 0);
+
+  // Export links carry the exact same filters the page is showing.
+  const exportQS = new URLSearchParams();
+  if (sp.period) exportQS.set("period", sp.period);
+  if (sp.from) exportQS.set("from", sp.from);
+  if (sp.to) exportQS.set("to", sp.to);
+  if (selectedAccount) exportQS.set("account", selectedAccount);
+
   return (
     <div>
-      <PageHeader title="House Accounts" subtitle="Running balances — charges add up, payments bring them down." />
+      <PageHeader
+        title="House Accounts"
+        subtitle="Running balances — charges add up, payments bring them down."
+        actions={
+          <>
+            <a href={`/api/export/house-accounts?${new URLSearchParams({ ...Object.fromEntries(exportQS), format: "csv" })}`} className="ft-btn-secondary">
+              <Icon name="download" className="text-[18px]" /> CSV
+            </a>
+            <a href={`/api/export/house-accounts?${new URLSearchParams({ ...Object.fromEntries(exportQS), format: "xlsx" })}`} className="ft-btn-secondary">
+              <Icon name="download" className="text-[18px]" /> Excel
+            </a>
+          </>
+        }
+      />
       {sp.paid && <Banner>Payment recorded.</Banner>}
 
       <div className="flex flex-wrap items-center gap-2 mb-6">
@@ -128,6 +153,14 @@ export default async function HouseAccountsPage({
         <Card className="p-4">
           <div className="text-label-caps uppercase text-on-surface-variant">Outstanding (now)</div>
           <div className={`tabular text-2xl font-bold mt-1 ${totalOutstanding > 0 ? "text-error" : "text-secondary"}`}>{fmtMoney(totalOutstanding)}</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-label-caps uppercase text-on-surface-variant">Charged · {activityLabel}</div>
+          <div className="tabular text-2xl font-bold mt-1">{fmtMoney(totalCharged)}</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-label-caps uppercase text-on-surface-variant">Paid · {activityLabel}</div>
+          <div className="tabular text-2xl font-bold mt-1 text-secondary">{fmtMoney(totalPaid)}</div>
         </Card>
         <Card className="p-4">
           <div className="text-label-caps uppercase text-on-surface-variant">Accounts</div>
@@ -230,6 +263,7 @@ export default async function HouseAccountsPage({
                     <th className="px-5 py-3 text-right">Charge</th>
                     <th className="px-5 py-3 text-right">Payment</th>
                     <th className="px-5 py-3 text-right">Balance</th>
+                    <th className="px-5 py-3"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-outline-variant/40">
@@ -246,6 +280,16 @@ export default async function HouseAccountsPage({
                       <td className="px-5 py-3 text-right tabular">{e.kind === "charge" ? fmtMoney(e.amount) : "—"}</td>
                       <td className="px-5 py-3 text-right tabular text-secondary">{e.kind === "payment" ? fmtMoney(e.amount) : "—"}</td>
                       <td className={`px-5 py-3 text-right tabular font-semibold ${e.balance > 0 ? "text-error" : "text-secondary"}`}>{fmtMoney(e.balance)}</td>
+                      <td className="px-5 py-3 text-right">
+                        <EditHouseEntry
+                          accounts={accountNames}
+                          entry={
+                            e.kind === "payment" && e.id
+                              ? { kind: "payment", id: e.id, account: selectedAccount, amount: e.amount, date: e.date, note: e.note }
+                              : { kind: "charge", account: selectedAccount, amount: e.amount, date: e.date }
+                          }
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -286,12 +330,22 @@ export default async function HouseAccountsPage({
                     <td className="px-5 py-3 text-right tabular">{a.kind === "charge" ? fmtMoney(a.amount) : "—"}</td>
                     <td className="px-5 py-3 text-right tabular text-secondary">{a.kind === "payment" ? fmtMoney(a.amount) : "—"}</td>
                     <td className="px-5 py-3 text-right">
-                      {a.kind === "payment" && a.id && (
-                        <form action={removeHousePayment}>
-                          <input type="hidden" name="id" value={a.id} />
-                          <button type="submit" className="ft-btn-ghost p-1.5 rounded-md text-on-surface-variant" aria-label="Remove payment"><Icon name="delete" className="text-[18px]" /></button>
-                        </form>
-                      )}
+                      <div className="flex items-center justify-end gap-1">
+                        <EditHouseEntry
+                          accounts={accountNames}
+                          entry={
+                            a.kind === "payment" && a.id
+                              ? { kind: "payment", id: a.id, account: a.account, amount: a.amount, date: a.date, note: a.note }
+                              : { kind: "charge", account: a.account, amount: a.amount, date: a.date }
+                          }
+                        />
+                        {a.kind === "payment" && a.id && (
+                          <form action={removeHousePayment}>
+                            <input type="hidden" name="id" value={a.id} />
+                            <button type="submit" className="ft-btn-ghost p-1.5 rounded-md text-on-surface-variant" aria-label="Remove payment"><Icon name="delete" className="text-[18px]" /></button>
+                          </form>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

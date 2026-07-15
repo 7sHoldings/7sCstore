@@ -274,6 +274,62 @@ export async function deleteHousePayment(locationId: string, id: string): Promis
   await setSetting(`housepayments:${locationId}`, JSON.stringify(list.filter((p) => p.id !== id)));
 }
 
+/** Edit a recorded payment in place (account / amount / date / note). */
+export async function updateHousePayment(
+  locationId: string,
+  id: string,
+  patch: { account?: string; amount?: number; date?: string; note?: string }
+): Promise<boolean> {
+  const list = await getHousePayments(locationId);
+  const p = list.find((x) => x.id === id);
+  if (!p) return false;
+  if (patch.account !== undefined && patch.account.trim()) p.account = patch.account.trim();
+  if (patch.amount !== undefined && isFinite(patch.amount) && patch.amount > 0) p.amount = money(patch.amount);
+  if (patch.date !== undefined && patch.date) p.date = patch.date;
+  if (patch.note !== undefined) p.note = patch.note.trim() || undefined;
+  await setSetting(`housepayments:${locationId}`, JSON.stringify(list));
+  return true;
+}
+
+/**
+ * Edit one house charge line (a day's Credit Entry). Matches the line by
+ * account + current amount. A new amount of 0 removes the line; a new date
+ * moves it to that day's entry.
+ */
+export async function updateHouseCharge(
+  locationId: string,
+  dateISO: string,
+  account: string,
+  oldAmount: number,
+  newAmount: number,
+  newDateISO?: string
+): Promise<boolean> {
+  const day = await getCreditManual(locationId, dateISO);
+  if (!day) return false;
+  const idx = day.house.findIndex((h) => h.account === account && Math.abs(h.amount - oldAmount) < 0.005);
+  if (idx === -1) return false;
+
+  const targetDate = newDateISO && newDateISO !== dateISO ? newDateISO : dateISO;
+  const amt = money(newAmount);
+
+  if (targetDate === dateISO) {
+    if (amt > 0) day.house[idx].amount = amt;
+    else day.house.splice(idx, 1);
+    await setCreditManual(locationId, dateISO, day);
+    return true;
+  }
+
+  // Move to another day: remove from the old entry, append to the target's.
+  day.house.splice(idx, 1);
+  await setCreditManual(locationId, dateISO, day);
+  if (amt > 0) {
+    const target = (await getCreditManual(locationId, targetDate)) ?? { ebt: 0, otherCredit: 0, payouts: [], house: [] };
+    target.house.push({ account, amount: amt });
+    await setCreditManual(locationId, targetDate, target);
+  }
+  return true;
+}
+
 export async function getHousePaymentTotals(locationId: string): Promise<Map<string, number>> {
   const list = await getHousePayments(locationId);
   const m = new Map<string, number>();
@@ -287,6 +343,7 @@ export interface LedgerEntry {
   amount: number;
   note?: string;
   photo?: string;
+  id?: string; // payment id (charges are identified by date + account + amount)
 }
 
 /** Full dated history (charges + payments) for one house account, oldest first. */
@@ -301,7 +358,7 @@ export async function getAccountLedger(locationId: string, account: string): Pro
     } catch { /* skip */ }
   }
   for (const p of await getHousePayments(locationId)) {
-    if (p.account === account) out.push({ date: p.date, kind: "payment", amount: p.amount, note: p.note, photo: p.photo });
+    if (p.account === account) out.push({ date: p.date, kind: "payment", amount: p.amount, note: p.note, photo: p.photo, id: p.id });
   }
   out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.kind === "charge" ? -1 : 1));
   return out;
