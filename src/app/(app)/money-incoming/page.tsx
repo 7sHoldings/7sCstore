@@ -9,6 +9,7 @@ import { toISODate } from "@/lib/period";
 import { Card, PageHeader, EmptyState, Icon } from "@/components/ui";
 import DeleteButton from "@/components/DeleteButton";
 import MoneyIncomingForm from "./MoneyIncomingForm";
+import EditMoneyIncoming from "./EditMoneyIncoming";
 import { deleteMoneyIncoming } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -78,7 +79,7 @@ export default async function MoneyIncomingPage({
                   <th className="px-4 py-3 text-left font-semibold">Date</th>
                   {COLS.map(([k, label]) => <th key={k} className="px-4 py-3 text-right font-semibold">{label}</th>)}
                   <th className="px-4 py-3 text-right font-semibold">Total</th>
-                  {canDelete && <th className="w-10"></th>}
+                  {canDelete && <th className="w-20"></th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/40">
@@ -101,7 +102,17 @@ export default async function MoneyIncomingPage({
                         ))}
                         <td className="px-4 py-3 text-right tabular font-semibold text-secondary">{fmtMoney(i.total)}</td>
                         {canDelete && (
-                          <td className="px-2 py-3 text-right">
+                          <td className="px-2 py-3 text-right whitespace-nowrap">
+                            <EditMoneyIncoming
+                              entry={{
+                                id: i.id,
+                                date: toISODate(i.date),
+                                rent: i.rent,
+                                gameMachine: i.gameMachine,
+                                stagityInvestment: i.stagityInvestment,
+                                beer: i.beer,
+                              }}
+                            />
                             <DeleteButton id={i.id} action={deleteMoneyIncoming} label="Delete this income entry?" />
                           </td>
                         )}

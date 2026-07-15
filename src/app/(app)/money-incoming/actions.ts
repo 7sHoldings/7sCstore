@@ -53,6 +53,44 @@ export async function createMoneyIncoming(
   return { ok: true };
 }
 
+const updateSchema = schema.extend({ id: z.string().min(1) });
+
+export async function updateMoneyIncoming(
+  _prev: { error?: string; ok?: boolean } | undefined,
+  formData: FormData
+): Promise<{ error?: string; ok?: boolean }> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "editDelete")) return { error: "You don't have permission to edit." };
+  const parsed = updateSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  const v = parsed.data;
+
+  const before = await prisma.moneyIncoming.findUnique({ where: { id: v.id } });
+  if (!before) return { error: "Entry not found." };
+
+  const total = money(v.rent + v.gameMachine + v.stagityInvestment + v.beer);
+  try {
+    const rec = await prisma.moneyIncoming.update({
+      where: { id: v.id },
+      data: {
+        date: new Date(v.date),
+        rent: money(v.rent),
+        gameMachine: money(v.gameMachine),
+        stagityInvestment: money(v.stagityInvestment),
+        beer: money(v.beer),
+        total,
+      },
+    });
+    await logAudit({ userId: session.userId, action: "UPDATE", entity: "MoneyIncoming", entityId: rec.id, before, after: rec });
+  } catch (e) {
+    console.error(e);
+    return { error: "Could not save changes." };
+  }
+  revalidatePath("/money-incoming");
+  return { ok: true };
+}
+
 export async function deleteMoneyIncoming(id: string): Promise<void> {
   const session = await getSession();
   if (!session || !can(session.role, "editDelete")) return;
