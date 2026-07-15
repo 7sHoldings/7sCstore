@@ -106,7 +106,21 @@ export default async function HouseAccountsPage({
       {sp.paid && <Banner>Payment recorded.</Banner>}
 
       <div className="flex flex-wrap items-center gap-2 mb-6">
-        <PeriodBar period={sp.period} from={sp.from} to={sp.to} path="/house-accounts" />
+        <PeriodBar
+          period={sp.period}
+          from={sp.from}
+          to={sp.to}
+          path="/house-accounts"
+          showDay={false}
+          presets={[
+            { key: "mtd", label: "This Month" },
+            { key: "lastmonth", label: "Last Month" },
+            { key: "q1", label: "Q1" },
+            { key: "q2", label: "Q2" },
+            { key: "q3", label: "Q3" },
+            { key: "q4", label: "Q4" },
+          ]}
+        />
         <AccountFilter accounts={accountNames} value={selectedAccount} />
       </div>
 

@@ -13,12 +13,14 @@ export default function RangePicker({ from, to, path = "/dashboard" }: { from?: 
   function apply() {
     if (!f || !t) return;
     router.push(`${path}?from=${f}&to=${t}`);
+    router.refresh(); // bypass the client router cache so filtered data loads immediately
   }
   function thisMonth() {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
     const end = now.toISOString().slice(0, 10);
     router.push(`${path}?from=${start}&to=${end}`);
+    router.refresh();
   }
 
   return (

@@ -29,6 +29,7 @@ export default function Filters({
     if (value) next.set(name, value);
     else next.delete(name);
     router.push(`${pathname}?${next.toString()}`);
+    router.refresh(); // bypass the client router cache so filtered data loads immediately
   }
 
   const hasFilters =
@@ -76,7 +77,7 @@ export default function Filters({
       ))}
       {hasFilters && (
         <button
-          onClick={() => router.push(pathname)}
+          onClick={() => { router.push(pathname); router.refresh(); }}
           className="ft-btn-ghost text-body-sm"
         >
           <Icon name="clear" className="text-[16px]" /> Clear

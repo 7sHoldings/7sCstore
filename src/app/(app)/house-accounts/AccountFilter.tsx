@@ -13,6 +13,7 @@ export default function AccountFilter({ accounts, value }: { accounts: string[];
     if (v) next.set("account", v);
     else next.delete("account");
     router.push(`${pathname}?${next.toString()}`);
+    router.refresh(); // bypass the client router cache so filtered data loads immediately
   }
 
   return (
