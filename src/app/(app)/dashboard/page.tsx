@@ -124,6 +124,28 @@ export default async function DashboardPage({
   ];
   const shortOver = money(reconParts.reduce((s, p) => s + p.value, 0));
 
+  // Profit / Loss for the window (owner's formula):
+  //   Total Sales − Total Expenses − Fuel − manual lottery net
+  //   + lottery short/over + Money Incoming + total-sales short/over
+  const [expenseAgg, incomingAgg] = await Promise.all([
+    prisma.expense.aggregate({ _sum: { amount: true }, where: { ...locWhere, date: { gte: range.start, lt: range.end } } }),
+    prisma.moneyIncoming.aggregate({ _sum: { total: true }, where: { ...locWhere, date: { gte: range.start, lt: range.end } } }),
+  ]);
+  const totalExpenses = money(expenseAgg._sum.amount ?? 0);
+  const incomingTotal = money(incomingAgg._sum.total ?? 0);
+  const manualLottoNet = manualLotto ? manualLotto.net : systemLotto.net; // system net when no manual entry yet
+  const salesShortOver = tender ? shortOver : 0; // only meaningful once tender (Safe Drop / card batch) is synced
+  const plParts: { label: string; op: "+" | "−"; raw: number }[] = [
+    { label: "Total Sales", op: "+", raw: posSales },
+    { label: "Total Expenses", op: "−", raw: totalExpenses },
+    { label: "Fuel", op: "−", raw: view.fuel.split.total },
+    { label: "Lottery net (manual)", op: "−", raw: manualLottoNet },
+    { label: "Lottery short/over", op: "+", raw: lottoOver },
+    { label: "Money Incoming", op: "+", raw: incomingTotal },
+    { label: "Sales short/over", op: "+", raw: salesShortOver },
+  ];
+  const profitLoss = money(plParts.reduce((s, p) => s + (p.op === "−" ? -p.raw : p.raw), 0));
+
   const trend: { label: string; value: number; date: string }[] = [];
   for (let i = 0; i < trendDays; i++) {
     const d = new Date(trendStart);
@@ -181,6 +203,35 @@ export default async function DashboardPage({
             ]}
             reconcile={tender ? { parts: reconParts, shortOver } : undefined}
           />
+
+          {/* Profit / Loss for the selected window (owner's formula) */}
+          {showProfit && (
+            <Card className="p-5 mb-6 ring-1 ring-primary/20">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${profitLoss >= 0 ? "bg-secondary/10 text-secondary" : "bg-error/10 text-error"}`}>
+                    <span className="material-symbols-outlined text-[20px]" aria-hidden>{profitLoss >= 0 ? "trending_up" : "trending_down"}</span>
+                  </div>
+                  <div>
+                    <div className="text-label-caps uppercase text-on-surface-variant tracking-wider">Profit / Loss · {range.label}</div>
+                    <div className={`tabular text-3xl font-bold ${profitLoss >= 0 ? "text-secondary" : "text-error"}`}>{fmtMoney(profitLoss)}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 pt-3 border-t border-outline-variant/40 text-body-sm text-on-surface-variant flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                {plParts.map((p, i) => (
+                  <span key={p.label} className="whitespace-nowrap">
+                    {i > 0 && <span className="font-semibold mr-1.5">{p.op}</span>}
+                    {p.label} <span className={`tabular font-semibold ${p.raw < 0 ? "text-error" : "text-on-surface"}`}>{fmtMoney(p.raw)}</span>
+                  </span>
+                ))}
+                <span className="whitespace-nowrap">
+                  <span className="font-semibold mr-1.5">=</span>
+                  <span className={`tabular font-bold ${profitLoss >= 0 ? "text-secondary" : "text-error"}`}>{fmtMoney(profitLoss)}</span>
+                </span>
+              </div>
+            </Card>
+          )}
 
           <ManualCreditPanel className="mb-6" data={creditManual} entryHref="/credit-entry" />
 
