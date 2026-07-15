@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { addExpenseOption } from "./actions";
 
 const ADD = "__add_new__";
@@ -9,23 +9,47 @@ const ADD = "__add_new__";
 // input; the typed value is saved to the DB (so it persists) and is appended to
 // the list and selected. The chosen value is submitted via a hidden input so it
 // drops into the surrounding form unchanged.
+//
+// The visible options are always derived from the `options`/`kind` props, so
+// switching the category (Store Operating Expenses ↔ Inventory Purchase)
+// immediately swaps the list — no stale entries from the previous category.
 export default function OptionSelect({
   name,
   options,
   kind,
   placeholder,
+  initial,
 }: {
   name: string;
   options: readonly string[];
   kind: "EXPENSE_TYPE" | "VENDOR";
   placeholder: string;
+  initial?: string;
 }) {
-  const [opts, setOpts] = useState<string[]>([...options]);
-  const [value, setValue] = useState("");
+  const [added, setAdded] = useState<string[]>([]);
+  const [value, setValue] = useState(initial ?? "");
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [err, setErr] = useState("");
+
+  const opts = useMemo(() => {
+    const seen = new Set(options.map((o) => o.toLowerCase()));
+    const out = [...options];
+    for (const extra of [...added, ...(initial ? [initial] : [])]) {
+      if (extra && !seen.has(extra.toLowerCase())) {
+        seen.add(extra.toLowerCase());
+        out.push(extra);
+      }
+    }
+    return out;
+  }, [options, added, initial]);
+
+  // When the list itself changes (category switch), drop a selection that no
+  // longer belongs to it so a Store-Operating type can't ride into Inventory.
+  useEffect(() => {
+    setValue((v) => (v && !opts.some((o) => o === v) ? "" : v));
+  }, [opts]);
 
   async function commitNew() {
     const v = draft.trim();
@@ -38,9 +62,9 @@ export default function OptionSelect({
     const res = await addExpenseOption(kind, v);
     setPending(false);
     if (res?.error) { setErr(res.error); return; }
-    const added = res?.value ?? v;
-    setOpts((prev) => [...prev, added]);
-    setValue(added);
+    const addedValue = res?.value ?? v;
+    setAdded((prev) => [...prev, addedValue]);
+    setValue(addedValue);
     setAdding(false);
     setDraft("");
   }

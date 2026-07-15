@@ -8,6 +8,7 @@ import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
 import Filters from "@/components/Filters";
 import ExpenseForm from "./ExpenseForm";
 import QuickExpenseRow from "./QuickExpenseRow";
+import EditExpense from "./EditExpense";
 import DeleteButton from "@/components/DeleteButton";
 import { deleteExpense } from "./actions";
 import { toISODate } from "@/lib/period";
@@ -126,7 +127,22 @@ export default async function ExpensesPage({
                     <td className="px-4 py-3">{paymentLabel(e.paymentMethod)}</td>
                     <td className="px-4 py-3 text-right tabular font-semibold text-error">{fmtMoney(e.amount)}</td>
                     {canDelete && (
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <EditExpense
+                          entry={{
+                            id: e.id,
+                            date: toISODate(e.date),
+                            category: e.category,
+                            amount: e.amount,
+                            payee: e.payee ?? "",
+                            checkNo: e.checkNo ?? "",
+                            paymentMethod: e.paymentMethod,
+                            note: e.note ?? "",
+                            recurring: e.recurring,
+                          }}
+                          operatingTypes={operatingTypes}
+                          vendors={vendors}
+                        />
                         <DeleteButton id={e.id} action={deleteExpense} label="Delete this expense?" />
                       </td>
                     )}

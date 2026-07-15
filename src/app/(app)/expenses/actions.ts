@@ -62,6 +62,49 @@ export async function createExpense(
   return { ok: true };
 }
 
+const updateSchema = schema.extend({ id: z.string().min(1) });
+
+export async function updateExpense(
+  _prev: { error?: string; ok?: boolean } | undefined,
+  formData: FormData
+): Promise<{ error?: string; ok?: boolean }> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "editDelete")) return { error: "You don't have permission to edit." };
+
+  const raw = Object.fromEntries(formData);
+  const parsed = updateSchema.safeParse({ ...raw, recurring: formData.get("recurring") === "on" });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  const v = parsed.data;
+
+  const before = await prisma.expense.findUnique({ where: { id: v.id } });
+  if (!before) return { error: "Expense not found." };
+
+  try {
+    const exp = await prisma.expense.update({
+      where: { id: v.id },
+      data: {
+        date: new Date(v.date),
+        category: v.category,
+        amount: money(v.amount),
+        payee: v.payee,
+        checkNo: v.checkNo || null,
+        paymentMethod: v.paymentMethod,
+        note: v.note,
+        recurring: v.recurring,
+      },
+    });
+    await logAudit({ userId: session.userId, action: "UPDATE", entity: "Expense", entityId: exp.id, before, after: exp });
+  } catch (e) {
+    console.error(e);
+    return { error: "Could not save changes." };
+  }
+
+  revalidatePath("/expenses");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
 export async function deleteExpense(id: string): Promise<void> {
   const session = await getSession();
   if (!session || !can(session.role, "editDelete")) return;
