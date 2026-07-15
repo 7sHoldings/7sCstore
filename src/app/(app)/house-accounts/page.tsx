@@ -58,6 +58,8 @@ export default async function HouseAccountsPage({
     .filter((e) => inRange(e.date))
     .reverse();
   const ledgerPhotos = await Promise.all(ledgerRows.map((e) => (e.photo ? signedUrl(e.photo) : Promise.resolve(null))));
+  const ledgerCharged = ledgerRows.reduce((s, e) => s + (e.kind === "charge" ? e.amount : 0), 0);
+  const ledgerPaid = ledgerRows.reduce((s, e) => s + (e.kind === "payment" ? e.amount : 0), 0);
   // Charges come from a day's Credit Entry — surface that day's receipts (downloadable) for invoicing.
   const chargeReceipts = new Map<string, string[]>();
   if (loc) {
@@ -87,8 +89,12 @@ export default async function HouseAccountsPage({
   let activity: Act[] = [];
   const dateReceiptMap = new Map<string, string[]>();
   let activityPhotos: (string | null)[] = [];
+  let activityCharged = 0;
+  let activityPaid = 0;
   if (!selectedAccount && loc) {
     const charges = await getHouseChargeEntries(loc, activeRange?.start, activeRange?.end);
+    activityCharged = charges.reduce((s, c) => s + c.amount, 0);
+    activityPaid = payments.reduce((s, p) => s + p.amount, 0);
     activity = [
       ...charges.map((c) => ({ date: c.date, account: c.account, kind: "charge" as const, amount: c.amount })),
       ...payments.map((p) => ({ date: p.date, account: p.account, kind: "payment" as const, amount: p.amount, note: p.note, photo: p.photo, id: p.id })),
@@ -293,6 +299,15 @@ export default async function HouseAccountsPage({
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr className="bg-surface-container font-bold border-t-2 border-outline-variant">
+                    <td className="px-5 py-3" colSpan={4}>Total · {activityLabel}</td>
+                    <td className="px-5 py-3 text-right tabular text-error">{fmtMoney(ledgerCharged)}</td>
+                    <td className="px-5 py-3 text-right tabular text-secondary">{fmtMoney(ledgerPaid)}</td>
+                    <td className="px-5 py-3"></td>
+                    <td className="px-5 py-3"></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
@@ -350,6 +365,14 @@ export default async function HouseAccountsPage({
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="bg-surface-container font-bold border-t-2 border-outline-variant">
+                  <td className="px-5 py-3" colSpan={5}>Total · {activityLabel}</td>
+                  <td className="px-5 py-3 text-right tabular text-error">{fmtMoney(activityCharged)}</td>
+                  <td className="px-5 py-3 text-right tabular text-secondary">{fmtMoney(activityPaid)}</td>
+                  <td className="px-5 py-3"></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </Card>
