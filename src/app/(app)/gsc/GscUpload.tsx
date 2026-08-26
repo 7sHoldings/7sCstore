@@ -7,87 +7,134 @@ import Modal from "@/components/Modal";
 import { fmtMoney, fmtNumber } from "@/lib/format";
 import { saveGscOrder, finishGscImport } from "./actions";
 
-interface ParsedOrder {
+/**
+ * Bulk importer for GSC order PDFs.
+ *
+ * Files are uploaded and saved ONE AT A TIME rather than as a single multipart
+ * request: an order PDF is ~1 MB, and a serverless request body is capped well
+ * below what a whole order history would weigh. Going file-by-file means the
+ * number of orders is unlimited, each order is committed as soon as it parses,
+ * and a failure part way through keeps everything already imported.
+ */
+
+interface FileResult {
   fileName: string;
-  orderId: string;
-  customer: string | null;
-  statedLineCount: number | null;
-  statedApproxCost: number | null;
-  parsedLineCount: number;
-  sumLineCost: number;
-  reconciles: boolean;
-  warnings: string[];
-  lines: Record<string, unknown>[];
+  status: "pending" | "working" | "done" | "failed" | "skipped";
+  orderId?: string;
+  lines?: number;
+  statedLines?: number | null;
+  sumLineCost?: number;
+  reconciles?: boolean;
+  error?: string;
 }
 
-type Phase = "idle" | "parsing" | "review" | "saving" | "done";
+type Phase = "idle" | "running" | "done";
 
 export default function GscUpload() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const cancelRef = useRef(false);
+
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [orders, setOrders] = useState<ParsedOrder[]>([]);
-  const [failures, setFailures] = useState<{ fileName: string; error: string }[]>([]);
-  const [saved, setSaved] = useState(0);
+  const [results, setResults] = useState<FileResult[]>([]);
 
-  async function onParse(e: React.FormEvent<HTMLFormElement>) {
+  async function onRun(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const files = fileRef.current?.files;
-    if (!files || files.length === 0) {
+    const picked = fileRef.current?.files;
+    if (!picked || picked.length === 0) {
       setError("Choose at least one PDF.");
       return;
     }
-    setError(null);
-    setPhase("parsing");
 
-    const body = new FormData();
-    for (const f of Array.from(files)) body.append("files", f);
+    const files = Array.from(picked);
 
-    try {
-      const res = await fetch("/api/gsc/parse", { method: "POST", body });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setError(data.error ?? "Could not read those PDFs.");
-        setPhase("idle");
-        return;
-      }
-      setOrders(data.orders ?? []);
-      setFailures(data.failures ?? []);
-      setPhase("review");
-    } catch {
-      setError("Upload failed. Check your connection and try again.");
-      setPhase("idle");
+    // A serverless request body is capped a few MB below this; a PDF that big
+    // is rejected by the platform before it reaches the parser, so say so here
+    // rather than letting it fail with an opaque network error.
+    const TOO_BIG = 4 * 1024 * 1024;
+    const oversized = files.filter((f) => f.size > TOO_BIG);
+    if (oversized.length > 0) {
+      setError(
+        `${oversized.length} file${oversized.length === 1 ? " is" : "s are"} over 4 MB and would be rejected on upload: ` +
+          oversized.slice(0, 3).map((f) => f.name).join(", ") +
+          (oversized.length > 3 ? "…" : "") +
+          ". Remove them and try again."
+      );
+      return;
     }
-  }
 
-  async function onSave() {
-    setPhase("saving");
+    cancelRef.current = false;
     setError(null);
-    let ok = 0;
+    setPhase("running");
+    setResults(files.map((f) => ({ fileName: f.name, status: "pending" })));
+
+    let orders = 0;
     let lines = 0;
-    for (const o of orders) {
-      const res = await saveGscOrder({ orderId: o.orderId, lines: o.lines });
-      if (res.error) {
-        setError(`${res.error} ${ok} of ${orders.length} orders were saved.`);
-        setPhase("review");
-        return;
+
+    for (let i = 0; i < files.length; i++) {
+      if (cancelRef.current) {
+        setResults((prev) =>
+          prev.map((r, n) => (n >= i && r.status === "pending" ? { ...r, status: "skipped" } : r))
+        );
+        break;
       }
-      ok++;
-      lines += res.saved ?? 0;
-      setSaved(ok);
+
+      setResults((prev) => prev.map((r, n) => (n === i ? { ...r, status: "working" } : r)));
+
+      try {
+        const body = new FormData();
+        body.append("files", files[i]);
+        const res = await fetch("/api/gsc/parse", { method: "POST", body });
+        const data = await res.json();
+
+        if (!res.ok || data.error || !data.orders?.length) {
+          const msg = data.error ?? data.failures?.[0]?.error ?? "Could not read this PDF.";
+          setResults((prev) => prev.map((r, n) => (n === i ? { ...r, status: "failed", error: msg } : r)));
+          continue;
+        }
+
+        const o = data.orders[0];
+        const saved = await saveGscOrder({ orderId: o.orderId, lines: o.lines });
+        if (saved.error) {
+          setResults((prev) => prev.map((r, n) => (n === i ? { ...r, status: "failed", error: saved.error } : r)));
+          continue;
+        }
+
+        orders++;
+        lines += saved.saved ?? 0;
+        setResults((prev) =>
+          prev.map((r, n) =>
+            n === i
+              ? {
+                  ...r,
+                  status: "done",
+                  orderId: o.orderId,
+                  lines: saved.saved,
+                  statedLines: o.statedLineCount,
+                  sumLineCost: o.sumLineCost,
+                  reconciles: o.reconciles,
+                }
+              : r
+          )
+        );
+      } catch {
+        setResults((prev) =>
+          prev.map((r, n) => (n === i ? { ...r, status: "failed", error: "Upload failed." } : r))
+        );
+      }
     }
-    await finishGscImport({ orders: ok, lines });
+
+    if (orders > 0) await finishGscImport({ orders, lines });
     setPhase("done");
     router.refresh();
   }
 
   function reset() {
-    setOrders([]);
-    setFailures([]);
+    cancelRef.current = false;
+    setResults([]);
     setError(null);
-    setSaved(0);
     setPhase("idle");
     if (fileRef.current) fileRef.current.value = "";
   }
@@ -100,11 +147,22 @@ export default function GscUpload() {
     );
   }
 
-  const totalLines = orders.reduce((s, o) => s + o.parsedLineCount, 0);
-  const anyMismatch = orders.some((o) => !o.reconciles);
+  const done = results.filter((r) => r.status === "done");
+  const failed = results.filter((r) => r.status === "failed");
+  const finished = results.filter((r) => r.status !== "pending" && r.status !== "working").length;
+  const pct = results.length ? Math.round((finished / results.length) * 100) : 0;
+  const totalLines = done.reduce((s, r) => s + (r.lines ?? 0), 0);
+  const mismatched = done.filter((r) => r.reconciles === false);
 
   return (
-    <Modal title="Upload GSC Orders" onClose={() => { setOpen(false); reset(); }}>
+    <Modal
+      title="Upload GSC Orders"
+      onClose={() => {
+        if (phase === "running") cancelRef.current = true;
+        setOpen(false);
+        reset();
+      }}
+    >
       <div className="space-y-4">
         {error && (
           <div className="flex items-start gap-2 text-error text-body-sm bg-error-container/50 px-3 py-2 rounded-md">
@@ -112,8 +170,8 @@ export default function GscUpload() {
           </div>
         )}
 
-        {(phase === "idle" || phase === "parsing") && (
-          <form onSubmit={onParse} className="space-y-4">
+        {phase === "idle" && (
+          <form onSubmit={onRun} className="space-y-4">
             <div>
               <label className="ft-label" htmlFor="gsc-files">Order PDFs</label>
               <input
@@ -126,85 +184,85 @@ export default function GscUpload() {
                 className="ft-input"
               />
               <p className="text-body-sm text-on-surface-variant mt-2">
-                Select as many order PDFs as you like — up to 40 at a time. Uploading the
-                same order twice is safe: it replaces that order rather than duplicating it,
-                and the newest order always wins on price.
+                Select your whole GSC order history — there&apos;s no limit on how many.
+                They upload one at a time and each order is saved as it finishes, so you
+                can close this and the imported ones stay.
+              </p>
+              <p className="text-body-sm text-on-surface-variant mt-1">
+                Re-uploading an order you already have is safe: it replaces that order
+                rather than duplicating it, and the newest order always wins on price.
               </p>
             </div>
-            <button type="submit" disabled={phase === "parsing"} className="ft-btn-primary w-full justify-center">
-              {phase === "parsing" ? "Reading PDFs…" : "Read PDFs"}
+            <button type="submit" className="ft-btn-primary w-full justify-center">
+              <Icon name="upload" className="text-[18px]" /> Start import
             </button>
           </form>
         )}
 
-        {phase !== "idle" && phase !== "parsing" && orders.length > 0 && (
+        {phase !== "idle" && (
           <>
-            <div className="text-body-sm text-on-surface-variant">
-              {fmtNumber(orders.length)} order{orders.length === 1 ? "" : "s"} ·{" "}
-              {fmtNumber(totalLines)} line{totalLines === 1 ? "" : "s"}
+            <div>
+              <div className="flex items-center justify-between text-body-sm mb-1">
+                <span className="font-semibold text-on-surface">
+                  {phase === "running" ? "Importing…" : "Import finished"}
+                </span>
+                <span className="tabular text-on-surface-variant">
+                  {fmtNumber(finished)} / {fmtNumber(results.length)}
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-surface-container-low overflow-hidden">
+                <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="text-body-sm text-on-surface-variant mt-1">
+                {fmtNumber(done.length)} order{done.length === 1 ? "" : "s"} ·{" "}
+                {fmtNumber(totalLines)} line{totalLines === 1 ? "" : "s"}
+                {failed.length > 0 && <span className="text-error"> · {fmtNumber(failed.length)} failed</span>}
+              </div>
             </div>
 
             <div className="max-h-64 overflow-y-auto custom-scrollbar border border-outline-variant/60 rounded-md divide-y divide-outline-variant/40">
-              {orders.map((o) => (
-                <div key={o.fileName} className="px-3 py-2 text-body-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-on-surface">Order #{o.orderId}</span>
-                    {o.reconciles ? (
-                      <Badge tone="success">reconciles</Badge>
-                    ) : (
-                      <Badge tone="warning">check</Badge>
+              {results.map((r) => (
+                <div key={r.fileName} className="px-3 py-2 text-body-sm flex items-start gap-2">
+                  <StatusIcon status={r.status} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-on-surface truncate">
+                        {r.orderId ? `Order #${r.orderId}` : r.fileName}
+                      </span>
+                      {r.status === "done" &&
+                        (r.reconciles ? <Badge tone="success">ok</Badge> : <Badge tone="warning">check</Badge>)}
+                    </div>
+                    {r.status === "done" && (
+                      <div className="text-on-surface-variant">
+                        {fmtNumber(r.lines ?? 0)}
+                        {r.statedLines != null && ` of ${fmtNumber(r.statedLines)}`} lines
+                        {r.sumLineCost != null && ` · ${fmtMoney(r.sumLineCost)}`}
+                      </div>
                     )}
+                    {r.status === "failed" && <div className="text-error">{r.error}</div>}
+                    {r.status === "skipped" && <div className="text-on-surface-variant">skipped</div>}
                   </div>
-                  <div className="text-on-surface-variant">
-                    {fmtNumber(o.parsedLineCount)}
-                    {o.statedLineCount != null && ` of ${fmtNumber(o.statedLineCount)}`} lines ·{" "}
-                    {fmtMoney(o.sumLineCost)}
-                    {o.statedApproxCost != null && ` vs ${fmtMoney(o.statedApproxCost)} stated`}
-                  </div>
-                  {o.warnings.slice(0, 2).map((w, i) => (
-                    <div key={i} className="text-tertiary">{w}</div>
-                  ))}
                 </div>
               ))}
             </div>
 
-            {failures.length > 0 && (
-              <div className="text-body-sm text-error">
-                {failures.length} file{failures.length === 1 ? "" : "s"} could not be read:{" "}
-                {failures.map((f) => f.fileName).join(", ")}
-              </div>
-            )}
-
-            {anyMismatch && phase === "review" && (
+            {phase === "done" && mismatched.length > 0 && (
               <div className="text-body-sm text-tertiary">
-                Some orders don&apos;t match their own stated totals. They can still be imported —
-                check those line counts afterwards.
+                {mismatched.length} order{mismatched.length === 1 ? "" : "s"} didn&apos;t match
+                their own stated totals — they were imported, but worth a look.
               </div>
             )}
 
-            {phase === "review" && (
+            {phase === "running" ? (
+              <button
+                onClick={() => { cancelRef.current = true; }}
+                className="ft-btn-secondary w-full justify-center"
+              >
+                Stop after this file
+              </button>
+            ) : (
               <div className="flex gap-2">
-                <button onClick={reset} className="ft-btn-secondary flex-1 justify-center">Start over</button>
-                <button onClick={onSave} className="ft-btn-primary flex-1 justify-center">
-                  Import {fmtNumber(orders.length)} order{orders.length === 1 ? "" : "s"}
-                </button>
-              </div>
-            )}
-
-            {phase === "saving" && (
-              <div>
-                <div className="h-2 rounded-full bg-surface-container-low overflow-hidden">
-                  <div className="h-full bg-primary transition-all" style={{ width: `${Math.round((saved / orders.length) * 100)}%` }} />
-                </div>
-                <div className="text-body-sm text-on-surface-variant mt-1 tabular">
-                  Saving {saved} / {orders.length}
-                </div>
-              </div>
-            )}
-
-            {phase === "done" && (
-              <div className="flex gap-2">
-                <button onClick={reset} className="ft-btn-secondary flex-1 justify-center">Upload more</button>
+                <button onClick={reset} className="ft-btn-secondary flex-1 justify-center">Import more</button>
                 <button onClick={() => { setOpen(false); reset(); }} className="ft-btn-primary flex-1 justify-center">
                   Done
                 </button>
@@ -215,4 +273,16 @@ export default function GscUpload() {
       </div>
     </Modal>
   );
+}
+
+function StatusIcon({ status }: { status: FileResult["status"] }) {
+  const map = {
+    pending: { name: "schedule", cls: "text-on-surface-variant opacity-50" },
+    working: { name: "progress_activity", cls: "text-primary animate-spin" },
+    done: { name: "check_circle", cls: "text-secondary" },
+    failed: { name: "error", cls: "text-error" },
+    skipped: { name: "remove_circle", cls: "text-on-surface-variant opacity-50" },
+  } as const;
+  const s = map[status];
+  return <Icon name={s.name} className={`text-[18px] mt-0.5 shrink-0 ${s.cls}`} />;
 }
