@@ -1,18 +1,19 @@
--- Ordering & vendor-pricing tables.
+-- 7sCstore — ordering & vendor-pricing tables
 --
--- Run this in the Supabase SQL editor when the Weekly Order or GSC Pricing
--- page shows "a server-side exception has occurred". That error means the
--- code was deployed but these tables were never created: scripts/db-deploy.mjs
--- runs 'prisma db push' on production deploys but deliberately never fails the
--- build, so a failed push ships the app against an older database.
+-- Run this in the Supabase SQL editor if the Weekly Order or GSC Pricing page
+-- shows "a server-side exception has occurred". That error means the app was
+-- deployed but these tables were never created.
 --
--- Safe to run once. It only CREATEs new tables and adds one foreign key —
--- nothing existing is altered or dropped, and no data is touched.
--- Verified by applying it to a copy of the previous schema and running every
--- query the Weekly Order page makes.
+-- SAFE TO RUN, AND SAFE TO RUN TWICE.
+--   * only creates things — nothing is altered or dropped
+--   * no existing data is read or touched
+--   * every statement is guarded, so re-running it changes nothing
+--
+-- Verified by applying it to a copy of the previous schema, twice, and running
+-- every query the Weekly Order page makes.
 
 -- CreateTable
-CREATE TABLE "VendorOrderLine" (
+CREATE TABLE IF NOT EXISTS "VendorOrderLine" (
     "id" TEXT NOT NULL,
     "locationId" TEXT NOT NULL,
     "vendor" TEXT NOT NULL DEFAULT 'GSC',
@@ -36,7 +37,7 @@ CREATE TABLE "VendorOrderLine" (
 );
 
 -- CreateTable
-CREATE TABLE "DepartmentMargin" (
+CREATE TABLE IF NOT EXISTS "DepartmentMargin" (
     "id" TEXT NOT NULL,
     "locationId" TEXT NOT NULL,
     "department" TEXT NOT NULL,
@@ -47,7 +48,7 @@ CREATE TABLE "DepartmentMargin" (
 );
 
 -- CreateTable
-CREATE TABLE "ProductMovement" (
+CREATE TABLE IF NOT EXISTS "ProductMovement" (
     "id" TEXT NOT NULL,
     "locationId" TEXT NOT NULL,
     "upcNorm" TEXT NOT NULL,
@@ -58,7 +59,7 @@ CREATE TABLE "ProductMovement" (
 );
 
 -- CreateTable
-CREATE TABLE "PurchaseOrder" (
+CREATE TABLE IF NOT EXISTS "PurchaseOrder" (
     "id" TEXT NOT NULL,
     "locationId" TEXT NOT NULL,
     "vendor" TEXT NOT NULL DEFAULT 'GSC',
@@ -73,7 +74,7 @@ CREATE TABLE "PurchaseOrder" (
 );
 
 -- CreateTable
-CREATE TABLE "PurchaseOrderLine" (
+CREATE TABLE IF NOT EXISTS "PurchaseOrderLine" (
     "id" TEXT NOT NULL,
     "purchaseOrderId" TEXT NOT NULL,
     "upcNorm" TEXT NOT NULL,
@@ -98,7 +99,7 @@ CREATE TABLE "PurchaseOrderLine" (
 );
 
 -- CreateTable
-CREATE TABLE "ProductDemand" (
+CREATE TABLE IF NOT EXISTS "ProductDemand" (
     "id" TEXT NOT NULL,
     "locationId" TEXT NOT NULL,
     "upcNorm" TEXT NOT NULL,
@@ -111,50 +112,57 @@ CREATE TABLE "ProductDemand" (
 );
 
 -- CreateIndex
-CREATE INDEX "VendorOrderLine_locationId_upcNorm_idx" ON "VendorOrderLine"("locationId", "upcNorm");
+CREATE INDEX IF NOT EXISTS "VendorOrderLine_locationId_upcNorm_idx" ON "VendorOrderLine"("locationId", "upcNorm");
 
 -- CreateIndex
-CREATE INDEX "VendorOrderLine_locationId_vendor_orderSeq_idx" ON "VendorOrderLine"("locationId", "vendor", "orderSeq");
+CREATE INDEX IF NOT EXISTS "VendorOrderLine_locationId_vendor_orderSeq_idx" ON "VendorOrderLine"("locationId", "vendor", "orderSeq");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "VendorOrderLine_locationId_vendor_orderId_sku_key" ON "VendorOrderLine"("locationId", "vendor", "orderId", "sku");
+CREATE UNIQUE INDEX IF NOT EXISTS "VendorOrderLine_locationId_vendor_orderId_sku_key" ON "VendorOrderLine"("locationId", "vendor", "orderId", "sku");
 
 -- CreateIndex
-CREATE INDEX "DepartmentMargin_locationId_idx" ON "DepartmentMargin"("locationId");
+CREATE INDEX IF NOT EXISTS "DepartmentMargin_locationId_idx" ON "DepartmentMargin"("locationId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "DepartmentMargin_locationId_department_key" ON "DepartmentMargin"("locationId", "department");
+CREATE UNIQUE INDEX IF NOT EXISTS "DepartmentMargin_locationId_department_key" ON "DepartmentMargin"("locationId", "department");
 
 -- CreateIndex
-CREATE INDEX "ProductMovement_locationId_takenAt_idx" ON "ProductMovement"("locationId", "takenAt");
+CREATE INDEX IF NOT EXISTS "ProductMovement_locationId_takenAt_idx" ON "ProductMovement"("locationId", "takenAt");
 
 -- CreateIndex
-CREATE INDEX "ProductMovement_locationId_upcNorm_idx" ON "ProductMovement"("locationId", "upcNorm");
+CREATE INDEX IF NOT EXISTS "ProductMovement_locationId_upcNorm_idx" ON "ProductMovement"("locationId", "upcNorm");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ProductMovement_locationId_upcNorm_takenAt_key" ON "ProductMovement"("locationId", "upcNorm", "takenAt");
+CREATE UNIQUE INDEX IF NOT EXISTS "ProductMovement_locationId_upcNorm_takenAt_key" ON "ProductMovement"("locationId", "upcNorm", "takenAt");
 
 -- CreateIndex
-CREATE INDEX "PurchaseOrder_locationId_vendor_status_idx" ON "PurchaseOrder"("locationId", "vendor", "status");
+CREATE INDEX IF NOT EXISTS "PurchaseOrder_locationId_vendor_status_idx" ON "PurchaseOrder"("locationId", "vendor", "status");
 
 -- CreateIndex
-CREATE INDEX "PurchaseOrder_locationId_createdAt_idx" ON "PurchaseOrder"("locationId", "createdAt");
+CREATE INDEX IF NOT EXISTS "PurchaseOrder_locationId_createdAt_idx" ON "PurchaseOrder"("locationId", "createdAt");
 
 -- CreateIndex
-CREATE INDEX "PurchaseOrderLine_purchaseOrderId_idx" ON "PurchaseOrderLine"("purchaseOrderId");
+CREATE INDEX IF NOT EXISTS "PurchaseOrderLine_purchaseOrderId_idx" ON "PurchaseOrderLine"("purchaseOrderId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "PurchaseOrderLine_purchaseOrderId_upcNorm_key" ON "PurchaseOrderLine"("purchaseOrderId", "upcNorm");
+CREATE UNIQUE INDEX IF NOT EXISTS "PurchaseOrderLine_purchaseOrderId_upcNorm_key" ON "PurchaseOrderLine"("purchaseOrderId", "upcNorm");
 
 -- CreateIndex
-CREATE INDEX "ProductDemand_locationId_periodStart_idx" ON "ProductDemand"("locationId", "periodStart");
+CREATE INDEX IF NOT EXISTS "ProductDemand_locationId_periodStart_idx" ON "ProductDemand"("locationId", "periodStart");
 
 -- CreateIndex
-CREATE INDEX "ProductDemand_locationId_upcNorm_idx" ON "ProductDemand"("locationId", "upcNorm");
+CREATE INDEX IF NOT EXISTS "ProductDemand_locationId_upcNorm_idx" ON "ProductDemand"("locationId", "upcNorm");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ProductDemand_locationId_upcNorm_periodStart_key" ON "ProductDemand"("locationId", "upcNorm", "periodStart");
+CREATE UNIQUE INDEX IF NOT EXISTS "ProductDemand_locationId_upcNorm_periodStart_key" ON "ProductDemand"("locationId", "upcNorm", "periodStart");
 
 -- AddForeignKey
-ALTER TABLE "PurchaseOrderLine" ADD CONSTRAINT "PurchaseOrderLine_purchaseOrderId_fkey" FOREIGN KEY ("purchaseOrderId") REFERENCES "PurchaseOrder"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'PurchaseOrderLine_purchaseOrderId_fkey'
+  ) THEN
+    ALTER TABLE "PurchaseOrderLine" ADD CONSTRAINT "PurchaseOrderLine_purchaseOrderId_fkey" FOREIGN KEY ("purchaseOrderId") REFERENCES "PurchaseOrder"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
