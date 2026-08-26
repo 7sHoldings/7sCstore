@@ -532,3 +532,54 @@ model BankTransaction {
   @@index([matched])
 }
 
+// ---------------------------------------------------------------------------
+// Vendor order imports (GSC) + per-department pricing policy
+// ---------------------------------------------------------------------------
+
+/**
+ * One line item from an imported vendor order (GSC printable order PDF).
+ * Every order ever uploaded is kept; the price comparison picks the row with
+ * the highest `orderSeq` per product, so re-uploading the whole order history
+ * converges on the newest cost for each item.
+ */
+model VendorOrderLine {
+  id           String   @id @default(cuid())
+  locationId   String
+  vendor       String   @default("GSC")
+  orderId      String // vendor's order id, as printed
+  orderSeq     Int // numeric form of orderId — "latest order" ordering key
+  sku          String // vendor item number
+  upc          String // exactly as printed (14-digit GTIN)
+  upcNorm      String // leading zeros stripped — the key products match on
+  description  String
+  quantity     Float    @default(0) // cases ordered
+  unitsPerCase Float    @default(1) // sellable units in a case
+  sizeLabel    String? // e.g. "12 PK", "4 OZ", "EACH"
+  caseCost     Float    @default(0) // vendor "Unit Cost" = cost of a CASE
+  lineCost     Float    @default(0) // quantity x caseCost, as printed
+  unitCost     Float    @default(0) // caseCost / unitsPerCase
+  srp          Float    @default(0) // vendor suggested retail, per unit
+  orderedAt    DateTime? // order date when the document carries one
+  importedAt   DateTime @default(now())
+
+  @@unique([locationId, vendor, orderId, sku])
+  @@index([locationId, upcNorm])
+  @@index([locationId, vendor, orderSeq])
+}
+
+/**
+ * Target gross margin per POS department, set by the owner. Departments are the
+ * granularity that matters in a c-store: candy carries 40% while cigarettes run
+ * far thinner, so a single store-wide number would price tobacco out of the
+ * market. Unset departments fall back to the app default.
+ */
+model DepartmentMargin {
+  id         String   @id @default(cuid())
+  locationId String
+  department String
+  marginPct  Float    @default(40)
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@unique([locationId, department])
+  @@index([locationId])
+}
