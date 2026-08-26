@@ -155,31 +155,75 @@ export async function createOrderNow(formData: FormData): Promise<void> {
 }
 
 /**
- * Update the open draft from the latest sales without discarding hand-set
- * quantities. This is what the daily job calls between Mondays.
+ * Pull the sales history and refresh the open draft from it.
+ *
+ * Reports what happened rather than failing quietly. The POS connection uses a
+ * login session that expires, and a silent failure here looks identical to a
+ * successful pull that found nothing — which is the worst possible outcome for
+ * someone deciding how much stock to buy.
  */
-export async function refreshDemand(): Promise<void> {
-  const auth = await authorize();
-  if ("error" in auth) return;
-  try {
-    const d = await syncDemand(auth.locationId);
-    const r = await refreshDraftOrder(auth.locationId, { vendor: "GSC" });
-    await logAudit({
-      userId: auth.session.userId,
-      action: "ORDER_REFRESHED",
-      entity: "PurchaseOrder",
-      entityId: r.purchaseOrderId,
-      after: { measured: d.measured, updated: r.updated, added: r.added, removed: r.removed, kept: r.kept },
-    });
-  } catch (e) {
-    console.error("demand refresh failed", e);
-  }
-  revalidatePath("/orders");
+export interface PullResult {
+  ok?: boolean;
+  error?: string;
+  message?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Deliveries on file
-// ---------------------------------------------------------------------------
+export async function refreshDemand(
+  _prev: PullResult | undefined,
+  _formData: FormData
+): Promise<PullResult> {
+  const auth = await authorize();
+  if ("error" in auth) return { error: auth.error };
+
+  let d: Awaited<ReturnType<typeof syncDemand>>;
+  try {
+    d = await syncDemand(auth.locationId);
+  } catch (e) {
+    console.error("sales pull failed", e);
+    const raw = e instanceof Error ? e.message : "";
+    // An expired POS session is the common case and has a specific fix.
+    const expired = /401|403|unauthor|forbidden|login|session|cookie/i.test(raw);
+    return {
+      error: expired
+        ? "The Modisoft connection has expired, so no sales could be read. Refresh MODI_COOKIE and try again."
+        : `Could not read sales from the POS. ${raw || "The connection returned nothing."}`,
+    };
+  }
+
+  if (d.measured === 0) {
+    return {
+      error:
+        "The POS connection worked but reported no sales at all for this period. " +
+        "Check the store selection in Modisoft before ordering from this.",
+    };
+  }
+
+  const r = await refreshDraftOrder(auth.locationId, { vendor: "GSC" });
+  await logAudit({
+    userId: auth.session.userId,
+    action: "ORDER_REFRESHED",
+    entity: "PurchaseOrder",
+    entityId: r.purchaseOrderId,
+    after: {
+      measured: d.measured, historyDays: d.historyDays, alignedToOrders: d.alignedToOrders,
+      updated: r.updated, added: r.added, removed: r.removed, kept: r.kept,
+    },
+  });
+
+  const span = d.alignedToOrders
+    ? `${d.from.toISOString().slice(0, 10)} to today — the stretch your orders cover`
+    : `the last ${d.historyDays} days (no order is dated yet, so this is a default window)`;
+
+  const changed =
+    r.added + r.removed + r.updated > 0
+      ? ` Draft updated: ${r.added} added, ${r.removed} dropped, ${r.updated} re-forecast${r.kept ? `, ${r.kept} of yours kept` : ""}.`
+      : " The draft was already current.";
+
+  return {
+    ok: true,
+    message: `Read ${d.measured.toLocaleString()} product-weeks of sales covering ${span}.${changed}`,
+  };
+}
 
 /**
  * Set the delivery date for one uploaded vendor order.
@@ -204,6 +248,14 @@ export async function setOrderDate(formData: FormData): Promise<void> {
   });
   revalidatePath("/orders");
 }
+
+/**
+ * Date every undated order by stepping back one week at a time from the newest.
+ *
+ * Ordering is weekly, so spacing them a week apart is a good first pass. Any
+ * individual date can then be corrected, and only undated orders are touched so
+ * corrections are never overwritten.
+ */
 
 /**
  * Date every undated order by stepping back one week at a time from the newest.
@@ -249,6 +301,8 @@ export async function spaceOrderDatesWeekly(formData: FormData): Promise<void> {
 }
 
 /** Discard the open draft so a fresh one can be built. */
+
+/** Discard the open draft so a fresh one can be built. */
 export async function deleteDraft(formData: FormData): Promise<void> {
   const auth = await authorize();
   if ("error" in auth) return;
@@ -269,6 +323,14 @@ export async function deleteDraft(formData: FormData): Promise<void> {
   });
   revalidatePath("/orders");
 }
+
+/**
+ * Switch the order between its Full, Balanced and Lean sizes.
+ *
+ * Only lines still on their suggestion move — a quantity set by hand is the
+ * owner's decision and survives a resize, the same way it survives the daily
+ * refresh.
+ */
 
 /**
  * Switch the order between its Full, Balanced and Lean sizes.

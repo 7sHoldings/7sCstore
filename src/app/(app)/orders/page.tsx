@@ -8,7 +8,8 @@ import { Card, PageHeader, EmptyState, Badge } from "@/components/ui";
 import { isMissingTableError, SETUP_SQL_PATH } from "@/lib/setupError";
 import DraftOrder from "./DraftOrder";
 import Deliveries from "./Deliveries";
-import { createOrderNow, refreshDemand } from "./actions";
+import PullSales from "./PullSales";
+import { createOrderNow } from "./actions";
 import { HISTORY_DAYS } from "@/lib/integrations/sync";
 
 export const dynamic = "force-dynamic";
@@ -105,8 +106,8 @@ export default async function OrdersPage() {
             {demandPeriods.length > 0 ? (
               <>
                 <Badge tone="success">sales history</Badge>{" "}
-                {fmtNumber(demandProducts.length)} products across{" "}
-                {fmtNumber(demandPeriods.length)} week{demandPeriods.length === 1 ? "" : "s"} — the
+                {fmtNumber(demandProducts.length)} products · sales read from{" "}
+                {fmtDate(demandPeriods[demandPeriods.length - 1].periodStart)} to today — the
                 order uses each product&apos;s <strong>median</strong> week, so one unusual week
                 can&apos;t drive it
                 {demandPeriods[0]?.measuredAt && ` · pulled ${fmtDate(demandPeriods[0].measuredAt)}`}
@@ -127,9 +128,9 @@ export default async function OrdersPage() {
             {fmtNumber(catalogCount.length)} products bought from GSC
           </span>
           {canEdit && (
-            <form action={refreshDemand} className="ml-auto">
-              <button className="ft-btn-secondary py-1.5">Update from today&apos;s sales</button>
-            </form>
+            <div className="ml-auto">
+              <PullSales />
+            </div>
           )}
         </div>
       </Card>

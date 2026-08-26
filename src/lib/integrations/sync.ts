@@ -533,7 +533,11 @@ export async function logBackfill(locationId: string, imported: number, fromISO:
 /** Recent weeks pulled individually, for a spike-resistant weekly median. */
 export const DEMAND_WEEKS = 6;
 
-/** How far back the shelf-stock calculation looks, in days (~6 months). */
+/**
+ * Fallback length of the shelf-stock window, used only when no vendor order
+ * carries a date. Normally the window runs from the earliest dated order to
+ * today, so deliveries and sales describe the same stretch.
+ */
 export const HISTORY_DAYS = 182;
 
 /**
@@ -552,13 +556,32 @@ export const HISTORY_DAYS = 182;
  */
 export async function syncDemand(
   locationId: string,
-  weeks = DEMAND_WEEKS,
-  historyDays = HISTORY_DAYS
-): Promise<{ measured: number; weeks: number; historyDays: number; live: boolean }> {
+  weeks = DEMAND_WEEKS
+): Promise<{
+  measured: number;
+  weeks: number;
+  historyDays: number;
+  from: Date;
+  to: Date;
+  /** True when the window matches the vendor order history rather than a default. */
+  alignedToOrders: boolean;
+  live: boolean;
+}> {
   const { adapter, live } = activeAdapter();
   if (!adapter.fetchInventory) {
     throw new Error(`The ${adapter.label} connection can't pull sales history yet.`);
   }
+
+  // The long window should cover exactly the stretch the vendor orders describe.
+  // Shelf stock is deliveries minus sales, so the two have to span the same
+  // period — measuring sales over a different stretch than deliveries would
+  // make the subtraction meaningless. Start at the earliest dated order; with
+  // nothing dated yet, fall back to a fixed window and say so.
+  const earliest = await prisma.vendorOrderLine.findFirst({
+    where: { locationId, orderedAt: { not: null } },
+    orderBy: { orderedAt: "asc" },
+    select: { orderedAt: true },
+  });
 
   const measuredAt = new Date();
   const midnight = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
@@ -597,16 +620,23 @@ export async function syncDemand(
     measured += await pullWindow(start, end, 7);
   }
 
-  // 2. The long stretch, in one pass.
+  // 2. The long stretch, in one pass, spanning the order history.
   const longEnd = midnight(new Date());
-  const longStart = midnight(new Date());
-  longStart.setDate(longStart.getDate() - historyDays);
+  const alignedToOrders = !!earliest?.orderedAt;
+  const longStart = alignedToOrders
+    ? midnight(new Date(earliest!.orderedAt!))
+    : (() => { const d = midnight(new Date()); d.setDate(d.getDate() - HISTORY_DAYS); return d; })();
+
+  const historyDays = Math.max(
+    7,
+    Math.round((longEnd.getTime() - longStart.getTime()) / 86_400_000)
+  );
   await pullWindow(longStart, longEnd, historyDays);
 
-  // Drop periods that have aged out.
-  const cutoff = midnight(new Date());
-  cutoff.setDate(cutoff.getDate() - historyDays - 14);
+  // Drop periods that fall outside the stretch now being measured.
+  const cutoff = new Date(longStart);
+  cutoff.setDate(cutoff.getDate() - 14);
   await prisma.productDemand.deleteMany({ where: { locationId, periodStart: { lt: cutoff } } });
 
-  return { measured, weeks, historyDays, live };
+  return { measured, weeks, historyDays, from: longStart, to: longEnd, alignedToOrders, live };
 }
