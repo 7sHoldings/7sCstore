@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Card, Badge, Icon, Banner, EmptyState } from "@/components/ui";
 import Modal from "@/components/Modal";
 import { fmtMoney, fmtNumber, catLabel } from "@/lib/format";
@@ -14,77 +15,105 @@ import {
   type BulkMode,
   type RoundRule,
 } from "@/lib/pricing";
-import { bulkUpdatePrices, updateProductPricing } from "./actions";
+import { filterToParams, type PriceBookFilter } from "@/lib/pricebook/filter";
+import {
+  applyBulkPriceBatch,
+  finishBulkUpdate,
+  matchingProductIds,
+  updateProductPricing,
+} from "./actions";
+
+/** Ids per bulk request — matches the server-side batch cap. */
+const BATCH_SIZE = 1000;
 
 export interface PriceRow {
   id: string;
   name: string;
+  upc: string | null;
+  department: string | null;
   category: string;
   currentCost: number;
   sellingPrice: number;
   qtyOnHand: number;
+  size: string | null;
+}
+
+interface Props {
+  products: PriceRow[];
+  departments: { name: string; count: number }[];
+  canEdit: boolean;
+  filter: PriceBookFilter;
+  page: number;
+  pageCount: number;
+  matching: number;
+  pageSize: number;
+  belowCostCount: number;
 }
 
 export default function PriceBook({
   products,
+  departments,
   canEdit,
-}: {
-  products: PriceRow[];
-  canEdit: boolean;
-}) {
-  const [query, setQuery] = useState("");
-  const [cat, setCat] = useState("");
+  filter,
+  page,
+  pageCount,
+  matching,
+  pageSize,
+  belowCostCount,
+}: Props) {
+  const router = useRouter();
+  const [navigating, startNav] = useTransition();
+
+  const [query, setQuery] = useState(filter.q ?? "");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** True when the change should hit every row matching the filter, not just this page. */
+  const [allMatching, setAllMatching] = useState(false);
   const [editing, setEditing] = useState<PriceRow | null>(null);
 
-  // Bulk controls. `value` stays a string so the input can be empty or "-".
   const [mode, setMode] = useState<BulkMode>("pct");
   const [value, setValue] = useState("");
   const [rounding, setRounding] = useState<RoundRule>("none");
 
-  const [state, action, pending] = useActionState(bulkUpdatePrices, {});
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<number | null>(null);
 
-  const categories = useMemo(
-    () => [...new Set(products.map((p) => p.category))].sort(),
-    [products]
-  );
+  // Filters live in the URL so the server decides what's shown — the table only
+  // ever holds one page, which keeps a 16k-item price book responsive.
+  function pushFilter(next: PriceBookFilter) {
+    setSelected(new Set());
+    setAllMatching(false);
+    const qs = filterToParams(next);
+    startNav(() => router.push(qs ? `/pricing?${qs}` : "/pricing"));
+  }
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return products.filter(
-      (p) => (!cat || p.category === cat) && (!q || p.name.toLowerCase().includes(q))
-    );
-  }, [products, query, cat]);
-
-  // Only selections that are still on screen can be repriced, so the count in
-  // the bulk bar always matches what the user can see.
-  const selectedVisible = useMemo(
-    () => visible.filter((p) => selected.has(p.id)),
-    [visible, selected]
-  );
+  function goToPage(p: number) {
+    const qs = filterToParams(filter, p);
+    startNav(() => router.push(qs ? `/pricing?${qs}` : "/pricing"));
+  }
 
   const numeric = value.trim() === "" ? null : Number(value);
-  const previewOn =
-    numeric !== null && isFinite(numeric) && selectedVisible.length > 0;
+  const valueValid = numeric !== null && isFinite(numeric);
+
+  const targetCount = allMatching ? matching : selected.size;
+  const canApply = canEdit && valueValid && targetCount > 0 && !busy;
 
   const preview = useMemo(() => {
     const map = new Map<string, number>();
-    if (!previewOn) return map;
-    for (const p of selectedVisible) {
-      map.set(p.id, applyBulkPrice(p.sellingPrice, mode, numeric!, rounding));
+    if (!valueValid) return map;
+    for (const p of products) {
+      if (allMatching || selected.has(p.id)) {
+        map.set(p.id, applyBulkPrice(p.sellingPrice, mode, numeric!, rounding));
+      }
     }
     return map;
-  }, [previewOn, selectedVisible, mode, numeric, rounding]);
+  }, [products, selected, allMatching, mode, numeric, rounding, valueValid]);
 
-  // Clear the selection once a bulk change lands so the next one starts clean.
-  useEffect(() => {
-    if (state?.ok) {
-      setSelected(new Set());
-      setValue("");
-    }
-  }, [state]);
+  const previewOn = preview.size > 0;
 
   function toggle(id: string) {
+    setAllMatching(false);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -93,162 +122,273 @@ export default function PriceBook({
     });
   }
 
-  function toggleAll() {
-    const allOn = visible.length > 0 && visible.every((p) => selected.has(p.id));
+  const allPageSelected = products.length > 0 && products.every((p) => selected.has(p.id));
+
+  function togglePage() {
+    setAllMatching(false);
     setSelected((prev) => {
       const next = new Set(prev);
-      for (const p of visible) {
-        if (allOn) next.delete(p.id);
+      for (const p of products) {
+        if (allPageSelected) next.delete(p.id);
         else next.add(p.id);
       }
       return next;
     });
   }
 
-  const allVisibleSelected = visible.length > 0 && visible.every((p) => selected.has(p.id));
+  async function onApply() {
+    if (!canApply) return;
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    setProgress(0);
+
+    try {
+      // Resolve the target ids: either the explicit page selection, or every
+      // row matching the current filter (fetched server-side).
+      let ids: string[];
+      if (allMatching) {
+        const res = await matchingProductIds({
+          q: filter.q,
+          dept: filter.dept,
+          below: filter.below,
+          noCost: filter.noCost,
+          noPrice: filter.noPrice,
+        });
+        if (res.error || !res.ids) {
+          setError(res.error ?? "Could not read the product list.");
+          setBusy(false);
+          return;
+        }
+        ids = res.ids;
+        if (res.truncated) {
+          setError(`Only the first ${fmtNumber(ids.length)} matching items will be repriced.`);
+        }
+      } else {
+        ids = [...selected];
+      }
+
+      let updated = 0;
+      for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+        const batch = ids.slice(i, i + BATCH_SIZE);
+        const res = await applyBulkPriceBatch({ ids: batch, mode, value: numeric!, rounding });
+        if (res.error) {
+          setError(`${res.error} ${fmtNumber(updated)} items were repriced before this point.`);
+          setBusy(false);
+          await finishBulkUpdate();
+          router.refresh();
+          return;
+        }
+        updated += res.updated ?? 0;
+        setProgress(Math.min(i + BATCH_SIZE, ids.length));
+      }
+
+      await finishBulkUpdate();
+      setResult(updated);
+      setSelected(new Set());
+      setAllMatching(false);
+      setValue("");
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const modeHint = BULK_MODES.find((m) => m.value === mode)?.hint;
+  const flag = filter.below ? "below" : filter.noCost ? "nocost" : filter.noPrice ? "noprice" : "";
 
   return (
     <div>
-      {state?.ok && (
-        <Banner tone={state.updated ? "success" : "info"} icon={state.updated ? "check_circle" : "info"}>
-          {state.updated
-            ? `Updated ${state.updated} ${state.updated === 1 ? "price" : "prices"}.`
+      {result !== null && (
+        <Banner tone={result ? "success" : "info"} icon={result ? "check_circle" : "info"}>
+          {result
+            ? `Repriced ${fmtNumber(result)} ${result === 1 ? "item" : "items"}.`
             : "No prices changed — the new prices matched the current ones."}
         </Banner>
       )}
-      {state?.error && (
-        <Banner tone="error" icon="error">{state.error}</Banner>
-      )}
+      {error && <Banner tone="error" icon="error">{error}</Banner>}
 
-      {/* Search + category filter */}
+      {/* Filters */}
       <div className="flex flex-wrap items-end gap-3 mb-4 bg-surface-container-low border border-outline-variant/60 rounded-lg p-3">
-        <div className="flex-1 min-w-[12rem]">
+        <form
+          className="flex-1 min-w-[14rem]"
+          onSubmit={(e) => {
+            e.preventDefault();
+            pushFilter({ ...filter, q: query });
+          }}
+        >
           <label className="text-label-caps uppercase text-on-surface-variant block mb-1" htmlFor="pb-q">
-            Search
+            Search name or UPC
           </label>
-          <input
-            id="pb-q"
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Product name…"
-            className="ft-input py-1.5 text-body-sm"
-          />
-        </div>
+          <div className="flex gap-2">
+            <input
+              id="pb-q"
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="e.g. Marlboro or 028200336811"
+              className="ft-input py-1.5 text-body-sm"
+            />
+            <button type="submit" className="ft-btn-secondary py-1.5">Go</button>
+          </div>
+        </form>
+
         <div>
-          <label className="text-label-caps uppercase text-on-surface-variant block mb-1" htmlFor="pb-cat">
-            Category
+          <label className="text-label-caps uppercase text-on-surface-variant block mb-1" htmlFor="pb-dept">
+            Department
           </label>
           <select
-            id="pb-cat"
-            value={cat}
-            onChange={(e) => setCat(e.target.value)}
-            className="ft-input py-1.5 text-body-sm min-w-[9rem]"
+            id="pb-dept"
+            value={filter.dept ?? ""}
+            onChange={(e) => pushFilter({ ...filter, dept: e.target.value || undefined })}
+            className="ft-input py-1.5 text-body-sm min-w-[11rem]"
           >
-            <option value="">All</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>{catLabel(c)}</option>
+            <option value="">All departments</option>
+            {departments.map((d) => (
+              <option key={d.name} value={d.name}>{d.name} ({d.count})</option>
             ))}
           </select>
         </div>
-        {(query || cat) && (
-          <button onClick={() => { setQuery(""); setCat(""); }} className="ft-btn-ghost text-body-sm">
+
+        <div>
+          <label className="text-label-caps uppercase text-on-surface-variant block mb-1" htmlFor="pb-flag">
+            Show
+          </label>
+          <select
+            id="pb-flag"
+            value={flag}
+            onChange={(e) => {
+              const v = e.target.value;
+              pushFilter({
+                ...filter,
+                below: v === "below",
+                noCost: v === "nocost",
+                noPrice: v === "noprice",
+              });
+            }}
+            className="ft-input py-1.5 text-body-sm min-w-[11rem]"
+          >
+            <option value="">Everything</option>
+            <option value="nocost">Missing cost</option>
+            <option value="noprice">Missing price</option>
+            <option value="below">At or below cost{belowCostCount ? ` (${belowCostCount})` : ""}</option>
+          </select>
+        </div>
+
+        {(filter.q || filter.dept || flag) && (
+          <button
+            onClick={() => { setQuery(""); pushFilter({}); }}
+            className="ft-btn-ghost text-body-sm"
+          >
             <Icon name="clear" className="text-[16px]" /> Clear
           </button>
         )}
-        <div className="ml-auto text-body-sm text-on-surface-variant self-center">
-          {visible.length} of {products.length} products
+        <div className="ml-auto text-body-sm text-on-surface-variant self-center tabular">
+          {navigating ? "Loading…" : `${fmtNumber(matching)} items`}
         </div>
       </div>
 
-      {/* Bulk update bar */}
+      {/* Bulk bar */}
       {canEdit && (
-        <form action={action}>
-          <input type="hidden" name="ids" value={selectedVisible.map((p) => p.id).join(",")} readOnly />
-          <Card className="p-4 mb-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="flex items-center gap-2 text-body-sm font-semibold text-on-surface">
-                <Icon name="sell" className="text-[20px] text-primary" />
-                Bulk update
-                <Badge tone={selectedVisible.length ? "info" : "neutral"}>
-                  {selectedVisible.length} selected
-                </Badge>
-              </div>
-              <div>
-                <label className="text-label-caps uppercase text-on-surface-variant block mb-1" htmlFor="pb-mode">
-                  Action
-                </label>
-                <select
-                  id="pb-mode"
-                  name="mode"
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as BulkMode)}
-                  className="ft-input py-1.5 text-body-sm min-w-[9rem]"
-                >
-                  {BULK_MODES.map((m) => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-label-caps uppercase text-on-surface-variant block mb-1" htmlFor="pb-value">
-                  {mode === "pct" ? "Percent" : "Amount"}
-                </label>
-                <input
-                  id="pb-value"
-                  name="value"
-                  type="number"
-                  step="0.01"
-                  min={mode === "set" ? 0 : undefined}
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                  placeholder={mode === "pct" ? "5" : "1.99"}
-                  className="ft-input py-1.5 text-body-sm w-28"
+        <Card className="p-4 mb-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex items-center gap-2 text-body-sm font-semibold text-on-surface">
+              <Icon name="sell" className="text-[20px] text-primary" />
+              Bulk update
+              <Badge tone={targetCount ? "info" : "neutral"}>{fmtNumber(targetCount)} selected</Badge>
+            </div>
+            <div>
+              <label className="text-label-caps uppercase text-on-surface-variant block mb-1" htmlFor="pb-mode">Action</label>
+              <select
+                id="pb-mode"
+                value={mode}
+                onChange={(e) => setMode(e.target.value as BulkMode)}
+                className="ft-input py-1.5 text-body-sm min-w-[9rem]"
+              >
+                {BULK_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-label-caps uppercase text-on-surface-variant block mb-1" htmlFor="pb-value">
+                {mode === "pct" ? "Percent" : "Amount"}
+              </label>
+              <input
+                id="pb-value"
+                type="number"
+                step="0.01"
+                min={mode === "set" ? 0 : undefined}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder={mode === "pct" ? "5" : "1.99"}
+                className="ft-input py-1.5 text-body-sm w-28"
+              />
+            </div>
+            <div>
+              <label className="text-label-caps uppercase text-on-surface-variant block mb-1" htmlFor="pb-round">Rounding</label>
+              <select
+                id="pb-round"
+                value={rounding}
+                onChange={(e) => setRounding(e.target.value as RoundRule)}
+                className="ft-input py-1.5 text-body-sm min-w-[9rem]"
+              >
+                {ROUND_RULES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+            <button onClick={onApply} disabled={!canApply} className="ft-btn-primary py-2">
+              {busy ? "Applying…" : `Apply to ${fmtNumber(targetCount)}`}
+            </button>
+          </div>
+
+          {busy && targetCount > 0 && (
+            <div className="mt-3">
+              <div className="h-2 rounded-full bg-surface-container-low overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${Math.round((progress / Math.max(1, targetCount)) * 100)}%` }}
                 />
               </div>
-              <div>
-                <label className="text-label-caps uppercase text-on-surface-variant block mb-1" htmlFor="pb-round">
-                  Rounding
-                </label>
-                <select
-                  id="pb-round"
-                  name="rounding"
-                  value={rounding}
-                  onChange={(e) => setRounding(e.target.value as RoundRule)}
-                  className="ft-input py-1.5 text-body-sm min-w-[9rem]"
-                >
-                  {ROUND_RULES.map((r) => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
-                  ))}
-                </select>
+              <div className="text-body-sm text-on-surface-variant mt-1 tabular">
+                {fmtNumber(progress)} / {fmtNumber(targetCount)}
               </div>
-              <button
-                type="submit"
-                disabled={pending || !previewOn}
-                className="ft-btn-primary py-2 disabled:opacity-60"
-              >
-                {pending ? "Applying…" : `Apply to ${selectedVisible.length}`}
-              </button>
             </div>
-            <p className="text-body-sm text-on-surface-variant mt-2">
-              {selectedVisible.length === 0
-                ? "Select products below to reprice them together."
-                : previewOn
-                ? `New prices are previewed in the table. ${modeHint}`
-                : modeHint}
-            </p>
-          </Card>
-        </form>
+          )}
+
+          <p className="text-body-sm text-on-surface-variant mt-2">
+            {targetCount === 0
+              ? "Tick products below, or select everything matching the current filter."
+              : previewOn
+              ? `New prices are previewed in the table. ${modeHint}`
+              : modeHint}
+          </p>
+
+          {/* Select-all-matching affordance */}
+          {matching > products.length && (
+            <div className="mt-2 text-body-sm">
+              {allMatching ? (
+                <span className="text-on-surface">
+                  All <strong>{fmtNumber(matching)}</strong> items matching this filter are selected.{" "}
+                  <button onClick={() => setAllMatching(false)} className="text-primary underline">Clear</button>
+                </span>
+              ) : (
+                <button onClick={() => { setAllMatching(true); setSelected(new Set()); }} className="text-primary underline">
+                  Select all {fmtNumber(matching)} items matching this filter
+                </button>
+              )}
+            </div>
+          )}
+        </Card>
       )}
 
-      {/* Price book */}
+      {/* Table */}
       <Card className="overflow-hidden">
-        <div className="px-4 py-3 border-b border-outline-variant/60 font-semibold text-on-surface">
-          Price Book
+        <div className="px-4 py-3 border-b border-outline-variant/60 font-semibold text-on-surface flex items-center justify-between">
+          <span>Price Book</span>
+          <span className="text-body-sm font-normal text-on-surface-variant tabular">
+            Page {page} of {pageCount}
+          </span>
         </div>
-        {visible.length === 0 ? (
-          <EmptyState icon="search_off" title="No matching products" hint="Try a different search or category." />
+        {products.length === 0 ? (
+          <EmptyState icon="search_off" title="No matching products" hint="Try a different search, department or filter." />
         ) : (
           <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-left text-body-sm">
@@ -258,25 +398,25 @@ export default function PriceBook({
                     <th className="px-4 py-3 w-10">
                       <input
                         type="checkbox"
-                        aria-label="Select all shown"
-                        checked={allVisibleSelected}
-                        onChange={toggleAll}
+                        aria-label="Select this page"
+                        checked={allPageSelected || allMatching}
+                        onChange={togglePage}
                         className="accent-primary w-4 h-4 align-middle"
                       />
                     </th>
                   )}
+                  <th className="px-4 py-3">Department</th>
                   <th className="px-4 py-3">Product</th>
-                  <th className="px-4 py-3">Category</th>
-                  <th className="px-4 py-3 text-right">On Hand</th>
-                  <th className="px-4 py-3 text-right">Unit Cost</th>
-                  <th className="px-4 py-3 text-right">Sell Price</th>
+                  <th className="px-4 py-3">UPC</th>
+                  <th className="px-4 py-3 text-right">Cost</th>
+                  <th className="px-4 py-3 text-right">Price</th>
                   {previewOn && <th className="px-4 py-3 text-right">New Price</th>}
                   <th className="px-4 py-3 text-right">Margin</th>
                   {canEdit && <th className="px-4 py-3 w-10" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/40">
-                {visible.map((p) => {
+                {products.map((p) => {
                   const m = marginPct(p.currentCost, p.sellingPrice);
                   const below = isBelowCost(p.currentCost, p.sellingPrice);
                   const next = preview.get(p.id);
@@ -287,22 +427,27 @@ export default function PriceBook({
                           <input
                             type="checkbox"
                             aria-label={`Select ${p.name}`}
-                            checked={selected.has(p.id)}
+                            checked={allMatching || selected.has(p.id)}
                             onChange={() => toggle(p.id)}
                             className="accent-primary w-4 h-4 align-middle"
                           />
                         </td>
                       )}
+                      <td className="px-4 py-3 text-on-surface-variant whitespace-nowrap">
+                        {p.department ?? <span className="opacity-60">—</span>}
+                      </td>
                       <td className="px-4 py-3 font-medium text-on-surface">
                         <span className="flex items-center gap-2">
                           {p.name}
                           {p.sellingPrice === 0 && <Badge tone="warning">No price</Badge>}
                           {below && <Badge tone="error">Below cost</Badge>}
                         </span>
+                        {p.size && <span className="block text-body-sm text-on-surface-variant">{p.size}</span>}
                       </td>
-                      <td className="px-4 py-3 text-on-surface-variant">{catLabel(p.category)}</td>
-                      <td className="px-4 py-3 text-right tabular">{fmtNumber(p.qtyOnHand)}</td>
-                      <td className="px-4 py-3 text-right tabular">{fmtMoney(p.currentCost)}</td>
+                      <td className="px-4 py-3 tabular text-on-surface-variant whitespace-nowrap">{p.upc ?? "—"}</td>
+                      <td className="px-4 py-3 text-right tabular">
+                        {p.currentCost > 0 ? fmtMoney(p.currentCost) : <span className="text-on-surface-variant opacity-60">—</span>}
+                      </td>
                       <td className="px-4 py-3 text-right tabular">{fmtMoney(p.sellingPrice)}</td>
                       {previewOn && (
                         <td className="px-4 py-3 text-right tabular font-semibold">
@@ -336,6 +481,31 @@ export default function PriceBook({
             </table>
           </div>
         )}
+
+        {/* Pager */}
+        {pageCount > 1 && (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-outline-variant/60">
+            <span className="text-body-sm text-on-surface-variant tabular">
+              {fmtNumber((page - 1) * pageSize + 1)}–{fmtNumber(Math.min(page * pageSize, matching))} of {fmtNumber(matching)}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => goToPage(page - 1)}
+                disabled={page <= 1 || navigating}
+                className="ft-btn-secondary py-1.5 disabled:opacity-50"
+              >
+                <Icon name="chevron_left" className="text-[18px]" /> Prev
+              </button>
+              <button
+                onClick={() => goToPage(page + 1)}
+                disabled={page >= pageCount || navigating}
+                className="ft-btn-secondary py-1.5 disabled:opacity-50"
+              >
+                Next <Icon name="chevron_right" className="text-[18px]" />
+              </button>
+            </div>
+          </div>
+        )}
       </Card>
 
       {editing && <EditPriceModal product={editing} onClose={() => setEditing(null)} />}
@@ -357,36 +527,28 @@ function EditPriceModal({ product, onClose }: { product: PriceRow; onClose: () =
   const m = marginPct(Number(cost) || 0, Number(price) || 0);
 
   return (
-    <Modal title={`Price — ${product.name}`} onClose={onClose}>
+    <Modal title={product.name} onClose={onClose}>
       <form action={action} className="space-y-4">
         <input type="hidden" name="productId" value={product.id} readOnly />
+        <div className="text-body-sm text-on-surface-variant">
+          {product.department ?? "No department"}
+          {product.upc && <> · UPC <span className="tabular">{product.upc}</span></>}
+          {" · "}
+          <Badge tone="info">{catLabel(product.category)}</Badge>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="ft-label" htmlFor="ep-cost">Unit cost</label>
             <input
-              id="ep-cost"
-              name="currentCost"
-              type="number"
-              step="0.01"
-              min="0"
-              value={cost}
-              onChange={(e) => setCost(e.target.value)}
-              className="ft-input"
-              required
+              id="ep-cost" name="currentCost" type="number" step="0.01" min="0"
+              value={cost} onChange={(e) => setCost(e.target.value)} className="ft-input" required
             />
           </div>
           <div>
             <label className="ft-label" htmlFor="ep-price">Selling price</label>
             <input
-              id="ep-price"
-              name="sellingPrice"
-              type="number"
-              step="0.01"
-              min="0"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              className="ft-input"
-              required
+              id="ep-price" name="sellingPrice" type="number" step="0.01" min="0"
+              value={price} onChange={(e) => setPrice(e.target.value)} className="ft-input" required
             />
           </div>
         </div>

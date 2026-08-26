@@ -45,6 +45,8 @@ npm run dev          # http://localhost:3000
 src/
   lib/
     calc.ts          # Calculation engine — SRS §3 formulas, exact (unit-verified)
+    pricing.ts       # Retail margin math + bulk price rules (%, $, set, rounding)
+    pricebook/       # POS price-book import: parse, merge rules, shared filter
     reports.ts       # Bridges the DB to the calc engine (dashboard + reports)
     reportBuilder.ts # Structured report docs shared by preview + Excel + PDF
     export/          # exceljs + pdfkit generators
@@ -75,6 +77,7 @@ writing rows with `source = POS_MODI`; **no report or calculation changes.**
 
 | Area | Requirements | Where |
 |---|---|---|
+| Pricing / price book | store retail pricing | `app/(app)/pricing`, `lib/pricing.ts`, `lib/pricebook/` |
 | Dashboard | FR-1…FR-7 | `app/(app)/dashboard` |
 | Sales tracking | FR-8…FR-14 | `app/(app)/sales` |
 | Shift reconciliation | FR-15…FR-17 | `calc.ts` `shiftReconciliation` + `Shift` model |
@@ -130,6 +133,33 @@ These features run today with safe fallbacks; add the env vars (see
 - **AI insights** — `ANTHROPIC_API_KEY` (otherwise rule-based insights)
 - **Email** — `RESEND_API_KEY` (+ `NOTIFY_EMAIL_FROM`)
 - **SMS** — `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
+
+## Pricing & the price book
+
+`/pricing` is the store price book: every product with its department, UPC, cost,
+shelf price and margin, searchable by name *or* barcode and filterable by
+department. Prices can be changed per item or in bulk (by %, by $, or set to a
+fixed price, with optional `.05` / `.10` / `.99` rounding), previewed before
+anything is written and applied in batches with per-item audit rows.
+
+### Importing from Modisoft
+
+`/pricing/import` loads a Modisoft **Inventory** export (`.xlsx` or `.csv`).
+Columns are matched by *name*, not position, so a reordered export still works.
+Verified against a real 16,230-row export: parses in ~0.9s and imports in ~2.3s.
+
+Two rules protect data on every re-import, because a POS export uses zero to
+mean "unknown":
+
+- **A zero cost never overwrites a real cost.** Cost is empty on ~99% of rows —
+  real cost comes from vendor invoices, and the import must not erase it.
+- **A zero retail never overwrites a real price**, for items the POS has no
+  price on.
+
+Products are matched on **scan code (UPC)**, so re-importing is idempotent —
+running the same file twice changes nothing. That UPC is also the join key for
+the vendor-cost work: it's what lets a GSC or Sam's invoice line find the item
+it belongs to.
 
 ## Still out of scope
 
