@@ -655,27 +655,38 @@ model PurchaseOrderLine {
   /** Units sold over the measured window, for "sold 40 in 28 days" context. */
   soldInWindow    Float?
   windowDays      Int?
+  /** Units sold each recent week, oldest first — the evidence for the median. */
+  weeklySeries    Float[]
+  /** How many of those weeks had any sales. */
+  weeksWithSales  Int?
+  /** Cases normally bought per order, from past orders. */
+  typicalCases    Float?
+  /** True when the suggestion was trimmed to stay near past orders. */
+  cappedByHistory Boolean       @default(false)
 
   @@unique([purchaseOrderId, upcNorm])
   @@index([purchaseOrderId])
 }
 
 /**
- * Units sold over an explicit recent window, straight from the POS item-wise
- * report (which accepts a date range). This is the primary demand signal: it
- * answers "how many did I sell in the last N days" directly, rather than
- * inferring it from the difference between two cumulative readings.
- *
- * One row per product per window length, refreshed on each pull.
+ * Units sold in ONE week, straight from the POS item-wise report (which accepts
+ * a date range). Stored per week rather than as a single monthly total on
+ * purpose: a month's average cannot tell "ten sold every week" apart from "ten
+ * sold once and none since", and ordering against the second case is how money
+ * ends up sitting on a shelf. Several weekly rows let the forecast take a
+ * median, which one unusual week cannot move.
  */
 model ProductDemand {
-  id         String   @id @default(cuid())
-  locationId String
-  upcNorm    String
-  windowDays Int // e.g. 28
-  soldUnits  Float    @default(0) // units sold across that window
-  measuredAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  locationId  String
+  upcNorm     String
+  /** First day of the period this row measures (weekly periods). */
+  periodStart DateTime
+  periodDays  Int      @default(7)
+  soldUnits   Float    @default(0) // units sold within this period
+  measuredAt  DateTime @default(now())
 
-  @@unique([locationId, upcNorm, windowDays])
-  @@index([locationId, windowDays])
+  @@unique([locationId, upcNorm, periodStart])
+  @@index([locationId, periodStart])
+  @@index([locationId, upcNorm])
 }

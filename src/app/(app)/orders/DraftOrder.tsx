@@ -21,10 +21,15 @@ export interface DraftLine {
   soldInWindow: number | null;
   windowDays: number | null;
   edited: boolean;
+  weeklySeries: number[];
+  weeksWithSales: number | null;
+  typicalCases: number | null;
+  cappedByHistory: boolean;
 }
 
 export default function DraftOrder({
   purchaseOrderId, createdAt, refreshedAt, coverWeeks, canEdit, totalCost, measured, lines,
+  typicalOrder, pastOrderCount,
 }: {
   purchaseOrderId: string;
   createdAt: string;
@@ -34,6 +39,9 @@ export default function DraftOrder({
   totalCost: number;
   measured: number;
   lines: DraftLine[];
+  /** Median cost of recent GSC orders, as a yardstick. */
+  typicalOrder: number | null;
+  pastOrderCount: number;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -87,7 +95,16 @@ export default function DraftOrder({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <Tile label="Lines to Order" value={fmtNumber(liveLines)} hint={`of ${fmtNumber(lines.length)} suggested`} />
         <Tile label="Estimated Cost" value={fmtMoney(liveTotal)} />
-        <Tile label="Cover" value={`${coverWeeks} week${coverWeeks === 1 ? "" : "s"}`} hint="of expected sales" />
+        <Tile
+          label="vs Your Usual Order"
+          value={typicalOrder ? `${Math.round((liveTotal / typicalOrder) * 100)}%` : "—"}
+          hint={
+            typicalOrder
+              ? `usually ${fmtMoney(typicalOrder)} over ${pastOrderCount} orders`
+              : "upload more orders to compare"
+          }
+          accent={typicalOrder && liveTotal > typicalOrder * 1.25 ? "warning" : undefined}
+        />
         <Tile
           label="Forecast From Sales"
           value={`${fmtNumber(measured)} / ${fmtNumber(lines.length)}`}
@@ -135,9 +152,10 @@ export default function DraftOrder({
           )}
         </div>
         <p className="text-body-sm text-on-surface-variant mt-2">
-          Each line forecasts next week from what actually sold, then rounds up to whole
-          cases: sell 10 a week and you get 10 a week&apos;s worth. Slow movers are left off —
-          if it sells one every couple of weeks, what&apos;s on the shelf already covers it.
+          Each line uses the <strong>median</strong> week, not the average, so one customer
+          clearing the shelf once doesn&apos;t become a standing order. Quantities are also
+          held near what you normally buy for that product. Slow movers are left off — if it
+          sells one every couple of weeks, what&apos;s on the shelf already covers it.
           Change any number below; it saves as you type, and a daily update never
           overwrites a quantity you set yourself.
         </p>
@@ -172,8 +190,8 @@ export default function DraftOrder({
               <tr className="bg-surface-container-low text-label-caps uppercase text-on-surface-variant">
                 <th className="px-3 py-3">SKU</th>
                 <th className="px-3 py-3">Product</th>
-                <th className="px-3 py-3 text-right">Sold</th>
-                <th className="px-3 py-3 text-right">Forecast / wk</th>
+                <th className="px-3 py-3 text-right">Sold each week</th>
+                <th className="px-3 py-3 text-right">Median / wk</th>
                 <th className="px-3 py-3 text-right">Pack</th>
                 <th className="px-3 py-3 text-right">Suggested</th>
                 <th className="px-3 py-3 text-right">Cases</th>
@@ -200,10 +218,20 @@ export default function DraftOrder({
                           <Badge tone="neutral">from past orders</Badge>
                         )}
                         {(l.edited || edits[l.id] !== undefined) && <Badge tone="info">yours</Badge>}
+                        {l.cappedByHistory && <Badge tone="warning">trimmed to your usual</Badge>}
                       </div>
                     </td>
                     <td className="px-3 py-3 text-right tabular text-on-surface-variant whitespace-nowrap">
-                      {l.soldInWindow != null && l.windowDays != null ? (
+                      {l.weeklySeries && l.weeklySeries.length > 0 ? (
+                        <>
+                          <span className="font-mono text-body-sm">
+                            {l.weeklySeries.map((n) => fmtNumber(n)).join(" · ")}
+                          </span>
+                          <span className="block text-body-sm opacity-70">
+                            per week{l.weeksWithSales != null && ` · sold in ${l.weeksWithSales}/${l.weeklySeries.length}`}
+                          </span>
+                        </>
+                      ) : l.soldInWindow != null && l.windowDays != null ? (
                         <>
                           {fmtNumber(l.soldInWindow)}
                           <span className="block text-body-sm opacity-70">in {l.windowDays}d</span>
@@ -250,11 +278,11 @@ export default function DraftOrder({
   );
 }
 
-function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Tile({ label, value, hint, accent }: { label: string; value: string; hint?: string; accent?: "warning" }) {
   return (
     <Card className="p-4">
       <div className="text-label-caps uppercase text-on-surface-variant truncate">{label}</div>
-      <div className="tabular text-lg font-bold mt-1 text-on-surface">{value}</div>
+      <div className={`tabular text-lg font-bold mt-1 ${accent === "warning" ? "text-tertiary" : "text-on-surface"}`}>{value}</div>
       {hint && <div className="text-body-sm text-on-surface-variant mt-0.5 truncate">{hint}</div>}
     </Card>
   );

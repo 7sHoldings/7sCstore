@@ -530,52 +530,67 @@ export async function logBackfill(locationId: string, imported: number, fromISO:
   });
 }
 
-/** How many days of sales the forecast is measured over. */
-export const DEMAND_WINDOW_DAYS = 28;
+/** How many recent weeks of sales the forecast looks at. */
+export const DEMAND_WEEKS = 6;
 
 /**
- * Pull units sold over the last `windowDays` and store it per product.
+ * Pull units sold for each of the last `weeks` calendar weeks, one row per
+ * product per week.
  *
- * The POS item-wise report is date-ranged: asked for a window, it reports the
- * quantity moved in that window. On-hand runs negative as items sell, so the
- * magnitude of a negative quantity is units sold. This is the primary demand
- * signal — it answers "how many did I sell in the last four weeks" directly.
+ * The POS item-wise report is date-ranged, so asking it week by week gives a
+ * short series per product instead of a single blended total. That series is
+ * what lets the forecast ignore a one-off week — a customer clearing a shelf
+ * once shows up in one week and nowhere else, and a median discards it.
  */
 export async function syncDemand(
   locationId: string,
-  windowDays = DEMAND_WINDOW_DAYS
-): Promise<{ measured: number; windowDays: number; live: boolean }> {
+  weeks = DEMAND_WEEKS
+): Promise<{ measured: number; weeks: number; live: boolean }> {
   const { adapter, live } = activeAdapter();
   if (!adapter.fetchInventory) {
     throw new Error(`The ${adapter.label} connection can't pull sales history yet.`);
   }
 
-  const to = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - windowDays);
-
-  const items = await adapter.fetchInventory(from, to);
-
-  const rows = new Map<string, number>();
-  for (const it of items) {
-    const upcNorm = String(it.upc ?? "").replace(/\D/g, "").replace(/^0+/, "");
-    if (!upcNorm) continue;
-    // Negative on-hand over the window is units sold in that window.
-    const sold = it.qtyOnHand < 0 ? -it.qtyOnHand : 0;
-    if (sold <= 0) continue;
-    // One product can appear more than once across department grids.
-    rows.set(upcNorm, Math.max(rows.get(upcNorm) ?? 0, sold));
-  }
-
   const measuredAt = new Date();
-  const data = [...rows.entries()].map(([upcNorm, soldUnits]) => ({
-    locationId, upcNorm, windowDays, soldUnits, measuredAt,
-  }));
-
-  await prisma.productDemand.deleteMany({ where: { locationId, windowDays } });
-  for (let i = 0; i < data.length; i += 1000) {
-    await prisma.productDemand.createMany({ data: data.slice(i, i + 1000), skipDuplicates: true });
+  const periods: { start: Date; end: Date }[] = [];
+  for (let w = 0; w < weeks; w++) {
+    const end = new Date();
+    end.setHours(0, 0, 0, 0);
+    end.setDate(end.getDate() - w * 7);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 6);
+    periods.push({ start, end });
   }
 
-  return { measured: data.length, windowDays, live };
+  let measured = 0;
+  for (const { start, end } of periods) {
+    const items = await adapter.fetchInventory(start, end);
+
+    const rows = new Map<string, number>();
+    for (const it of items) {
+      const upcNorm = String(it.upc ?? "").replace(/\D/g, "").replace(/^0+/, "");
+      if (!upcNorm) continue;
+      // On-hand runs negative as items sell; over a window that magnitude is
+      // the units sold in it.
+      const sold = it.qtyOnHand < 0 ? -it.qtyOnHand : 0;
+      if (sold <= 0) continue;
+      rows.set(upcNorm, Math.max(rows.get(upcNorm) ?? 0, sold));
+    }
+
+    await prisma.productDemand.deleteMany({ where: { locationId, periodStart: start } });
+    const data = [...rows.entries()].map(([upcNorm, soldUnits]) => ({
+      locationId, upcNorm, periodStart: start, periodDays: 7, soldUnits, measuredAt,
+    }));
+    for (let i = 0; i < data.length; i += 1000) {
+      await prisma.productDemand.createMany({ data: data.slice(i, i + 1000), skipDuplicates: true });
+    }
+    measured += data.length;
+  }
+
+  // Drop periods that have aged out of the window.
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - (weeks + 2) * 7);
+  await prisma.productDemand.deleteMany({ where: { locationId, periodStart: { lt: cutoff } } });
+
+  return { measured, weeks, live };
 }

@@ -40,6 +40,10 @@ export async function generateDraftOrder(
         basis: l.basis,
         soldInWindow: l.soldInWindow,
         windowDays: l.windowDays,
+        weeklySeries: l.weeklySeries,
+        weeksWithSales: l.weeksWithSales,
+        typicalCases: l.typicalCases,
+        cappedByHistory: l.cappedByHistory,
       })),
       skipDuplicates: true,
     });
@@ -108,6 +112,10 @@ export async function refreshDraftOrder(
           basis: s.basis,
           soldInWindow: s.soldInWindow,
           windowDays: s.windowDays,
+          weeklySeries: s.weeklySeries,
+          weeksWithSales: s.weeksWithSales,
+          typicalCases: s.typicalCases,
+          cappedByHistory: s.cappedByHistory,
           // An edited quantity is the owner's decision and survives the refresh.
           ...(prev.edited ? {} : { cases: s.suggestedCases }),
         },
@@ -143,6 +151,10 @@ export async function refreshDraftOrder(
           basis: l.basis,
           soldInWindow: l.soldInWindow,
           windowDays: l.windowDays,
+          weeklySeries: l.weeklySeries,
+          weeksWithSales: l.weeksWithSales,
+          typicalCases: l.typicalCases,
+          cappedByHistory: l.cappedByHistory,
         })),
         skipDuplicates: true,
       }) as unknown as Promise<unknown>

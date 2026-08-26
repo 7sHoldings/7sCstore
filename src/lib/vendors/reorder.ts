@@ -53,6 +53,17 @@ export const DEFAULT_MIN_WEEKLY_UNITS = 1;
  */
 export const DEFAULT_MAX_WEEKS_OF_STOCK = 6;
 
+/** Weeks of sales history the forecast reads. */
+export const DEFAULT_DEMAND_WEEKS = 6;
+
+/**
+ * A suggestion may exceed what is normally ordered by at most this factor.
+ * Demand can genuinely grow, but leaping far past every previous order for a
+ * product is far more often a measurement artefact than real growth — and the
+ * cost of being wrong is stock that sits.
+ */
+export const DEFAULT_SPIKE_GUARD = 1.5;
+
 /** Ignore readings older than this when measuring velocity. */
 const VELOCITY_WINDOW_DAYS = 35;
 /** A pair of readings closer together than this is too noisy to extrapolate. */
@@ -69,6 +80,13 @@ export interface ReorderOptions {
   minWeeklyUnits?: number;
   /** Skip when one case would sit longer than this many weeks. */
   maxWeeksOfStock?: number;
+  /** How many recent weeks of sales to read. */
+  demandWeeks?: number;
+  /**
+   * How far above the historical order quantity a suggestion may go. 1.5 means
+   * "at most half again what you normally buy".
+   */
+  spikeGuard?: number;
   /** Cap on cases for any single line, as a guard against bad data. */
   maxCasesPerLine?: number;
   vendor?: string;
@@ -94,6 +112,16 @@ export interface ReorderLine {
   soldInWindow: number | null;
   /** Length of that window in days. */
   windowDays: number | null;
+  /** Units sold in each recent week, oldest first. */
+  weeklySeries: number[];
+  /** How many of those weeks had any sales at all. */
+  weeksWithSales: number;
+  /** Cases normally bought per order, from past orders. */
+  typicalCases: number | null;
+  /** The suggestion was trimmed to stay near past orders. */
+  cappedByHistory: boolean;
+  /** The average week, for comparison with the median actually used. */
+  spikeMean: number;
   /** Days between the two readings used, when basis is "velocity". */
   spanDays: number | null;
   /** Units sold over that span. */
@@ -111,6 +139,8 @@ export interface ReorderResult {
   fromHistory: number;
   /** Products that sell, but too slowly to justify a case this week. */
   skippedSlow: number;
+  /** Lines trimmed to stay in line with past orders. */
+  historyCapped: number;
   /** Readings available — velocity needs at least two. */
   snapshotCount: number;
   newestSnapshot: Date | null;
@@ -214,31 +244,81 @@ async function loadVelocity(locationId: string, since: Date): Promise<Map<string
   return new Map(rows.map((r) => [r.upcNorm, r]));
 }
 
-interface DemandRow {
+interface WeeklyRow {
   upcNorm: string;
+  periodStart: Date;
   soldUnits: number;
-  windowDays: number;
+}
+
+export interface DemandSeries {
+  /** One value per recent week, oldest first, zeros filled in. */
+  weeks: number[];
+  /** Robust weekly estimate — the median, not the average. */
+  median: number;
+  /** Plain average, kept only to show how far a spike moved things. */
+  mean: number;
+  /** Weeks in which the product sold anything at all. */
+  weeksWithSales: number;
 }
 
 /**
- * Units sold per product over the POS-reported window.
+ * Weekly sales per product, as a short series.
  *
- * Only products that sold anything are stored, so once ANY demand data exists
- * for the location, a product missing from it sold nothing — which is a
- * measurement, not missing information. `windowDays` carries the window so the
- * caller can treat those absences as a true zero.
+ * The median is the forecast, deliberately. An average is moved by one unusual
+ * week — a customer clearing the shelf once reads as steady demand and gets
+ * reordered forever. A median asks "what does a normal week look like", so a
+ * single spike is discarded: [10, 0, 0, 0] has a median of 0 and is not
+ * reordered, while [10, 10, 10, 10] has a median of 10 and is.
  */
 async function loadDemand(
-  locationId: string
-): Promise<{ map: Map<string, DemandRow>; windowDays: number | null }> {
-  const rows = await prisma.productDemand.findMany({
-    where: { locationId },
-    orderBy: { windowDays: "desc" },
-    select: { upcNorm: true, soldUnits: true, windowDays: true },
-  });
-  const map = new Map<string, DemandRow>();
-  for (const r of rows) if (!map.has(r.upcNorm)) map.set(r.upcNorm, r);
-  return { map, windowDays: rows[0]?.windowDays ?? null };
+  locationId: string,
+  weeks: number
+): Promise<{ series: Map<string, DemandSeries>; periods: Date[] }> {
+  const cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - weeks * 7);
+
+  const rows = await prisma.$queryRaw<WeeklyRow[]>`
+    SELECT "upcNorm", "periodStart", "soldUnits"
+    FROM "ProductDemand"
+    WHERE "locationId" = ${locationId} AND "periodStart" >= ${cutoff}
+  `;
+
+  const periodKeys = [...new Set(rows.map((r) => new Date(r.periodStart).getTime()))].sort();
+  const periods = periodKeys.map((t) => new Date(t));
+  const index = new Map(periodKeys.map((t, i) => [t, i]));
+
+  const byProduct = new Map<string, number[]>();
+  for (const r of rows) {
+    const i = index.get(new Date(r.periodStart).getTime());
+    if (i === undefined) continue;
+    let arr = byProduct.get(r.upcNorm);
+    if (!arr) {
+      arr = new Array(periodKeys.length).fill(0);
+      byProduct.set(r.upcNorm, arr);
+    }
+    arr[i] = r.soldUnits;
+  }
+
+  const series = new Map<string, DemandSeries>();
+  for (const [upcNorm, weeksArr] of byProduct) {
+    series.set(upcNorm, {
+      weeks: weeksArr,
+      median: median(weeksArr),
+      mean: weeksArr.reduce((a, b) => a + b, 0) / (weeksArr.length || 1),
+      weeksWithSales: weeksArr.filter((v) => v > 0).length,
+    });
+  }
+
+  return { series, periods };
+}
+
+/** Middle value; the mean of the two middle values for an even count. */
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const v = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(v.length / 2);
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
 }
 
 export async function buildReorder(
@@ -250,13 +330,15 @@ export async function buildReorder(
   const maxWeeksOfStock = opts.maxWeeksOfStock ?? DEFAULT_MAX_WEEKS_OF_STOCK;
   const maxCasesPerLine = opts.maxCasesPerLine ?? 40;
   const vendor = opts.vendor ?? "GSC";
+  const demandWeeks = opts.demandWeeks ?? DEFAULT_DEMAND_WEEKS;
+  const spikeGuard = opts.spikeGuard ?? DEFAULT_SPIKE_GUARD;
 
   const since = new Date();
   since.setDate(since.getDate() - VELOCITY_WINDOW_DAYS);
 
   const [catalog, demandData, velocity, snapshotDays] = await Promise.all([
     loadCatalog(locationId, vendor),
-    loadDemand(locationId),
+    loadDemand(locationId, demandWeeks),
     loadVelocity(locationId, since),
     prisma.productMovement.findMany({
       where: { locationId },
@@ -267,8 +349,8 @@ export async function buildReorder(
     }),
   ]);
 
-  const demand = demandData.map;
-  const demandWindow = demandData.windowDays;
+  const demand = demandData.series;
+  const demandPeriods = demandData.periods.length;
 
   const notes: string[] = [];
   const lines: ReorderLine[] = [];
@@ -276,6 +358,7 @@ export async function buildReorder(
   let fromVelocity = 0;
   let fromHistory = 0;
   let skippedSlow = 0;
+  let historyCapped = 0;
 
   for (const c of catalog) {
     const perCase = c.unitsPerCase > 0 ? c.unitsPerCase : 1;
@@ -285,22 +368,29 @@ export async function buildReorder(
     let soldInSpan: number | null = null;
     let soldInWindow: number | null = null;
     let windowDays: number | null = null;
+    let weeklySeries: number[] = [];
+    let weeksWithSales = 0;
+    let spikeMean = 0;
 
     // Best signal: units the POS reports sold over a recent window. Selling 40
     // in 28 days forecasts 10 a week, so next week's order is 10 units' worth.
     const d = demand.get(c.upcNorm);
     const v = velocity.get(c.upcNorm);
 
-    if (demandWindow != null) {
+    if (demandPeriods > 0) {
       // Sales history has been pulled, so it is authoritative — including for a
       // product that appears nowhere in it, which sold nothing. Falling back to
       // past orders here would reorder items that are not selling at all.
-      const sold = d?.soldUnits ?? 0;
-      const win = d?.windowDays ?? demandWindow;
-      weeklyUnits = (sold / win) * 7;
+      //
+      // The MEDIAN week is the forecast, not the average: one customer clearing
+      // the shelf shows up in a single week, and a median discards it.
+      weeklyUnits = d ? d.median : 0;
       basis = "measured";
-      soldInWindow = sold;
-      windowDays = win;
+      soldInWindow = d ? d.weeks.reduce((a, b) => a + b, 0) : 0;
+      windowDays = demandPeriods * 7;
+      weeklySeries = d ? d.weeks : [];
+      weeksWithSales = d ? d.weeksWithSales : 0;
+      spikeMean = d ? Math.round(d.mean * 100) / 100 : 0;
     } else if (v && v.spanDays >= MIN_SPAN_DAYS) {
       weeklyUnits = (v.soldInSpan / v.spanDays) * 7;
       basis = "velocity";
@@ -334,6 +424,23 @@ export async function buildReorder(
     const unitsNeeded = weeklyUnits * coverWeeks;
     let suggestedCases = Math.ceil(unitsNeeded / perCase);
     if (suggestedCases <= 0) continue;
+
+    // Bound the suggestion by how this product has actually been bought.
+    // Past orders are the strongest evidence of what a sensible quantity looks
+    // like; a forecast leaping far beyond every previous order is far more
+    // often an artefact than real growth, and being wrong means stock that
+    // sits. Growth is still allowed, just not in one jump.
+    let cappedByHistory = false;
+    const typical = c.avgCasesPerOrder;
+    if (typical > 0) {
+      const ceiling = Math.max(1, Math.ceil(typical * spikeGuard));
+      if (suggestedCases > ceiling) {
+        suggestedCases = ceiling;
+        cappedByHistory = true;
+        historyCapped++;
+      }
+    }
+
     if (suggestedCases > maxCasesPerLine) {
       suggestedCases = maxCasesPerLine;
       notes.push(`${c.description || c.sku} capped at ${maxCasesPerLine} cases.`);
@@ -359,6 +466,11 @@ export async function buildReorder(
       soldInSpan,
       soldInWindow,
       windowDays,
+      weeklySeries,
+      weeksWithSales,
+      typicalCases: typical > 0 ? Math.round(typical * 10) / 10 : null,
+      cappedByHistory,
+      spikeMean,
       lastOrderedCases: c.avgCasesPerOrder > 0 ? Math.round(c.avgCasesPerOrder * 10) / 10 : null,
     });
   }
@@ -371,6 +483,12 @@ export async function buildReorder(
     notes.unshift(
       "No sales history pulled yet, so quantities come from what you have bought before. " +
         "Pull sales history and the order will be forecast from what actually sold."
+    );
+  }
+  if (historyCapped > 0) {
+    notes.push(
+      `${historyCapped} line${historyCapped === 1 ? "" : "s"} trimmed to stay within ` +
+        `${spikeGuard}x what you normally order — a one-off week shouldn't set the quantity.`
     );
   }
   if (skippedSlow > 0) {
@@ -388,6 +506,7 @@ export async function buildReorder(
     fromVelocity,
     fromHistory,
     skippedSlow,
+    historyCapped,
     snapshotCount,
     newestSnapshot: snapshotDays[0]?.takenAt ?? null,
     totalCost: money(lines.reduce((s, l) => s + l.lineCost, 0)),

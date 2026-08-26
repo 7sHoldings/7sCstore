@@ -45,11 +45,29 @@ export default async function OrdersPage() {
     }),
   ]);
 
-  const demand = await prisma.productDemand.aggregate({
-    where: { locationId: loc },
-    _count: { _all: true },
-    _max: { measuredAt: true, windowDays: true },
-  });
+  const [demandProducts, demandPeriods, pastOrders] = await Promise.all([
+    prisma.productDemand.findMany({ where: { locationId: loc }, distinct: ["upcNorm"], select: { upcNorm: true } }),
+    prisma.productDemand.findMany({
+      where: { locationId: loc }, distinct: ["periodStart"],
+      select: { periodStart: true, measuredAt: true }, orderBy: { periodStart: "desc" },
+    }),
+    // What past GSC orders actually cost, as a yardstick for the suggestion.
+    prisma.$queryRaw<{ orderId: string; total: number }[]>`
+      SELECT "orderId", SUM("lineCost")::float AS total
+      FROM "VendorOrderLine"
+      WHERE "locationId" = ${loc} AND vendor = 'GSC'
+      GROUP BY "orderId"
+      ORDER BY MAX("orderSeq") DESC
+      LIMIT 12
+    `,
+  ]);
+
+  const pastTotals = pastOrders.map((o) => o.total).filter((n) => n > 0).sort((a, b) => a - b);
+  const typicalOrder = pastTotals.length
+    ? pastTotals.length % 2
+      ? pastTotals[(pastTotals.length - 1) / 2]
+      : (pastTotals[pastTotals.length / 2 - 1] + pastTotals[pastTotals.length / 2]) / 2
+    : null;
 
   const lines = draft?.lines ?? [];
   const draftCover = draft?.coverWeeks ?? 1;
@@ -76,19 +94,21 @@ export default async function OrdersPage() {
       />
 
       {/* What the forecast is based on */}
-      <Card className={`p-4 mb-6 ${demand._count._all === 0 ? "border-tertiary/40" : ""}`}>
+      <Card className={`p-4 mb-6 ${demandPeriods.length === 0 ? "border-tertiary/40" : ""}`}>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-body-sm">
           <span className="flex items-center gap-2 font-semibold text-on-surface">
             <span className="material-symbols-outlined text-[20px] text-primary">insights</span>
             Forecast based on
           </span>
           <span className="text-on-surface-variant">
-            {demand._count._all > 0 ? (
+            {demandPeriods.length > 0 ? (
               <>
                 <Badge tone="success">sales history</Badge>{" "}
-                {fmtNumber(demand._count._all)} products with sales over the last{" "}
-                {demand._max.windowDays ?? 28} days
-                {demand._max.measuredAt && ` · pulled ${fmtDate(demand._max.measuredAt)}`}
+                {fmtNumber(demandProducts.length)} products across{" "}
+                {fmtNumber(demandPeriods.length)} week{demandPeriods.length === 1 ? "" : "s"} — the
+                order uses each product&apos;s <strong>median</strong> week, so one unusual week
+                can&apos;t drive it
+                {demandPeriods[0]?.measuredAt && ` · pulled ${fmtDate(demandPeriods[0].measuredAt)}`}
               </>
             ) : readings >= 2 ? (
               <>
@@ -142,6 +162,8 @@ export default async function OrdersPage() {
           canEdit={canEdit}
           refreshedAt={draft.refreshedAt.toISOString()}
           totalCost={totalCost}
+          typicalOrder={typicalOrder}
+          pastOrderCount={pastTotals.length}
           measured={measured}
           lines={lines.map((l) => ({
             id: l.id,
@@ -158,6 +180,10 @@ export default async function OrdersPage() {
             soldInWindow: l.soldInWindow,
             windowDays: l.windowDays,
             edited: l.edited,
+            weeklySeries: l.weeklySeries,
+            weeksWithSales: l.weeksWithSales,
+            typicalCases: l.typicalCases,
+            cappedByHistory: l.cappedByHistory,
           }))}
         />
       )}
