@@ -619,6 +619,8 @@ model PurchaseOrder {
   coverWeeks Float     @default(1)
   note       String?
   createdAt  DateTime  @default(now())
+  /** Last time the forecast behind this draft was refreshed. */
+  refreshedAt DateTime @default(now())
   placedAt   DateTime?
 
   lines PurchaseOrderLine[]
@@ -643,6 +645,11 @@ model PurchaseOrderLine {
   suggestedCases  Float         @default(0)
   /** What will actually be ordered — owner-editable. */
   cases           Float         @default(0)
+  /**
+   * True once the owner has changed the quantity by hand. A daily refresh
+   * updates the forecast on every line but never overwrites an edited one.
+   */
+  edited          Boolean       @default(false)
   /** Which signal set the quantity: measured | velocity | order-history. */
   basis           String        @default("measured")
   /** Units sold over the measured window, for "sold 40 in 28 days" context. */

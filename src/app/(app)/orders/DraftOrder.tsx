@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Badge, Icon, Banner } from "@/components/ui";
 import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
-import { setLineCases, removeLine, rebuildDraft, markPlaced } from "./actions";
+import { setLineCases, removeLine, createOrderNow, markPlaced } from "./actions";
 
 export interface DraftLine {
   id: string;
@@ -20,13 +20,15 @@ export interface DraftLine {
   basis: string;
   soldInWindow: number | null;
   windowDays: number | null;
+  edited: boolean;
 }
 
 export default function DraftOrder({
-  purchaseOrderId, createdAt, coverWeeks, canEdit, totalCost, measured, lines,
+  purchaseOrderId, createdAt, refreshedAt, coverWeeks, canEdit, totalCost, measured, lines,
 }: {
   purchaseOrderId: string;
   createdAt: string;
+  refreshedAt: string;
   coverWeeks: number;
   canEdit: boolean;
   totalCost: number;
@@ -56,6 +58,7 @@ export default function DraftOrder({
   }, [lines, q, dept]);
 
   const casesOf = (l: DraftLine) => edits[l.id] ?? l.cases;
+  const editedCount = lines.filter((l) => l.edited || edits[l.id] !== undefined).length;
   const liveTotal = lines.reduce((s, l) => s + casesOf(l) * l.caseCost, 0);
   const liveLines = lines.filter((l) => casesOf(l) > 0).length;
 
@@ -96,11 +99,13 @@ export default function DraftOrder({
         <div className="flex flex-wrap items-end gap-3">
           <span className="text-body-sm text-on-surface-variant">
             Built {fmtDate(createdAt)}
+            {refreshedAt.slice(0, 10) !== createdAt.slice(0, 10) && ` · updated ${fmtDate(refreshedAt)}`}
+            {editedCount > 0 && ` · ${editedCount} line${editedCount === 1 ? "" : "s"} you set by hand`}
           </span>
 
           {canEdit && (
             <>
-              <form action={rebuildDraft} className="flex items-end gap-2">
+              <form action={createOrderNow} className="flex items-end gap-2">
                 <div>
                   <label className="text-label-caps uppercase text-on-surface-variant block mb-1" htmlFor="cw">
                     Weeks of cover
@@ -112,7 +117,7 @@ export default function DraftOrder({
                   />
                 </div>
                 <button type="submit" className="ft-btn-secondary py-1.5">
-                  <Icon name="refresh" className="text-[18px]" /> Rebuild
+                  <Icon name="refresh" className="text-[18px]" /> Rebuild at this cover
                 </button>
               </form>
 
@@ -133,7 +138,8 @@ export default function DraftOrder({
           Each line forecasts next week from what actually sold, then rounds up to whole
           cases: sell 10 a week and you get 10 a week&apos;s worth. Slow movers are left off —
           if it sells one every couple of weeks, what&apos;s on the shelf already covers it.
-          Change any number below; it saves as you type.
+          Change any number below; it saves as you type, and a daily update never
+          overwrites a quantity you set yourself.
         </p>
       </Card>
 
@@ -193,6 +199,7 @@ export default function DraftOrder({
                         ) : (
                           <Badge tone="neutral">from past orders</Badge>
                         )}
+                        {(l.edited || edits[l.id] !== undefined) && <Badge tone="info">yours</Badge>}
                       </div>
                     </td>
                     <td className="px-3 py-3 text-right tabular text-on-surface-variant whitespace-nowrap">

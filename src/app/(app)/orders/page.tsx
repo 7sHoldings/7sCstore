@@ -6,7 +6,7 @@ import { money } from "@/lib/calc";
 import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
 import { Card, PageHeader, EmptyState, Badge } from "@/components/ui";
 import DraftOrder from "./DraftOrder";
-import { rebuildDraft, refreshDemand } from "./actions";
+import { createOrderNow, refreshDemand } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +52,7 @@ export default async function OrdersPage() {
   });
 
   const lines = draft?.lines ?? [];
+  const draftCover = draft?.coverWeeks ?? 1;
   const totalCost = money(lines.reduce((s, l) => s + l.cases * l.caseCost, 0));
   const measured = lines.filter((l) => l.basis === "measured" || l.basis === "velocity").length;
   const readings = snapshotDays.length;
@@ -60,7 +61,18 @@ export default async function OrdersPage() {
     <div>
       <PageHeader
         title="Weekly Order"
-        subtitle="Built from measured sales every Monday morning — review, adjust, then order"
+        subtitle="Forecast from what actually sold — rebuilt Monday, kept current daily, or built on demand"
+        actions={
+          canEdit && (
+            <form action={createOrderNow}>
+              <input type="hidden" name="coverWeeks" value={String(draftCover)} readOnly />
+              <button className="ft-btn-primary">
+                <span className="material-symbols-outlined text-[18px]">bolt</span>
+                Create order now
+              </button>
+            </form>
+          )
+        }
       />
 
       {/* What the forecast is based on */}
@@ -95,7 +107,7 @@ export default async function OrdersPage() {
           </span>
           {canEdit && (
             <form action={refreshDemand} className="ml-auto">
-              <button className="ft-btn-secondary py-1.5">Pull sales history</button>
+              <button className="ft-btn-secondary py-1.5">Update from today&apos;s sales</button>
             </form>
           )}
         </div>
@@ -113,9 +125,12 @@ export default async function OrdersPage() {
             }
           />
           {canEdit && catalogCount.length > 0 && (
-            <form action={rebuildDraft} className="flex justify-center pb-6">
-              <input type="hidden" name="coverWeeks" value="1" />
-              <button className="ft-btn-primary">Build order now</button>
+            <form action={createOrderNow} className="flex justify-center pb-6">
+              <input type="hidden" name="coverWeeks" value="1" readOnly />
+              <button className="ft-btn-primary">
+                <span className="material-symbols-outlined text-[18px]">bolt</span>
+                Create order now
+              </button>
             </form>
           )}
         </Card>
@@ -125,6 +140,7 @@ export default async function OrdersPage() {
           createdAt={draft.createdAt.toISOString()}
           coverWeeks={draft.coverWeeks}
           canEdit={canEdit}
+          refreshedAt={draft.refreshedAt.toISOString()}
           totalCost={totalCost}
           measured={measured}
           lines={lines.map((l) => ({
@@ -141,6 +157,7 @@ export default async function OrdersPage() {
             basis: l.basis,
             soldInWindow: l.soldInWindow,
             windowDays: l.windowDays,
+            edited: l.edited,
           }))}
         />
       )}
