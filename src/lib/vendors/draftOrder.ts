@@ -38,6 +38,8 @@ export async function generateDraftOrder(
         suggestedCases: l.suggestedCases,
         cases: l.suggestedCases,
         basis: l.basis,
+        soldInWindow: l.soldInWindow,
+        windowDays: l.windowDays,
       })),
       skipDuplicates: true,
     });

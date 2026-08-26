@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { runSync, syncInventory } from "@/lib/integrations/sync";
+import { runSync, syncInventory, syncDemand } from "@/lib/integrations/sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   }
 
   const locations = await prisma.location.findMany();
-  const results: { location: string; imported?: number; inventory?: number; error?: string }[] = [];
+  const results: { location: string; imported?: number; inventory?: number; demand?: number; error?: string }[] = [];
 
   for (const loc of locations) {
     try {
@@ -40,7 +40,15 @@ export async function GET(req: NextRequest) {
       } catch (e) {
         console.error("nightly inventory pull failed", e);
       }
-      results.push({ location: loc.name, imported: r.imported, inventory });
+      // Refresh the rolling sales window that drives the weekly forecast.
+      let demand: number | undefined;
+      try {
+        const d = await syncDemand(loc.id);
+        demand = d.measured;
+      } catch (e) {
+        console.error("nightly demand pull failed", e);
+      }
+      results.push({ location: loc.name, imported: r.imported, inventory, demand });
     } catch (e) {
       results.push({ location: loc.name, error: e instanceof Error ? e.message : "failed" });
     }

@@ -9,6 +9,7 @@ import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { generateDraftOrder } from "@/lib/vendors/draftOrder";
 import { DEFAULT_COVER_WEEKS } from "@/lib/vendors/reorder";
+import { syncDemand } from "@/lib/integrations/sync";
 
 async function authorize() {
   const session = await getSession();
@@ -115,5 +116,27 @@ export async function markPlaced(formData: FormData): Promise<void> {
     entityId: po.id,
     after: { vendor: po.vendor, lines: po._count.lines },
   });
+  revalidatePath("/orders");
+}
+
+/**
+ * Re-pull units sold over the recent window from the POS, then rebuild the
+ * draft so the order reflects what has actually been selling.
+ */
+export async function refreshDemand(): Promise<void> {
+  const auth = await authorize();
+  if ("error" in auth) return;
+  try {
+    const d = await syncDemand(auth.locationId);
+    await logAudit({
+      userId: auth.session.userId,
+      action: "DEMAND_PULL",
+      entity: "ProductDemand",
+      after: { measured: d.measured, windowDays: d.windowDays, live: d.live },
+    });
+    await generateDraftOrder(auth.locationId, { vendor: "GSC" });
+  } catch (e) {
+    console.error("demand refresh failed", e);
+  }
   revalidatePath("/orders");
 }

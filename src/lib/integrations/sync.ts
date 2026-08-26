@@ -529,3 +529,53 @@ export async function logBackfill(locationId: string, imported: number, fromISO:
     },
   });
 }
+
+/** How many days of sales the forecast is measured over. */
+export const DEMAND_WINDOW_DAYS = 28;
+
+/**
+ * Pull units sold over the last `windowDays` and store it per product.
+ *
+ * The POS item-wise report is date-ranged: asked for a window, it reports the
+ * quantity moved in that window. On-hand runs negative as items sell, so the
+ * magnitude of a negative quantity is units sold. This is the primary demand
+ * signal — it answers "how many did I sell in the last four weeks" directly.
+ */
+export async function syncDemand(
+  locationId: string,
+  windowDays = DEMAND_WINDOW_DAYS
+): Promise<{ measured: number; windowDays: number; live: boolean }> {
+  const { adapter, live } = activeAdapter();
+  if (!adapter.fetchInventory) {
+    throw new Error(`The ${adapter.label} connection can't pull sales history yet.`);
+  }
+
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - windowDays);
+
+  const items = await adapter.fetchInventory(from, to);
+
+  const rows = new Map<string, number>();
+  for (const it of items) {
+    const upcNorm = String(it.upc ?? "").replace(/\D/g, "").replace(/^0+/, "");
+    if (!upcNorm) continue;
+    // Negative on-hand over the window is units sold in that window.
+    const sold = it.qtyOnHand < 0 ? -it.qtyOnHand : 0;
+    if (sold <= 0) continue;
+    // One product can appear more than once across department grids.
+    rows.set(upcNorm, Math.max(rows.get(upcNorm) ?? 0, sold));
+  }
+
+  const measuredAt = new Date();
+  const data = [...rows.entries()].map(([upcNorm, soldUnits]) => ({
+    locationId, upcNorm, windowDays, soldUnits, measuredAt,
+  }));
+
+  await prisma.productDemand.deleteMany({ where: { locationId, windowDays } });
+  for (let i = 0; i < data.length; i += 1000) {
+    await prisma.productDemand.createMany({ data: data.slice(i, i + 1000), skipDuplicates: true });
+  }
+
+  return { measured: data.length, windowDays, live };
+}

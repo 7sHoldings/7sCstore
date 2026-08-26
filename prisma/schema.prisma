@@ -643,9 +643,32 @@ model PurchaseOrderLine {
   suggestedCases  Float         @default(0)
   /** What will actually be ordered — owner-editable. */
   cases           Float         @default(0)
-  /** Short machine reason, e.g. "velocity" or "reorder-history". */
-  basis           String        @default("velocity")
+  /** Which signal set the quantity: measured | velocity | order-history. */
+  basis           String        @default("measured")
+  /** Units sold over the measured window, for "sold 40 in 28 days" context. */
+  soldInWindow    Float?
+  windowDays      Int?
 
   @@unique([purchaseOrderId, upcNorm])
   @@index([purchaseOrderId])
+}
+
+/**
+ * Units sold over an explicit recent window, straight from the POS item-wise
+ * report (which accepts a date range). This is the primary demand signal: it
+ * answers "how many did I sell in the last N days" directly, rather than
+ * inferring it from the difference between two cumulative readings.
+ *
+ * One row per product per window length, refreshed on each pull.
+ */
+model ProductDemand {
+  id         String   @id @default(cuid())
+  locationId String
+  upcNorm    String
+  windowDays Int // e.g. 28
+  soldUnits  Float    @default(0) // units sold across that window
+  measuredAt DateTime @default(now())
+
+  @@unique([locationId, upcNorm, windowDays])
+  @@index([locationId, windowDays])
 }

@@ -6,7 +6,7 @@ import { money } from "@/lib/calc";
 import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
 import { Card, PageHeader, EmptyState, Badge } from "@/components/ui";
 import DraftOrder from "./DraftOrder";
-import { rebuildDraft } from "./actions";
+import { rebuildDraft, refreshDemand } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -45,9 +45,15 @@ export default async function OrdersPage() {
     }),
   ]);
 
+  const demand = await prisma.productDemand.aggregate({
+    where: { locationId: loc },
+    _count: { _all: true },
+    _max: { measuredAt: true, windowDays: true },
+  });
+
   const lines = draft?.lines ?? [];
   const totalCost = money(lines.reduce((s, l) => s + l.cases * l.caseCost, 0));
-  const measured = lines.filter((l) => l.basis === "velocity").length;
+  const measured = lines.filter((l) => l.basis === "measured" || l.basis === "velocity").length;
   const readings = snapshotDays.length;
 
   return (
@@ -57,35 +63,41 @@ export default async function OrdersPage() {
         subtitle="Built from measured sales every Monday morning — review, adjust, then order"
       />
 
-      {/* How demand is being measured right now */}
-      <Card className={`p-4 mb-6 ${readings < 2 ? "border-tertiary/40" : ""}`}>
+      {/* What the forecast is based on */}
+      <Card className={`p-4 mb-6 ${demand._count._all === 0 ? "border-tertiary/40" : ""}`}>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-body-sm">
           <span className="flex items-center gap-2 font-semibold text-on-surface">
             <span className="material-symbols-outlined text-[20px] text-primary">insights</span>
-            Demand signal
+            Forecast based on
           </span>
           <span className="text-on-surface-variant">
-            {readings >= 2 ? (
+            {demand._count._all > 0 ? (
               <>
-                <Badge tone="success">measuring</Badge>{" "}
-                {readings} inventory readings · newest {fmtDate(snapshotDays[0].takenAt)}
+                <Badge tone="success">sales history</Badge>{" "}
+                {fmtNumber(demand._count._all)} products with sales over the last{" "}
+                {demand._max.windowDays ?? 28} days
+                {demand._max.measuredAt && ` · pulled ${fmtDate(demand._max.measuredAt)}`}
               </>
-            ) : readings === 1 ? (
+            ) : readings >= 2 ? (
               <>
-                <Badge tone="warning">baseline only</Badge>{" "}
-                one reading taken {fmtDate(snapshotDays[0].takenAt)} — quantities come from past
-                orders until a second reading lands
+                <Badge tone="success">inventory readings</Badge>{" "}
+                {readings} readings · newest {fmtDate(snapshotDays[0].takenAt)}
               </>
             ) : (
               <>
-                <Badge tone="warning">no readings yet</Badge>{" "}
-                pull inventory once and the nightly job takes it from there
+                <Badge tone="warning">past orders only</Badge>{" "}
+                no sales history pulled yet — quantities come from what you have bought before
               </>
             )}
           </span>
           <span className="text-on-surface-variant">
             {fmtNumber(catalogCount.length)} products bought from GSC
           </span>
+          {canEdit && (
+            <form action={refreshDemand} className="ml-auto">
+              <button className="ft-btn-secondary py-1.5">Pull sales history</button>
+            </form>
+          )}
         </div>
       </Card>
 
@@ -127,6 +139,8 @@ export default async function OrdersPage() {
             suggestedCases: l.suggestedCases,
             cases: l.cases,
             basis: l.basis,
+            soldInWindow: l.soldInWindow,
+            windowDays: l.windowDays,
           }))}
         />
       )}

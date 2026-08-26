@@ -18,6 +18,8 @@ export interface DraftLine {
   suggestedCases: number;
   cases: number;
   basis: string;
+  soldInWindow: number | null;
+  windowDays: number | null;
 }
 
 export default function DraftOrder({
@@ -84,9 +86,9 @@ export default function DraftOrder({
         <Tile label="Estimated Cost" value={fmtMoney(liveTotal)} />
         <Tile label="Cover" value={`${coverWeeks} week${coverWeeks === 1 ? "" : "s"}`} hint="of expected sales" />
         <Tile
-          label="From Measured Sales"
+          label="Forecast From Sales"
           value={`${fmtNumber(measured)} / ${fmtNumber(lines.length)}`}
-          hint={measured < lines.length ? "rest from past orders" : undefined}
+          hint={measured < lines.length ? "rest from past orders" : "every line"}
         />
       </div>
 
@@ -128,8 +130,10 @@ export default function DraftOrder({
           )}
         </div>
         <p className="text-body-sm text-on-surface-variant mt-2">
-          Quantities cover {coverWeeks} week{coverWeeks === 1 ? "" : "s"} of measured sales, rounded
-          up to whole cases. Change any number below — it saves as you type.
+          Each line forecasts next week from what actually sold, then rounds up to whole
+          cases: sell 10 a week and you get 10 a week&apos;s worth. Slow movers are left off —
+          if it sells one every couple of weeks, what&apos;s on the shelf already covers it.
+          Change any number below; it saves as you type.
         </p>
       </Card>
 
@@ -162,7 +166,8 @@ export default function DraftOrder({
               <tr className="bg-surface-container-low text-label-caps uppercase text-on-surface-variant">
                 <th className="px-3 py-3">SKU</th>
                 <th className="px-3 py-3">Product</th>
-                <th className="px-3 py-3 text-right">Sells / wk</th>
+                <th className="px-3 py-3 text-right">Sold</th>
+                <th className="px-3 py-3 text-right">Forecast / wk</th>
                 <th className="px-3 py-3 text-right">Pack</th>
                 <th className="px-3 py-3 text-right">Suggested</th>
                 <th className="px-3 py-3 text-right">Cases</th>
@@ -181,14 +186,26 @@ export default function DraftOrder({
                       <div className="font-medium text-on-surface">{l.description}</div>
                       <div className="text-body-sm text-on-surface-variant">
                         {l.department ?? "—"}
-                        {l.basis === "velocity" ? (
+                        {l.basis === "measured" ? (
+                          <Badge tone="success">from sales</Badge>
+                        ) : l.basis === "velocity" ? (
                           <Badge tone="success">measured</Badge>
                         ) : (
                           <Badge tone="neutral">from past orders</Badge>
                         )}
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-right tabular">{fmtNumber(l.weeklyUnits)}</td>
+                    <td className="px-3 py-3 text-right tabular text-on-surface-variant whitespace-nowrap">
+                      {l.soldInWindow != null && l.windowDays != null ? (
+                        <>
+                          {fmtNumber(l.soldInWindow)}
+                          <span className="block text-body-sm opacity-70">in {l.windowDays}d</span>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular font-medium">{fmtNumber(l.weeklyUnits)}</td>
                     <td className="px-3 py-3 text-right tabular text-on-surface-variant">{fmtNumber(l.unitsPerCase)}</td>
                     <td className="px-3 py-3 text-right tabular text-on-surface-variant">{fmtNumber(l.suggestedCases)}</td>
                     <td className="px-3 py-3 text-right">

@@ -59,8 +59,11 @@ export interface PosAdapter {
   readonly label: string;
   /** Whether the adapter has the config it needs to talk to the POS. */
   isConfigured(): boolean;
-  /** Pull the current item-wise inventory (UPC, cost, price, qty on hand). */
-  fetchInventory?(): Promise<NormalizedInventoryItem[]>;
+  /**
+   * Pull the item-wise inventory. Given a date window, quantities are reported
+   * for that window — which is how units-sold-over-N-days is obtained.
+   */
+  fetchInventory?(from?: Date, to?: Date): Promise<NormalizedInventoryItem[]>;
   /** Push a new retail price to the POS for one item (scoped to its merchandise dept). */
   pushItemPrice?(req: PricepushRequest): Promise<PricePushResult>;
   /** Push new retail prices for many items at once (grouped by dept for efficiency). */

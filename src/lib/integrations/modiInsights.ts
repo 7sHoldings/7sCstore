@@ -233,7 +233,7 @@ export const modiInsightsAdapter: PosAdapter = {
     return out;
   },
 
-  async fetchInventory(): Promise<NormalizedInventoryItem[]> {
+  async fetchInventory(from?: Date, to?: Date): Promise<NormalizedInventoryItem[]> {
     const cookie = process.env.MODI_COOKIE!;
     const storeId = process.env.MODI_STORE_ID || "16";
     const ccode = process.env.MODI_CCODE || "854388";
@@ -242,7 +242,12 @@ export const modiInsightsAdapter: PosAdapter = {
     // Map a department/tax-department id → name → our category. Best-effort.
     const deptById = await loadDepartments(cookie);
 
-    const today = fmtDate(new Date());
+    // The item-wise report is date-ranged and reports quantities for the window
+    // asked for. Defaulting to today preserves the original behaviour; a wider
+    // window turns the same call into "units sold over N days", which is what
+    // demand forecasting needs.
+    const fromStr = fmtDate(from ?? new Date());
+    const toStr = fmtDate(to ?? new Date());
     const pageSize = 1000;
     const out: NormalizedInventoryItem[] = [];
     let page = 1;
@@ -250,7 +255,7 @@ export const modiInsightsAdapter: PosAdapter = {
     while ((page - 1) * pageSize < total && page <= 100) {
       const { data, total: t } = await postGrid(cookie, "/Product/_SelectInventoryItemWise", {
         sort: "UPC-asc", page: String(page), pageSize: String(pageSize), group: "", filter: "",
-        FromDate: `${today} 12:00 AM`, ToDate: `${today} 11:59 PM`,
+        FromDate: `${fromStr} 12:00 AM`, ToDate: `${toStr} 11:59 PM`,
         DateRangeType: "1", SearchValue: "", IsADJOnly: "false", IsActiveOnly: "false",
       }, INV_BASE);
       if (t > 0) total = t;
