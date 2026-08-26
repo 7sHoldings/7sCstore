@@ -13,6 +13,9 @@ import { mapFuelType, mapDeptToCategory } from "./modiMap";
 const BASE = "https://insights1.modisoft.com";
 // The inventory endpoints were observed on insights.modisoft.com (cookies are
 // shared across *.modisoft.com). Override with MODI_INV_BASE if needed.
+// Inventory lives on a different host from the sales reports. Cookies are
+// scoped per host, so MODI_COOKIE has to come from whichever of these the pull
+// actually uses — override with MODI_INV_BASE when they differ for an account.
 const INV_BASE = process.env.MODI_INV_BASE || "https://insights.modisoft.com";
 
 // Cloudflare's cf_clearance cookie is bound to the browser's User-Agent, so we
@@ -418,7 +421,8 @@ function rowToForm(row: Record<string, unknown>, newRetail: number): Record<stri
  * User-Agent doesn't match the browser the `cf_clearance` cookie was issued to,
  * so a freshly copied cookie fails exactly like a stale one.
  */
-async function describeFailure(res: Response, path: string): Promise<Error> {
+async function describeFailure(res: Response, path: string, base?: string): Promise<Error> {
+  const host = base ? new URL(base).host : "Modisoft";
   const cfRay = res.headers.get("cf-ray");
   const mitigated = res.headers.get("cf-mitigated");
   let body = "";
@@ -436,7 +440,7 @@ async function describeFailure(res: Response, path: string): Promise<Error> {
     );
   }
   if (res.status === 401) {
-    return new Error(`Modisoft rejected the login on ${path} (401) — MODI_COOKIE is no longer valid.`);
+    return new Error(`${host} rejected the login on ${path} (401) — MODI_COOKIE is not valid for ${host}.`);
   }
   if (res.status === 403) {
     return new Error(
@@ -450,11 +454,24 @@ async function describeFailure(res: Response, path: string): Promise<Error> {
   return new Error(`Modisoft ${path} responded ${res.status}.`);
 }
 
-/** A login page served in place of data means the session is not being accepted. */
-function notJsonError(path: string, contentType: string | null): Error {
+/**
+ * A login page served in place of data means the session is not being accepted
+ * ON THAT HOST — which is the detail that matters.
+ *
+ * Reports and inventory live on different Modisoft hostnames, and browser
+ * cookies are scoped to one host: a cookie copied while logged into
+ * insights1.modisoft.com is never sent to insights.modisoft.com. Without naming
+ * the host, a perfectly good cookie looks expired and gets refreshed over and
+ * over against the wrong site.
+ */
+function notJsonError(path: string, contentType: string | null, base?: string): Error {
+  const host = base ? new URL(base).host : "the Modisoft host";
   return new Error(
-    `Modisoft answered ${path} with ${contentType || "an unknown content type"} instead of JSON — ` +
-      "typically a login page, meaning MODI_COOKIE is not being accepted."
+    `${host} answered ${path} with ${contentType || "an unknown content type"} instead of JSON — ` +
+      `a login page, so MODI_COOKIE is not valid for ${host}. ` +
+      "Cookies only work on the host they were copied from: log in to " +
+      `${host} itself and copy the Cookie header from there, or point MODI_INV_BASE ` +
+      "at the host your cookie belongs to."
   );
 }
 
@@ -473,7 +490,7 @@ async function postForm(cookie: string, path: string, body: Record<string, strin
     body: new URLSearchParams(body).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path);if (!res.ok) throw await describeFailure(res, path);
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path, base);if (!res.ok) throw await describeFailure(res, path, base);
   try { return await res.json(); } catch { return null; }
 }
 
@@ -514,9 +531,9 @@ async function postGrid(cookie: string, path: string, body: Record<string, strin
     body: new URLSearchParams(body).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path);if (!res.ok) throw await describeFailure(res, path);
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path, base);if (!res.ok) throw await describeFailure(res, path, base);
   const ct = res.headers.get("content-type") || "";
-  if (!ct.includes("json")) throw notJsonError(path, ct);
+  if (!ct.includes("json")) throw notJsonError(path, ct, base);
   const json = (await res.json()) as { Data?: unknown[]; Total?: number };
   return { data: Array.isArray(json.Data) ? json.Data : [], total: Number(json.Total) || 0 };
 }
@@ -552,7 +569,7 @@ async function setupReport(cookie: string, path: string, body: Record<string, st
     body: new URLSearchParams(body).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path);
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path, base);
 }
 
 /** Set the active store in the session (POST /Home/ChangeStore). */
@@ -571,10 +588,10 @@ async function changeStore(cookie: string, id: string, ccode: string, base: stri
     body: new URLSearchParams({ ID: id, CCode: ccode, IsLocked: "false", IsRedirectBilling: "false" }).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) throw await describeFailure(res, "/Home/ChangeStore");
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, "/Home/ChangeStore", base);
   const ct = res.headers.get("content-type") || "";
   if (!ct.includes("json")) {
-    throw notJsonError("store-select", res.headers.get("content-type"));
+    throw notJsonError("store-select", res.headers.get("content-type"), base);
   }
 }
 
@@ -593,8 +610,8 @@ async function post(cookie: string, path: string, body: Record<string, string>):
     body: new URLSearchParams(body).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path);
-  if (!res.ok) throw await describeFailure(res, path);
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path, base);
+  if (!res.ok) throw await describeFailure(res, path, base);
   const ct = res.headers.get("content-type") || "";
   if (!ct.includes("json")) {
     // Most likely an HTML login page → the cookie isn't valid.
