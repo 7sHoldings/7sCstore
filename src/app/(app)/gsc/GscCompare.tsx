@@ -8,6 +8,13 @@ import { applyTargetPrices } from "./actions";
 
 const BATCH = 200;
 
+/** Why a price moved — which of the three candidates was the greatest. */
+const SOURCE_LABEL: Record<"current" | "srp" | "target", string> = {
+  current: "keep ours",
+  srp: "GSC SRP",
+  target: "margin",
+};
+
 export interface Row {
   upcNorm: string;
   upc: string;
@@ -25,6 +32,8 @@ export interface Row {
   currentPrice: number | null;
   marginPct: number;
   targetPrice: number;
+  finalPrice: number;
+  priceSource: "current" | "srp" | "target";
   needsRaise: boolean;
   increase: number;
   aboveSrp: boolean;
@@ -83,7 +92,7 @@ export default function GscCompare({
   async function onApply() {
     const items = rows
       .filter((r) => r.productId && selected.has(r.productId) && r.needsRaise)
-      .map((r) => ({ productId: r.productId!, newPrice: r.targetPrice }));
+      .map((r) => ({ productId: r.productId!, newPrice: r.finalPrice }));
     if (items.length === 0) return;
 
     setBusy(true);
@@ -130,7 +139,7 @@ export default function GscCompare({
       <div className="flex flex-wrap items-end gap-3 mb-4 bg-surface-container-low border border-outline-variant/60 rounded-lg p-3">
         <div className="flex gap-1">
           {[
-            { k: "raise", label: `Below floor (${fmtNumber(counts.raise)})` },
+            { k: "raise", label: `Need a raise (${fmtNumber(counts.raise)})` },
             { k: "all", label: `All (${fmtNumber(counts.all)})` },
             { k: "unmatched", label: `Unmatched (${fmtNumber(counts.unmatched)})` },
           ].map((t) => (
@@ -183,7 +192,7 @@ export default function GscCompare({
               {busy ? "Applying…" : `Raise ${fmtNumber(selCount)} price${selCount === 1 ? "" : "s"}`}
             </button>
             <span className="text-body-sm text-on-surface-variant">
-              Only items below their department&apos;s floor can be selected. Prices are never lowered.
+              Each price becomes the greatest of your price, GSC&apos;s SRP and the margin target — so prices only ever go up.
             </span>
           </div>
           {busy && selCount > 0 && (
@@ -207,8 +216,8 @@ export default function GscCompare({
         {rows.length === 0 ? (
           <EmptyState
             icon={view === "raise" ? "check_circle" : "search_off"}
-            title={view === "raise" ? "Every priced item meets its margin floor" : "Nothing to show"}
-            hint={view === "raise" ? "Nothing is priced below target right now." : "Try a different filter."}
+            title={view === "raise" ? "Every price is already the highest of the three" : "Nothing to show"}
+            hint={view === "raise" ? "No item is below its SRP or its margin target." : "Try a different filter."}
           />
         ) : (
           <div className="overflow-x-auto custom-scrollbar">
@@ -235,6 +244,7 @@ export default function GscCompare({
                   <th className="px-3 py-3 text-right">Unit Cost</th>
                   <th className="px-3 py-3 text-right">GSC SRP</th>
                   <th className="px-3 py-3 text-right">Target</th>
+                  <th className="px-3 py-3 text-right">New Price</th>
                   <th className="px-3 py-3">Status</th>
                 </tr>
               </thead>
@@ -283,20 +293,27 @@ export default function GscCompare({
                       <td className="px-3 py-3 text-right tabular text-on-surface-variant">
                         {r.srp > 0 ? fmtMoney(r.srp) : "—"}
                       </td>
+                      <td className="px-3 py-3 text-right tabular text-on-surface-variant">
+                        {fmtMoney(r.targetPrice)}
+                      </td>
                       <td className="px-3 py-3 text-right tabular font-semibold">
                         <span className={r.needsRaise ? "text-secondary" : "text-on-surface-variant"}>
-                          {fmtMoney(r.targetPrice)}
+                          {fmtMoney(r.finalPrice)}
                         </span>
-                        {r.needsRaise && (
-                          <span className="block text-body-sm text-secondary">+{fmtMoney(r.increase)}</span>
-                        )}
+                        <span className="block text-body-sm text-on-surface-variant">
+                          {r.needsRaise ? (
+                            <span className="text-secondary">+{fmtMoney(r.increase)} · {SOURCE_LABEL[r.priceSource]}</span>
+                          ) : (
+                            "no change"
+                          )}
+                        </span>
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex flex-col gap-1 items-start">
                           {r.unmatched ? (
                             <Badge tone="neutral">No product</Badge>
                           ) : r.needsRaise ? (
-                            <Badge tone="warning">Below floor</Badge>
+                            <Badge tone="warning">Raise</Badge>
                           ) : (
                             <Badge tone="success">OK</Badge>
                           )}

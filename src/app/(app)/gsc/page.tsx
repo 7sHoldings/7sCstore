@@ -75,7 +75,7 @@ export default async function GscPage({
     <div>
       <PageHeader
         title="GSC Pricing"
-        subtitle="Compare your shelf prices against the latest GSC order cost"
+        subtitle="Each price becomes the greatest of your price, GSC's SRP and your margin target"
         actions={canEdit && <GscUpload />}
       />
 
@@ -92,7 +92,7 @@ export default async function GscPage({
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
             <Tile label="Orders Uploaded" value={fmtNumber(orderStats.length)} hint={`latest #${orderStats[0]?.orderId ?? "—"}`} />
             <Tile label="Products Costed" value={fmtNumber(all.length - unmatched)} hint={`${fmtNumber(all.length)} GSC items`} />
-            <Tile label="Below Margin Floor" value={fmtNumber(belowFloor.length)} accent={belowFloor.length ? "warning" : undefined} />
+            <Tile label="Need a Raise" value={fmtNumber(belowFloor.length)} accent={belowFloor.length ? "warning" : undefined} />
             <Tile label="Missed Margin" value={fmtMoney(opportunity)} hint="per unit, if all raised" accent={opportunity > 0 ? "warning" : undefined} />
           </div>
 

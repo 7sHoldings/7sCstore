@@ -15,6 +15,44 @@ import { priceFromMargin, defaultMargin } from "../pricing";
 /** Used when a department has no margin set yet. */
 export const FALLBACK_MARGIN = 40;
 
+/** Which of the three candidate prices ended up winning. */
+export type PriceSource = "current" | "srp" | "target";
+
+export interface ResolvedPrice {
+  price: number;
+  source: PriceSource;
+}
+
+/**
+ * The pricing rule: take whichever is greatest of the current shelf price, the
+ * vendor's suggested retail, and the margin target.
+ *
+ *   - current price wins  -> nothing changes
+ *   - target wins         -> raise to the margin target
+ *   - SRP wins            -> raise to the vendor's suggested retail
+ *
+ * A zero means "not known" and simply never wins: items with no SRP on the
+ * order, or with no price in the POS, still resolve from whatever is known.
+ * The result is never below the current price, so this can only ever raise.
+ */
+export function resolveFinalPrice(
+  currentPrice: number,
+  srp: number,
+  targetPrice: number
+): ResolvedPrice {
+  const current = currentPrice > 0 ? money(currentPrice) : 0;
+  const vendor = srp > 0 ? money(srp) : 0;
+  const target = targetPrice > 0 ? money(targetPrice) : 0;
+
+  const best = Math.max(current, vendor, target);
+
+  // Ties resolve to "current" so an unchanged price is never reported as a
+  // raise; between the other two, the margin target takes precedence.
+  if (best <= current) return { price: current, source: "current" };
+  if (target >= vendor) return { price: target, source: "target" };
+  return { price: vendor, source: "srp" };
+}
+
 export interface ComparisonRow {
   upcNorm: string;
   upc: string;
@@ -36,7 +74,11 @@ export interface ComparisonRow {
   marginPct: number;
   /** Price implied by unit cost at the target margin. */
   targetPrice: number;
-  /** Current price is below the floor and should be raised. */
+  /** The greatest of current price, SRP and target — what the shelf becomes. */
+  finalPrice: number;
+  /** Which candidate won. "current" means no change is needed. */
+  priceSource: PriceSource;
+  /** The final price is above the current one, so it should be raised. */
   needsRaise: boolean;
   /** How much the raise would add, 0 when no raise is needed. */
   increase: number;
@@ -136,9 +178,9 @@ export async function buildComparison(
     const marginPct = resolveMargin(r.department, r.category, margins);
     const targetPrice = priceFromMargin(r.unitCost, marginPct);
     const currentPrice = r.productId ? r.sellingPrice ?? 0 : null;
-    // A price of 0 means the POS has no price on file — treat it as needing one.
+    const resolved = resolveFinalPrice(currentPrice ?? 0, r.srp, targetPrice);
     const needsRaise =
-      r.productId != null && currentPrice != null && currentPrice < targetPrice - 0.005;
+      r.productId != null && currentPrice != null && resolved.price > currentPrice + 0.005;
     return {
       upcNorm: r.upcNorm,
       upc: r.upc,
@@ -158,8 +200,10 @@ export async function buildComparison(
       currentPrice,
       marginPct,
       targetPrice,
+      finalPrice: resolved.price,
+      priceSource: resolved.source,
       needsRaise,
-      increase: needsRaise && currentPrice != null ? money(targetPrice - currentPrice) : 0,
+      increase: needsRaise && currentPrice != null ? money(resolved.price - currentPrice) : 0,
       aboveSrp: r.srp > 0 && targetPrice > r.srp + 0.005,
       unmatched: r.productId == null,
     };
