@@ -338,6 +338,31 @@ export default function DraftOrder({
                       )}
                     </td>
                     <td className="px-3 py-3 text-right tabular font-semibold">{fmtMoney(cases * l.caseCost)}</td>
+                    <td className="px-3 py-3 text-center">
+                      <WhyThisMany
+                        facts={{
+                          description: l.description,
+                          cases,
+                          suggestedCases: l.suggestedCases,
+                          unitsPerCase: l.unitsPerCase,
+                          caseCost: l.caseCost,
+                          weeklyUnits: l.weeklyUnits,
+                          weeklySeries: l.weeklySeries ?? [],
+                          weeksWithSales: l.weeksWithSales,
+                          spikeMean: l.spikeMean,
+                          onHand: l.onHand,
+                          receivedUnits: l.receivedUnits,
+                          soldInHistory: l.soldInHistory,
+                          typicalCases: l.typicalCases,
+                          cappedByHistory: l.cappedByHistory,
+                          edited: l.edited || edits[l.id] !== undefined,
+                          basis: l.basis,
+                          coverWeeks,
+                          versionLabel: activeVersion.label,
+                          versionMultiplier: activeVersion.coverMultiplier,
+                        }}
+                      />
+                    </td>
                     {canEdit && (
                       <td className="px-3 py-3 text-right">
                         <button
