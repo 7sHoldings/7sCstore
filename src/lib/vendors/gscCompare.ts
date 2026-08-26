@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "../db";
 import { money } from "../calc";
 import { priceFromMargin, defaultMargin } from "../pricing";
+import { mapDeptToCategory } from "../integrations/modiMap";
 
 /**
  * Builds the GSC price-comparison table: the newest vendor cost for each
@@ -12,8 +13,59 @@ import { priceFromMargin, defaultMargin } from "../pricing";
  * left alone. Only prices below the floor are raised.
  */
 
-/** Used when a department has no margin set yet. */
+/** Used when a department has no margin set and no category default applies. */
 export const FALLBACK_MARGIN = 40;
+
+/**
+ * House target margins by POS department, as set by the owner.
+ *
+ * These are defaults, not overrides: anything entered on the Pricing screen
+ * wins, so a department can be retuned without a code change. Departments not
+ * listed here fall back to the per-category defaults in lib/pricing.ts — which
+ * is what keeps cigarettes, cigars and chew on a thin tobacco margin rather
+ * than a grocery one.
+ *
+ * Keys are matched case- and spacing-insensitively.
+ */
+export const DEFAULT_DEPARTMENT_MARGIN: Record<string, number> = {
+  // 40%
+  "TAX GRO": 40,
+  SODA: 40,
+  "NON TAX": 40,
+  "NON TAX GRO": 40,
+  PROPANE: 40,
+
+  // 45%
+  CANDY: 45,
+  SNACKS: 45,
+  AUTO: 45,
+  COFFEE: 45,
+  "ENERGY DRINK": 45,
+  "ICE CREAM": 45,
+  DELI: 45,
+  GROCERY: 45,
+
+  // 24%
+  BEER: 24,
+
+  // 50%
+  MEDICINE: 50,
+  "DAIRY FOOD": 50,
+  WATER: 50,
+
+  // 60%
+  CBD: 60,
+};
+
+/** Department names vary in case and spacing between exports. */
+const deptKey = (d: string): string => d.trim().toUpperCase().replace(/\s+/g, " ");
+
+/** The house default for a department, or null when there isn't one. */
+export function houseMargin(department: string | null | undefined): number | null {
+  if (!department) return null;
+  const v = DEFAULT_DEPARTMENT_MARGIN[deptKey(department)];
+  return v == null ? null : v;
+}
 
 /** Which of the three candidate prices ended up winning. */
 export type PriceSource = "current" | "srp" | "target";
@@ -114,8 +166,11 @@ export async function getDepartmentMargins(locationId: string): Promise<Map<stri
 }
 
 /**
- * The margin to price a product at: its department's setting first, then the
- * category default already used elsewhere in the app, then the fallback.
+ * The margin to price a product at, most specific first:
+ *   1. a margin set for this department on the Pricing screen
+ *   2. the house default for that department
+ *   3. the per-category default (this is what keeps tobacco thin)
+ *   4. the flat fallback
  */
 export function resolveMargin(
   department: string | null,
@@ -125,8 +180,22 @@ export function resolveMargin(
   if (department) {
     const set = margins.get(department);
     if (set != null) return set;
+    const house = houseMargin(department);
+    if (house != null) return house;
   }
   if (category) return defaultMargin(category);
+  return FALLBACK_MARGIN;
+}
+
+/**
+ * The margin a department would use with nothing set on the Pricing screen —
+ * the house default, else the default for the category the department maps to
+ * (so tobacco departments show their thin margin rather than a grocery one).
+ */
+export function effectiveDefaultMargin(department: string | null): number {
+  const house = houseMargin(department);
+  if (house != null) return house;
+  if (department) return defaultMargin(mapDeptToCategory(department));
   return FALLBACK_MARGIN;
 }
 

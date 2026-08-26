@@ -4,7 +4,7 @@ import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { money } from "@/lib/calc";
 import { fmtMoney, fmtNumber } from "@/lib/format";
-import { buildComparison, getDepartmentMargins, FALLBACK_MARGIN } from "@/lib/vendors/gscCompare";
+import { buildComparison, getDepartmentMargins, effectiveDefaultMargin } from "@/lib/vendors/gscCompare";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import GscUpload from "./GscUpload";
 import GscCompare from "./GscCompare";
@@ -99,7 +99,7 @@ export default async function GscPage({
           <MarginSettings
             departments={deptNames}
             margins={Object.fromEntries(margins)}
-            fallback={FALLBACK_MARGIN}
+            defaults={Object.fromEntries(deptNames.map((d) => [d, effectiveDefaultMargin(d)]))}
             canEdit={canEdit}
           />
 

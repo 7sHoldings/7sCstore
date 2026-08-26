@@ -13,12 +13,13 @@ import { setDepartmentMargin } from "./actions";
 export default function MarginSettings({
   departments,
   margins,
-  fallback,
+  defaults,
   canEdit,
 }: {
   departments: string[];
   margins: Record<string, number>;
-  fallback: number;
+  /** What each department uses when nothing is entered here. */
+  defaults: Record<string, number>;
   canEdit: boolean;
 }) {
   const router = useRouter();
@@ -50,8 +51,8 @@ export default function MarginSettings({
       {open && (
         <div className="border-t border-outline-variant/60 p-4">
           <p className="text-body-sm text-on-surface-variant mb-3">
-            Departments without a setting use <strong>{fallback}%</strong>. Set them as you go —
-            the target price and the &ldquo;below floor&rdquo; flag update immediately.
+            Each box shows the margin in use. A greyed number is the house default for that
+            department — type over it to override, and the target price updates immediately.
           </p>
 
           {state?.error && (
@@ -77,11 +78,14 @@ export default function MarginSettings({
                     min="0"
                     max="95"
                     defaultValue={current ?? ""}
-                    placeholder={String(fallback)}
+                    placeholder={String(defaults[d] ?? 40)}
                     disabled={!canEdit}
                     className="ft-input py-1 text-body-sm w-20 tabular"
                   />
                   <span className="text-body-sm text-on-surface-variant">%</span>
+                  {current == null && (
+                    <span className="text-body-sm text-on-surface-variant opacity-60 whitespace-nowrap">default</span>
+                  )}
                   {canEdit && (
                     <button type="submit" disabled={pending} className="ft-btn-ghost p-1.5 rounded-full" aria-label={`Save margin for ${d}`}>
                       <Icon name="check" className="text-[18px]" />
