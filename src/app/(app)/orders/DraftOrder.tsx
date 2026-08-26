@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Badge, Icon, Banner } from "@/components/ui";
 import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
-import { setLineCases, removeLine, createOrderNow, markPlaced } from "./actions";
+import { setLineCases, removeLine, createOrderNow, markPlaced, deleteDraft } from "./actions";
 
 export interface DraftLine {
   id: string;
@@ -25,6 +25,9 @@ export interface DraftLine {
   weeksWithSales: number | null;
   typicalCases: number | null;
   cappedByHistory: boolean;
+  receivedUnits: number | null;
+  soldInHistory: number | null;
+  onHand: number | null;
 }
 
 export default function DraftOrder({
@@ -148,6 +151,13 @@ export default function DraftOrder({
                   <Icon name="check" className="text-[18px]" /> Mark as ordered
                 </button>
               </form>
+
+              <form action={deleteDraft} className="ml-auto">
+                <input type="hidden" name="purchaseOrderId" value={purchaseOrderId} readOnly />
+                <button type="submit" className="ft-btn-ghost py-1.5 text-error">
+                  <Icon name="delete" className="text-[18px]" /> Delete this draft
+                </button>
+              </form>
             </>
           )}
         </div>
@@ -156,8 +166,10 @@ export default function DraftOrder({
           clearing the shelf once doesn&apos;t become a standing order. Quantities are also
           held near what you normally buy for that product. Slow movers are left off — if it
           sells one every couple of weeks, what&apos;s on the shelf already covers it.
-          Change any number below; it saves as you type, and a daily update never
-          overwrites a quantity you set yourself.
+          What is already on the shelf — delivered but not yet sold — is subtracted before
+          anything is ordered, so stock you already have is not bought twice. Change any
+          number below; it saves as you type, and a daily update never overwrites a quantity
+          you set yourself.
         </p>
       </Card>
 
@@ -192,6 +204,7 @@ export default function DraftOrder({
                 <th className="px-3 py-3">Product</th>
                 <th className="px-3 py-3 text-right">Sold each week</th>
                 <th className="px-3 py-3 text-right">Median / wk</th>
+                <th className="px-3 py-3 text-right">On shelf</th>
                 <th className="px-3 py-3 text-right">Pack</th>
                 <th className="px-3 py-3 text-right">Suggested</th>
                 <th className="px-3 py-3 text-right">Cases</th>
@@ -241,6 +254,18 @@ export default function DraftOrder({
                       )}
                     </td>
                     <td className="px-3 py-3 text-right tabular font-medium">{fmtNumber(l.weeklyUnits)}</td>
+                    <td className="px-3 py-3 text-right tabular text-on-surface-variant whitespace-nowrap">
+                      {l.onHand == null || l.receivedUnits == null || l.receivedUnits === 0 ? (
+                        <span className="opacity-50">—</span>
+                      ) : (
+                        <>
+                          {fmtNumber(l.onHand)}
+                          <span className="block text-body-sm opacity-70">
+                            {fmtNumber(l.receivedUnits)} in · {fmtNumber(l.soldInHistory ?? 0)} sold
+                          </span>
+                        </>
+                      )}
+                    </td>
                     <td className="px-3 py-3 text-right tabular text-on-surface-variant">{fmtNumber(l.unitsPerCase)}</td>
                     <td className="px-3 py-3 text-right tabular text-on-surface-variant">{fmtNumber(l.suggestedCases)}</td>
                     <td className="px-3 py-3 text-right">

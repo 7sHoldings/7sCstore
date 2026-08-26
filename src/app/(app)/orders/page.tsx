@@ -7,7 +7,9 @@ import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
 import { Card, PageHeader, EmptyState, Badge } from "@/components/ui";
 import { isMissingTableError, SETUP_SQL_PATH } from "@/lib/setupError";
 import DraftOrder from "./DraftOrder";
+import Deliveries from "./Deliveries";
 import { createOrderNow, refreshDemand } from "./actions";
+import { HISTORY_DAYS } from "@/lib/integrations/sync";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +51,7 @@ export default async function OrdersPage() {
     );
   }
   const { draft, recent, snapshotDays, catalogCount, demandProducts, demandPeriods, pastOrders } = data;
+  const orderStats = pastOrders;
   const pastTotals = pastOrders.map((o) => o.total).filter((n) => n > 0).sort((a, b) => a - b);
   const typicalOrder = pastTotals.length
     ? pastTotals.length % 2
@@ -120,6 +123,20 @@ export default async function OrdersPage() {
         </div>
       </Card>
 
+      {orderStats.length > 0 && (
+        <Deliveries
+          deliveries={orderStats.map((o) => ({
+            orderId: o.orderId,
+            orderedAt: o.orderedAt ? o.orderedAt.toISOString() : null,
+            lines: o.lines,
+            units: o.units,
+            total: o.total,
+          }))}
+          canEdit={canEdit}
+          historyDays={HISTORY_DAYS}
+        />
+      )}
+
       {!draft || lines.length === 0 ? (
         <Card className="p-2">
           <EmptyState
@@ -171,6 +188,9 @@ export default async function OrdersPage() {
             weeksWithSales: l.weeksWithSales,
             typicalCases: l.typicalCases,
             cappedByHistory: l.cappedByHistory,
+            receivedUnits: l.receivedUnits,
+            soldInHistory: l.soldInHistory,
+            onHand: l.onHand,
           }))}
         />
       )}
@@ -231,14 +251,19 @@ async function loadOrderData(loc: string) {
       where: { locationId: loc }, distinct: ["periodStart"],
       select: { periodStart: true, measuredAt: true }, orderBy: { periodStart: "desc" },
     }),
-    // What past GSC orders actually cost, as a yardstick for the suggestion.
-    prisma.$queryRaw<{ orderId: string; total: number }[]>`
-      SELECT "orderId", SUM("lineCost")::float AS total
+    // What past GSC orders cost and when they landed — the yardstick for the
+    // suggestion, and the record of what reached the shelves.
+    prisma.$queryRaw<{ orderId: string; total: number; orderedAt: Date | null; lines: number; units: number }[]>`
+      SELECT "orderId",
+             SUM("lineCost")::float                                    AS total,
+             MAX("orderedAt")                                          AS "orderedAt",
+             COUNT(*)::int                                             AS lines,
+             SUM(quantity * GREATEST("unitsPerCase", 1))::float        AS units
       FROM "VendorOrderLine"
       WHERE "locationId" = ${loc} AND vendor = 'GSC'
       GROUP BY "orderId"
       ORDER BY MAX("orderSeq") DESC
-      LIMIT 12
+      LIMIT 60
     `,
   ]);
 

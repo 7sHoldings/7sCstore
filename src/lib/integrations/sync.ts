@@ -530,67 +530,83 @@ export async function logBackfill(locationId: string, imported: number, fromISO:
   });
 }
 
-/** How many recent weeks of sales the forecast looks at. */
+/** Recent weeks pulled individually, for a spike-resistant weekly median. */
 export const DEMAND_WEEKS = 6;
 
+/** How far back the shelf-stock calculation looks, in days (~6 months). */
+export const HISTORY_DAYS = 182;
+
 /**
- * Pull units sold for each of the last `weeks` calendar weeks, one row per
- * product per week.
+ * Pull the sales history the order builder needs, in two shapes.
  *
- * The POS item-wise report is date-ranged, so asking it week by week gives a
- * short series per product instead of a single blended total. That series is
- * what lets the forecast ignore a one-off week — a customer clearing a shelf
- * once shows up in one week and nowhere else, and a median discards it.
+ *   1. The last `weeks` weeks, one period each. A short weekly series is what
+ *      lets the forecast take a median, so one unusual week can't drive an
+ *      order.
+ *   2. One long window (~6 months). Paired with everything received from the
+ *      vendor over the same stretch, this is what estimates how much of a
+ *      product is still sitting on the shelf.
+ *
+ * Pulling the long stretch as a single window rather than 26 weekly ones keeps
+ * this to seven passes instead of twenty-six — the report is paged over
+ * thousands of products, so each pass is expensive.
  */
 export async function syncDemand(
   locationId: string,
-  weeks = DEMAND_WEEKS
-): Promise<{ measured: number; weeks: number; live: boolean }> {
+  weeks = DEMAND_WEEKS,
+  historyDays = HISTORY_DAYS
+): Promise<{ measured: number; weeks: number; historyDays: number; live: boolean }> {
   const { adapter, live } = activeAdapter();
   if (!adapter.fetchInventory) {
     throw new Error(`The ${adapter.label} connection can't pull sales history yet.`);
   }
 
   const measuredAt = new Date();
-  const periods: { start: Date; end: Date }[] = [];
-  for (let w = 0; w < weeks; w++) {
-    const end = new Date();
-    end.setHours(0, 0, 0, 0);
-    end.setDate(end.getDate() - w * 7);
-    const start = new Date(end);
-    start.setDate(start.getDate() - 6);
-    periods.push({ start, end });
-  }
+  const midnight = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 
-  let measured = 0;
-  for (const { start, end } of periods) {
-    const items = await adapter.fetchInventory(start, end);
-
+  /** Read one window and store it as a single period. */
+  const pullWindow = async (start: Date, end: Date, periodDays: number): Promise<number> => {
+    const items = await adapter.fetchInventory!(start, end);
     const rows = new Map<string, number>();
     for (const it of items) {
       const upcNorm = String(it.upc ?? "").replace(/\D/g, "").replace(/^0+/, "");
       if (!upcNorm) continue;
       // On-hand runs negative as items sell; over a window that magnitude is
-      // the units sold in it.
+      // the units sold within it.
       const sold = it.qtyOnHand < 0 ? -it.qtyOnHand : 0;
       if (sold <= 0) continue;
       rows.set(upcNorm, Math.max(rows.get(upcNorm) ?? 0, sold));
     }
-
     await prisma.productDemand.deleteMany({ where: { locationId, periodStart: start } });
     const data = [...rows.entries()].map(([upcNorm, soldUnits]) => ({
-      locationId, upcNorm, periodStart: start, periodDays: 7, soldUnits, measuredAt,
+      locationId, upcNorm, periodStart: start, periodDays, soldUnits, measuredAt,
     }));
     for (let i = 0; i < data.length; i += 1000) {
       await prisma.productDemand.createMany({ data: data.slice(i, i + 1000), skipDuplicates: true });
     }
-    measured += data.length;
+    return data.length;
+  };
+
+  let measured = 0;
+
+  // 1. Recent weeks, individually.
+  for (let w = 0; w < weeks; w++) {
+    const end = midnight(new Date());
+    end.setDate(end.getDate() - w * 7);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 6);
+    measured += await pullWindow(start, end, 7);
   }
 
-  // Drop periods that have aged out of the window.
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - (weeks + 2) * 7);
+  // 2. The long stretch, in one pass.
+  const longEnd = midnight(new Date());
+  const longStart = midnight(new Date());
+  longStart.setDate(longStart.getDate() - historyDays);
+  await pullWindow(longStart, longEnd, historyDays);
+
+  // Drop periods that have aged out.
+  const cutoff = midnight(new Date());
+  cutoff.setDate(cutoff.getDate() - historyDays - 14);
   await prisma.productDemand.deleteMany({ where: { locationId, periodStart: { lt: cutoff } } });
 
-  return { measured, weeks, live };
+  return { measured, weeks, historyDays, live };
 }

@@ -176,3 +176,96 @@ export async function refreshDemand(): Promise<void> {
   }
   revalidatePath("/orders");
 }
+
+// ---------------------------------------------------------------------------
+// Deliveries on file
+// ---------------------------------------------------------------------------
+
+/**
+ * Set the delivery date for one uploaded vendor order.
+ *
+ * The order PDFs carry only a print timestamp, so a date has to come from
+ * somewhere. It matters because shelf stock is deliveries minus sales, and the
+ * two only subtract meaningfully when they describe the same stretch of time.
+ */
+export async function setOrderDate(formData: FormData): Promise<void> {
+  const auth = await authorize();
+  if ("error" in auth) return;
+  const orderId = String(formData.get("orderId") ?? "");
+  const dateStr = String(formData.get("orderedAt") ?? "");
+  if (!orderId) return;
+
+  const orderedAt = dateStr ? new Date(dateStr + "T12:00:00") : null;
+  if (dateStr && Number.isNaN(orderedAt!.getTime())) return;
+
+  await prisma.vendorOrderLine.updateMany({
+    where: { locationId: auth.locationId, vendor: "GSC", orderId },
+    data: { orderedAt },
+  });
+  revalidatePath("/orders");
+}
+
+/**
+ * Date every undated order by stepping back one week at a time from the newest.
+ *
+ * Ordering is weekly, so spacing them a week apart is a good first pass. Any
+ * individual date can then be corrected, and only undated orders are touched so
+ * corrections are never overwritten.
+ */
+export async function spaceOrderDatesWeekly(formData: FormData): Promise<void> {
+  const auth = await authorize();
+  if ("error" in auth) return;
+
+  const newestStr = String(formData.get("newest") ?? "");
+  const newest = newestStr ? new Date(newestStr + "T12:00:00") : new Date();
+  if (Number.isNaN(newest.getTime())) return;
+
+  const orders = await prisma.vendorOrderLine.groupBy({
+    by: ["orderId"],
+    where: { locationId: auth.locationId, vendor: "GSC" },
+    _max: { orderSeq: true, orderedAt: true },
+  });
+
+  // Newest first, so index 0 gets the newest date.
+  orders.sort((a, b) => (b._max.orderSeq ?? 0) - (a._max.orderSeq ?? 0));
+
+  for (let i = 0; i < orders.length; i++) {
+    if (orders[i]._max.orderedAt) continue; // never overwrite a date already set
+    const d = new Date(newest);
+    d.setDate(d.getDate() - i * 7);
+    await prisma.vendorOrderLine.updateMany({
+      where: { locationId: auth.locationId, vendor: "GSC", orderId: orders[i].orderId },
+      data: { orderedAt: d },
+    });
+  }
+
+  await logAudit({
+    userId: auth.session.userId,
+    action: "ORDER_DATES_SET",
+    entity: "VendorOrderLine",
+    after: { orders: orders.length, newest: newest.toISOString().slice(0, 10) },
+  });
+  revalidatePath("/orders");
+}
+
+/** Discard the open draft so a fresh one can be built. */
+export async function deleteDraft(formData: FormData): Promise<void> {
+  const auth = await authorize();
+  if ("error" in auth) return;
+  const id = String(formData.get("purchaseOrderId") ?? "");
+
+  const where = id
+    ? { id, locationId: auth.locationId, status: "DRAFT" }
+    : { locationId: auth.locationId, vendor: "GSC", status: "DRAFT" };
+
+  // Lines go with it via the cascade on PurchaseOrderLine.
+  const removed = await prisma.purchaseOrder.deleteMany({ where });
+  await logAudit({
+    userId: auth.session.userId,
+    action: "ORDER_DRAFT_DELETED",
+    entity: "PurchaseOrder",
+    entityId: id || null,
+    after: { removed: removed.count },
+  });
+  revalidatePath("/orders");
+}

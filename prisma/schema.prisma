@@ -663,6 +663,12 @@ model PurchaseOrderLine {
   typicalCases    Float?
   /** True when the suggestion was trimmed to stay near past orders. */
   cappedByHistory Boolean       @default(false)
+  /** Units delivered by the vendor across the history window. */
+  receivedUnits   Float?
+  /** Units sold across that same window. */
+  soldInHistory   Float?
+  /** Estimated units still on the shelf when the order was built. */
+  onHand          Float?
 
   @@unique([purchaseOrderId, upcNorm])
   @@index([purchaseOrderId])

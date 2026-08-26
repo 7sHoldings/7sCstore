@@ -122,6 +122,16 @@ export interface ReorderLine {
   cappedByHistory: boolean;
   /** The average week, for comparison with the median actually used. */
   spikeMean: number;
+  /** Units delivered by this vendor across the history window. */
+  receivedUnits: number;
+  /** Units sold across the same window. */
+  soldInHistory: number;
+  /** Estimated units still on the shelf: delivered minus sold, floored at 0. */
+  onHand: number;
+  /** True when deliveries are on file, so the shelf figure means something. */
+  shelfKnown: boolean;
+  /** Units the cover period calls for before the shelf is subtracted. */
+  grossUnits: number;
   /** Days between the two readings used, when basis is "velocity". */
   spanDays: number | null;
   /** Units sold over that span. */
@@ -141,6 +151,8 @@ export interface ReorderResult {
   skippedSlow: number;
   /** Lines trimmed to stay in line with past orders. */
   historyCapped: number;
+  /** Products skipped because the shelf already covers the period. */
+  coveredByShelf: number;
   /** Readings available — velocity needs at least two. */
   snapshotCount: number;
   newestSnapshot: Date | null;
@@ -281,7 +293,9 @@ async function loadDemand(
   const rows = await prisma.$queryRaw<WeeklyRow[]>`
     SELECT "upcNorm", "periodStart", "soldUnits"
     FROM "ProductDemand"
-    WHERE "locationId" = ${locationId} AND "periodStart" >= ${cutoff}
+    WHERE "locationId" = ${locationId}
+      AND "periodStart" >= ${cutoff}
+      AND "periodDays" = 7
   `;
 
   const periodKeys = [...new Set(rows.map((r) => new Date(r.periodStart).getTime()))].sort();
@@ -321,6 +335,66 @@ function median(values: number[]): number {
   return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
 }
 
+interface ShelfRow {
+  upcNorm: string;
+  /** Units received from this vendor across the history window. */
+  receivedUnits: number;
+  /** Units sold across the same window, per the POS. */
+  soldUnits: number;
+  historyDays: number;
+}
+
+/**
+ * Estimate what is still sitting on the shelf.
+ *
+ * An uploaded vendor order is a delivery that reached the store, so over any
+ * stretch of time:
+ *
+ *     still on the shelf  ≈  units delivered  −  units sold
+ *
+ * Floored at zero, because selling more than was delivered in the window simply
+ * means stock that was already there covered the difference — it can never mean
+ * negative shelf stock. Opening stock is unknown, which is exactly why the
+ * window is long: over six months, deliveries and sales dominate whatever was
+ * on the shelf at the start.
+ *
+ * Only orders carrying a date can be counted, since deliveries and sales have
+ * to describe the same stretch of time to be subtracted from one another.
+ */
+async function loadShelf(locationId: string, vendor: string): Promise<Map<string, ShelfRow>> {
+  const rows = await prisma.$queryRaw<ShelfRow[]>`
+    WITH hist AS (
+      SELECT "periodStart" AS start, "periodDays" AS days
+      FROM "ProductDemand"
+      WHERE "locationId" = ${locationId} AND "periodDays" > 7
+      ORDER BY "periodStart" DESC
+      LIMIT 1
+    ),
+    received AS (
+      SELECT v."upcNorm",
+             SUM(v.quantity * GREATEST(v."unitsPerCase", 1))::float AS "receivedUnits"
+      FROM "VendorOrderLine" v, hist w
+      WHERE v."locationId" = ${locationId}
+        AND v.vendor = ${vendor}
+        AND v."orderedAt" IS NOT NULL
+        AND v."orderedAt" >= w.start
+      GROUP BY v."upcNorm"
+    ),
+    sold AS (
+      SELECT d."upcNorm", d."soldUnits"::float AS "soldUnits", d."periodDays" AS "historyDays"
+      FROM "ProductDemand" d, hist w
+      WHERE d."locationId" = ${locationId} AND d."periodStart" = w.start AND d."periodDays" = w.days
+    )
+    SELECT COALESCE(r."upcNorm", s."upcNorm")     AS "upcNorm",
+           COALESCE(r."receivedUnits", 0)          AS "receivedUnits",
+           COALESCE(s."soldUnits", 0)              AS "soldUnits",
+           COALESCE(s."historyDays", 0)::int       AS "historyDays"
+    FROM received r
+    FULL OUTER JOIN sold s ON s."upcNorm" = r."upcNorm"
+  `;
+  return new Map(rows.map((r) => [r.upcNorm, r]));
+}
+
 export async function buildReorder(
   locationId: string,
   opts: ReorderOptions = {}
@@ -336,9 +410,10 @@ export async function buildReorder(
   const since = new Date();
   since.setDate(since.getDate() - VELOCITY_WINDOW_DAYS);
 
-  const [catalog, demandData, velocity, snapshotDays] = await Promise.all([
+  const [catalog, demandData, shelf, velocity, snapshotDays] = await Promise.all([
     loadCatalog(locationId, vendor),
     loadDemand(locationId, demandWeeks),
+    loadShelf(locationId, vendor),
     loadVelocity(locationId, since),
     prisma.productMovement.findMany({
       where: { locationId },
@@ -359,6 +434,7 @@ export async function buildReorder(
   let fromHistory = 0;
   let skippedSlow = 0;
   let historyCapped = 0;
+  let coveredByShelf = 0;
 
   for (const c of catalog) {
     const perCase = c.unitsPerCase > 0 ? c.unitsPerCase : 1;
@@ -421,7 +497,21 @@ export async function buildReorder(
       continue;
     }
 
-    const unitsNeeded = weeklyUnits * coverWeeks;
+    // What the cover period calls for, less what is already on the shelf.
+    // Ordering the full forecast while stock is still sitting there is how a
+    // shelf ends up with three months of a product on it.
+    const sh = shelf.get(c.upcNorm);
+    const onHand = sh ? Math.max(0, sh.receivedUnits - sh.soldUnits) : 0;
+    const shelfKnown = !!sh && sh.receivedUnits > 0;
+
+    const grossUnits = weeklyUnits * coverWeeks;
+    const unitsNeeded = Math.max(0, grossUnits - onHand);
+
+    if (unitsNeeded <= 0) {
+      coveredByShelf++;
+      continue;
+    }
+
     let suggestedCases = Math.ceil(unitsNeeded / perCase);
     if (suggestedCases <= 0) continue;
 
@@ -471,6 +561,11 @@ export async function buildReorder(
       typicalCases: typical > 0 ? Math.round(typical * 10) / 10 : null,
       cappedByHistory,
       spikeMean,
+      receivedUnits: sh ? Math.round(sh.receivedUnits * 10) / 10 : 0,
+      soldInHistory: sh ? Math.round(sh.soldUnits * 10) / 10 : 0,
+      onHand: Math.round(onHand * 10) / 10,
+      shelfKnown,
+      grossUnits: Math.round(grossUnits * 100) / 100,
       lastOrderedCases: c.avgCasesPerOrder > 0 ? Math.round(c.avgCasesPerOrder * 10) / 10 : null,
     });
   }
@@ -483,6 +578,12 @@ export async function buildReorder(
     notes.unshift(
       "No sales history pulled yet, so quantities come from what you have bought before. " +
         "Pull sales history and the order will be forecast from what actually sold."
+    );
+  }
+  if (coveredByShelf > 0) {
+    notes.push(
+      `${coveredByShelf} product${coveredByShelf === 1 ? " is" : "s are"} already covered by ` +
+        `stock on the shelf — delivered but not yet sold — so nothing was ordered for them.`
     );
   }
   if (historyCapped > 0) {
@@ -507,6 +608,7 @@ export async function buildReorder(
     fromHistory,
     skippedSlow,
     historyCapped,
+    coveredByShelf,
     snapshotCount,
     newestSnapshot: snapshotDays[0]?.takenAt ?? null,
     totalCost: money(lines.reduce((s, l) => s + l.lineCost, 0)),
