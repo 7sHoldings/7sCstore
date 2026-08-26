@@ -9,6 +9,7 @@ import { isMissingTableError, SETUP_SQL_PATH } from "@/lib/setupError";
 import DraftOrder from "./DraftOrder";
 import Deliveries from "./Deliveries";
 import PullSales from "./PullSales";
+import ImportSales from "./ImportSales";
 import Diagnose from "./Diagnose";
 import { createOrderNow } from "./actions";
 import { HISTORY_DAYS } from "@/lib/integrations/sync";
@@ -52,7 +53,14 @@ export default async function OrdersPage() {
       </div>
     );
   }
-  const { draft, recent, snapshotDays, catalogCount, demandProducts, demandPeriods, pastOrders } = data;
+  const { draft, recent, snapshotDays, catalogCount, demandProducts, demandPeriods, pastOrders, firstDelivery } = data;
+  // A weekly period is a POS pull; a longer one is an uploaded export. They
+  // read very differently, so the forecast card has to say which it used.
+  const weeklyPeriods = demandPeriods.filter((p) => p.periodDays <= 7);
+  const importedPeriod = demandPeriods.find((p) => p.periodDays > 7) ?? null;
+  const importFrom = (firstDelivery?.orderedAt ?? new Date(Date.now() - HISTORY_DAYS * 86_400_000))
+    .toISOString()
+    .slice(0, 10);
   const orderStats = pastOrders;
   const pastTotals = pastOrders.map((o) => o.total).filter((n) => n > 0).sort((a, b) => a - b);
   const typicalOrder = pastTotals.length
@@ -104,14 +112,24 @@ export default async function OrdersPage() {
             Forecast based on
           </span>
           <span className="text-on-surface-variant">
-            {demandPeriods.length > 0 ? (
+            {weeklyPeriods.length > 0 ? (
               <>
                 <Badge tone="success">sales history</Badge>{" "}
                 {fmtNumber(demandProducts.length)} products · sales read from{" "}
-                {fmtDate(demandPeriods[demandPeriods.length - 1].periodStart)} to today — the
+                {fmtDate(weeklyPeriods[weeklyPeriods.length - 1].periodStart)} to today — the
                 order uses each product&apos;s <strong>median</strong> week, so one unusual week
                 can&apos;t drive it
-                {demandPeriods[0]?.measuredAt && ` · pulled ${fmtDate(demandPeriods[0].measuredAt)}`}
+                {weeklyPeriods[0]?.measuredAt && ` · pulled ${fmtDate(weeklyPeriods[0].measuredAt)}`}
+              </>
+            ) : importedPeriod ? (
+              <>
+                <Badge tone="success">uploaded sales</Badge>{" "}
+                {fmtNumber(demandProducts.length)} products ·{" "}
+                {fmtDate(importedPeriod.periodStart)} to{" "}
+                {fmtDate(new Date(importedPeriod.periodStart.getTime() + importedPeriod.periodDays * 86_400_000))}{" "}
+                ({Math.round(importedPeriod.periodDays / 7)} weeks) — each product&apos;s weekly
+                rate is its total spread over that stretch, so one big day can&apos;t drive it
+                {importedPeriod.measuredAt && ` · uploaded ${fmtDate(importedPeriod.measuredAt)}`}
               </>
             ) : readings >= 2 ? (
               <>
@@ -121,7 +139,8 @@ export default async function OrdersPage() {
             ) : (
               <>
                 <Badge tone="warning">past orders only</Badge>{" "}
-                no sales history pulled yet — quantities come from what you have bought before
+                no sales history yet — upload your Modisoft inventory export below, or
+                quantities come from what you have bought before
               </>
             )}
           </span>
@@ -129,7 +148,8 @@ export default async function OrdersPage() {
             {fmtNumber(catalogCount.length)} products bought from GSC
           </span>
           {canEdit && (
-            <div className="ml-auto">
+            <div className="ml-auto flex flex-col items-end gap-3">
+              <ImportSales defaultFrom={importFrom} />
               <PullSales />
             </div>
           )}
@@ -265,11 +285,11 @@ async function loadOrderData(loc: string) {
     }),
   ]);
 
-  const [demandProducts, demandPeriods, pastOrders] = await Promise.all([
+  const [demandProducts, demandPeriods, pastOrders, firstDelivery] = await Promise.all([
     prisma.productDemand.findMany({ where: { locationId: loc }, distinct: ["upcNorm"], select: { upcNorm: true } }),
     prisma.productDemand.findMany({
       where: { locationId: loc }, distinct: ["periodStart"],
-      select: { periodStart: true, measuredAt: true }, orderBy: { periodStart: "desc" },
+      select: { periodStart: true, periodDays: true, measuredAt: true }, orderBy: { periodStart: "desc" },
     }),
     // What past GSC orders cost and when they landed — the yardstick for the
     // suggestion, and the record of what reached the shelves.
@@ -285,8 +305,15 @@ async function loadOrderData(loc: string) {
       ORDER BY MAX("orderSeq") DESC
       LIMIT 60
     `,
+    // The shelf estimate counts deliveries from the start of the sales window,
+    // so an upload that begins at the first delivery captures everything.
+    prisma.vendorOrderLine.findFirst({
+      where: { locationId: loc, vendor: "GSC", orderedAt: { not: null } },
+      select: { orderedAt: true },
+      orderBy: { orderedAt: "asc" },
+    }),
   ]);
 
 
-  return { draft, recent, snapshotDays, catalogCount, demandProducts, demandPeriods, pastOrders };
+  return { draft, recent, snapshotDays, catalogCount, demandProducts, demandPeriods, pastOrders, firstDelivery };
 }

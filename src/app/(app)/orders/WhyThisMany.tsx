@@ -22,6 +22,10 @@ export interface WhyFacts {
   cappedByHistory: boolean;
   edited: boolean;
   basis: string;
+  /** Units sold over the measured window, when one was measured. */
+  soldInWindow?: number | null;
+  /** Length of that window in days. */
+  windowDays?: number | null;
   coverWeeks: number;
   versionLabel: string;
   versionMultiplier: number;
@@ -84,13 +88,23 @@ export default function WhyThisMany(props: { facts: WhyFacts }) {
             <div className="text-on-surface-variant mb-3 truncate">{f.description}</div>
 
             {/* What it sells */}
-            <Row label="Sold each week">
-              {f.weeklySeries.length > 0 ? (
-                <span className="font-mono">{f.weeklySeries.map((n) => fmtNumber(n)).join(" · ")}</span>
-              ) : (
-                <span className="opacity-60">no sales pulled</span>
-              )}
-            </Row>
+            {f.basis === "imported" && f.windowDays ? (
+              <Row label={`Sold in ${fmtNumber(Math.round(f.windowDays / 7))} weeks`}>
+                {fmtNumber(f.soldInWindow ?? 0)} units
+                <span className="block opacity-60">from your uploaded sales export</span>
+              </Row>
+            ) : (
+              <Row label="Sold each week">
+                {f.weeklySeries.length > 0 ? (
+                  <span className="font-mono">{f.weeklySeries.map((n) => fmtNumber(n)).join(" · ")}</span>
+                ) : (
+                  <span className="opacity-60">no sales pulled</span>
+                )}
+              </Row>
+            )}
+            {f.basis === "imported" && (
+              <Row label="Typical week">{fmtNumber(f.weeklyUnits)} units</Row>
+            )}
             {f.weeklySeries.length > 0 && (
               <Row label="Typical week">
                 {fmtNumber(f.weeklyUnits)} units

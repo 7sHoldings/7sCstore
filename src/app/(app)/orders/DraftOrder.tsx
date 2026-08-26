@@ -357,6 +357,8 @@ export default function DraftOrder({
                           cappedByHistory: l.cappedByHistory,
                           edited: l.edited || edits[l.id] !== undefined,
                           basis: l.basis,
+                          soldInWindow: l.soldInWindow,
+                          windowDays: l.windowDays,
                           coverWeeks,
                           versionLabel: activeVersion.label,
                           versionMultiplier: activeVersion.coverMultiplier,

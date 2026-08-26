@@ -128,7 +128,7 @@ export interface ReorderLine {
   /** Extended cost of the suggested cases. */
   lineCost: number;
   /** How weeklyUnits was arrived at, best first. */
-  basis: "measured" | "velocity" | "order-history";
+  basis: "measured" | "imported" | "velocity" | "order-history";
   /** Units actually sold over the measured window, when there is one. */
   soldInWindow: number | null;
   /** Length of that window in days. */
@@ -422,6 +422,49 @@ interface ShelfRow {
  * Only orders carrying a date can be counted, since deliveries and sales have
  * to describe the same stretch of time to be subtracted from one another.
  */
+interface ImportedDemand {
+  periodStart: Date;
+  periodDays: number;
+  /** upcNorm -> units sold across the whole period. */
+  sold: Map<string, number>;
+}
+
+/**
+ * Sales from an uploaded Modisoft Inventory export.
+ *
+ * The export states a total for one long stretch rather than a week-by-week
+ * series, so the forecast is that total spread evenly:
+ *
+ *     units per week = soldUnits / (periodDays / 7)
+ *
+ * Averaging is safe here in a way it is not over four weekly readings. A single
+ * customer clearing a shelf is a large share of one week but a rounding error
+ * across six months, so the long window absorbs the spike the median was
+ * protecting against.
+ *
+ * Only the newest export is used. Two overlapping uploads would double-count.
+ */
+async function loadImportedDemand(locationId: string): Promise<ImportedDemand | null> {
+  const latest = await prisma.productDemand.findFirst({
+    where: { locationId, periodDays: { gt: 7 } },
+    orderBy: { periodStart: "desc" },
+    select: { periodStart: true, periodDays: true },
+  });
+  if (!latest) return null;
+
+  const rows = await prisma.productDemand.findMany({
+    where: { locationId, periodStart: latest.periodStart, periodDays: latest.periodDays },
+    select: { upcNorm: true, soldUnits: true },
+  });
+  if (rows.length === 0) return null;
+
+  return {
+    periodStart: latest.periodStart,
+    periodDays: latest.periodDays,
+    sold: new Map(rows.map((r) => [r.upcNorm, r.soldUnits])),
+  };
+}
+
 async function loadShelf(locationId: string, vendor: string): Promise<Map<string, ShelfRow>> {
   const rows = await prisma.$queryRaw<ShelfRow[]>`
     WITH hist AS (
@@ -472,11 +515,12 @@ export async function buildReorder(
   const since = new Date();
   since.setDate(since.getDate() - VELOCITY_WINDOW_DAYS);
 
-  const [catalog, demandData, shelf, velocity, snapshotDays] = await Promise.all([
+  const [catalog, demandData, shelf, velocity, imported, snapshotDays] = await Promise.all([
     loadCatalog(locationId, vendor),
     loadDemand(locationId, demandWeeks),
     loadShelf(locationId, vendor),
     loadVelocity(locationId, since),
+    loadImportedDemand(locationId),
     prisma.productMovement.findMany({
       where: { locationId },
       distinct: ["takenAt"],
@@ -540,6 +584,15 @@ export async function buildReorder(
       weeklySeries = d ? d.weeks : [];
       weeksWithSales = d ? d.weeksWithSales : 0;
       spikeMean = d ? Math.round(d.mean * 100) / 100 : 0;
+    } else if (imported) {
+      // An uploaded export is authoritative the same way a pull is: it lists
+      // every product, so a product missing from it sold nothing, and falling
+      // back to past orders would reorder what is not selling.
+      const sold = imported.sold.get(c.upcNorm) ?? 0;
+      weeklyUnits = sold / (imported.periodDays / 7);
+      basis = "imported";
+      soldInWindow = sold;
+      windowDays = imported.periodDays;
     } else if (v && v.spanDays >= MIN_SPAN_DAYS) {
       weeklyUnits = (v.soldInSpan / v.spanDays) * 7;
       basis = "velocity";
@@ -611,7 +664,7 @@ export async function buildReorder(
     const cappedByHistory = full.capped;
     if (cappedByHistory) historyCapped++;
 
-    if (basis === "measured") fromMeasured++;
+    if (basis === "measured" || basis === "imported") fromMeasured++;
     else if (basis === "velocity") fromVelocity++;
     else fromHistory++;
 
