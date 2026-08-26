@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { money } from "@/lib/calc";
 import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
 import { Card, PageHeader, EmptyState, Badge } from "@/components/ui";
+import { isMissingTableError, SETUP_SQL_PATH } from "@/lib/setupError";
 import DraftOrder from "./DraftOrder";
 import { createOrderNow, refreshDemand } from "./actions";
 
@@ -20,48 +21,34 @@ export default async function OrdersPage() {
 
   const canEdit = can(session.role, "enterPurchases");
 
-  const [draft, recent, snapshotDays, catalogCount] = await Promise.all([
-    prisma.purchaseOrder.findFirst({
-      where: { locationId: loc, vendor: "GSC", status: "DRAFT" },
-      include: { lines: { orderBy: { weeklyUnits: "desc" } } },
-    }),
-    prisma.purchaseOrder.findMany({
-      where: { locationId: loc, status: "PLACED" },
-      orderBy: { placedAt: "desc" },
-      take: 6,
-      include: { _count: { select: { lines: true } } },
-    }),
-    prisma.productMovement.findMany({
-      where: { locationId: loc },
-      distinct: ["takenAt"],
-      select: { takenAt: true },
-      orderBy: { takenAt: "desc" },
-      take: 2,
-    }),
-    prisma.vendorOrderLine.findMany({
-      where: { locationId: loc, vendor: "GSC" },
-      distinct: ["upcNorm"],
-      select: { upcNorm: true },
-    }),
-  ]);
-
-  const [demandProducts, demandPeriods, pastOrders] = await Promise.all([
-    prisma.productDemand.findMany({ where: { locationId: loc }, distinct: ["upcNorm"], select: { upcNorm: true } }),
-    prisma.productDemand.findMany({
-      where: { locationId: loc }, distinct: ["periodStart"],
-      select: { periodStart: true, measuredAt: true }, orderBy: { periodStart: "desc" },
-    }),
-    // What past GSC orders actually cost, as a yardstick for the suggestion.
-    prisma.$queryRaw<{ orderId: string; total: number }[]>`
-      SELECT "orderId", SUM("lineCost")::float AS total
-      FROM "VendorOrderLine"
-      WHERE "locationId" = ${loc} AND vendor = 'GSC'
-      GROUP BY "orderId"
-      ORDER BY MAX("orderSeq") DESC
-      LIMIT 12
-    `,
-  ]);
-
+  let data;
+  try {
+    data = await loadOrderData(loc);
+  } catch (e) {
+    if (!isMissingTableError(e)) throw e;
+    return (
+      <div>
+        <PageHeader title="Weekly Order" subtitle="One setup step is outstanding" />
+        <Card className="p-6 max-w-2xl">
+          <h2 className="font-semibold text-on-surface mb-2">The ordering tables aren&apos;t in the database yet</h2>
+          <p className="text-body-sm text-on-surface-variant mb-3">
+            The app was deployed but its new tables were never created, so this page has
+            nothing to read. No data is missing — the tables simply don&apos;t exist yet.
+          </p>
+          <p className="text-body-sm text-on-surface-variant mb-3">
+            In Supabase, open the <strong>SQL editor</strong> and run the file{" "}
+            <code className="bg-surface-container px-1.5 py-0.5 rounded">{SETUP_SQL_PATH}</code>{" "}
+            from the repository, then reload this page. It only creates new tables and
+            touches nothing that already exists.
+          </p>
+          <p className="text-body-sm text-on-surface-variant">
+            The GSC Pricing page needs the same step.
+          </p>
+        </Card>
+      </div>
+    );
+  }
+  const { draft, recent, snapshotDays, catalogCount, demandProducts, demandPeriods, pastOrders } = data;
   const pastTotals = pastOrders.map((o) => o.total).filter((n) => n > 0).sort((a, b) => a - b);
   const typicalOrder = pastTotals.length
     ? pastTotals.length % 2
@@ -209,4 +196,52 @@ export default async function OrdersPage() {
       )}
     </div>
   );
+}
+
+/** Everything the page reads, in one place so a missing table is catchable. */
+async function loadOrderData(loc: string) {
+  const [draft, recent, snapshotDays, catalogCount] = await Promise.all([
+    prisma.purchaseOrder.findFirst({
+      where: { locationId: loc, vendor: "GSC", status: "DRAFT" },
+      include: { lines: { orderBy: { weeklyUnits: "desc" } } },
+    }),
+    prisma.purchaseOrder.findMany({
+      where: { locationId: loc, status: "PLACED" },
+      orderBy: { placedAt: "desc" },
+      take: 6,
+      include: { _count: { select: { lines: true } } },
+    }),
+    prisma.productMovement.findMany({
+      where: { locationId: loc },
+      distinct: ["takenAt"],
+      select: { takenAt: true },
+      orderBy: { takenAt: "desc" },
+      take: 2,
+    }),
+    prisma.vendorOrderLine.findMany({
+      where: { locationId: loc, vendor: "GSC" },
+      distinct: ["upcNorm"],
+      select: { upcNorm: true },
+    }),
+  ]);
+
+  const [demandProducts, demandPeriods, pastOrders] = await Promise.all([
+    prisma.productDemand.findMany({ where: { locationId: loc }, distinct: ["upcNorm"], select: { upcNorm: true } }),
+    prisma.productDemand.findMany({
+      where: { locationId: loc }, distinct: ["periodStart"],
+      select: { periodStart: true, measuredAt: true }, orderBy: { periodStart: "desc" },
+    }),
+    // What past GSC orders actually cost, as a yardstick for the suggestion.
+    prisma.$queryRaw<{ orderId: string; total: number }[]>`
+      SELECT "orderId", SUM("lineCost")::float AS total
+      FROM "VendorOrderLine"
+      WHERE "locationId" = ${loc} AND vendor = 'GSC'
+      GROUP BY "orderId"
+      ORDER BY MAX("orderSeq") DESC
+      LIMIT 12
+    `,
+  ]);
+
+
+  return { draft, recent, snapshotDays, catalogCount, demandProducts, demandPeriods, pastOrders };
 }

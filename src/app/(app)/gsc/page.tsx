@@ -6,6 +6,7 @@ import { money } from "@/lib/calc";
 import { fmtMoney, fmtNumber } from "@/lib/format";
 import { buildComparison, getDepartmentMargins, effectiveDefaultMargin } from "@/lib/vendors/gscCompare";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
+import { isMissingTableError, SETUP_SQL_PATH } from "@/lib/setupError";
 import GscUpload from "./GscUpload";
 import GscCompare from "./GscCompare";
 import MarginSettings from "./MarginSettings";
@@ -38,7 +39,9 @@ export default async function GscPage({
   const view = sp.view ?? "raise";
   const page = Math.max(1, Number(sp.page) || 1);
 
-  const [rows, margins, orderStats, departments] = await Promise.all([
+  let loaded;
+  try {
+    loaded = await Promise.all([
     buildComparison(loc, {
       needsRaiseOnly: view === "raise",
       unmatchedOnly: view === "unmatched",
@@ -60,6 +63,25 @@ export default async function GscPage({
       orderBy: { department: "asc" },
     }),
   ]);
+
+  } catch (e) {
+    if (!isMissingTableError(e)) throw e;
+    return (
+      <div>
+        <PageHeader title="GSC Pricing" subtitle="One setup step is outstanding" />
+        <Card className="p-6 max-w-2xl">
+          <h2 className="font-semibold text-on-surface mb-2">The vendor tables aren&apos;t in the database yet</h2>
+          <p className="text-body-sm text-on-surface-variant mb-3">
+            The app was deployed but its new tables were never created. In Supabase, open the{" "}
+            <strong>SQL editor</strong> and run{" "}
+            <code className="bg-surface-container px-1.5 py-0.5 rounded">{SETUP_SQL_PATH}</code>{" "}
+            from the repository, then reload. It only creates new tables.
+          </p>
+        </Card>
+      </div>
+    );
+  }
+  const [rows, margins, orderStats, departments] = loaded;
 
   // Totals across everything matched, independent of the current view.
   const all = await buildComparison(loc, {});
