@@ -1,6 +1,11 @@
 import "server-only";
 import { prisma } from "../db";
 import { money } from "../calc";
+import { ORDER_VERSIONS, type VersionKey } from "./orderVersions";
+
+// Re-exported so server callers can keep importing from one place.
+export { ORDER_VERSIONS };
+export type { VersionKey };
 
 /**
  * Builds a weekly vendor order from measured demand.
@@ -64,26 +69,7 @@ export const DEFAULT_DEMAND_WEEKS = 6;
  */
 export const DEFAULT_SPIKE_GUARD = 1.5;
 
-/**
- * Three sizes of the same order.
- *
- * Each is the same forecast bought for a different slice of the cover period,
- * so they stay comparable line by line: a product needing 3.2 cases for a full
- * week comes out at 4 / 3 / 2. Cases round up, so a one-case item stays one
- * case in all three — the versions trim what is big enough to trim.
- */
-export type VersionKey = "full" | "balanced" | "lean";
 
-export const ORDER_VERSIONS: {
-  key: VersionKey;
-  label: string;
-  coverMultiplier: number;
-  blurb: string;
-}[] = [
-  { key: "full", label: "Full", coverMultiplier: 1, blurb: "A whole cover period of forecast demand" },
-  { key: "balanced", label: "Balanced", coverMultiplier: 0.7, blurb: "70% of it — trims the big lines, keeps the rest" },
-  { key: "lean", label: "Lean", coverMultiplier: 0.5, blurb: "Half — buys the fastest movers, waits on the rest" },
-];
 
 /** Ignore readings older than this when measuring velocity. */
 const VELOCITY_WINDOW_DAYS = 35;

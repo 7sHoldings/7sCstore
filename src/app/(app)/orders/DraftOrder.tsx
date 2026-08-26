@@ -6,7 +6,7 @@ import { Card, Badge, Icon, Banner } from "@/components/ui";
 import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
 import { setLineCases, removeLine, createOrderNow, markPlaced, deleteDraft, setOrderVersion } from "./actions";
 import WhyThisMany from "./WhyThisMany";
-import { ORDER_VERSIONS } from "@/lib/vendors/reorder";
+import { ORDER_VERSIONS } from "@/lib/vendors/orderVersions";
 
 export interface DraftLine {
   id: string;
