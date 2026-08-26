@@ -180,14 +180,11 @@ export async function refreshDemand(
     d = await syncDemand(auth.locationId);
   } catch (e) {
     console.error("sales pull failed", e);
-    const raw = e instanceof Error ? e.message : "";
-    // An expired POS session is the common case and has a specific fix.
-    const expired = /401|403|unauthor|forbidden|login|session|cookie/i.test(raw);
-    return {
-      error: expired
-        ? "The Modisoft connection has expired, so no sales could be read. Refresh MODI_COOKIE and try again."
-        : `Could not read sales from the POS. ${raw || "The connection returned nothing."}`,
-    };
+    // Report what actually failed. Guessing a cause from keywords sent the owner
+    // to re-copy a cookie that was fine, when the real answer was a blocked
+    // request — the adapter now names the cause, so pass it through verbatim.
+    const raw = e instanceof Error ? e.message : String(e ?? "");
+    return { error: raw || "The POS connection returned nothing, with no error given." };
   }
 
   if (d.measured === 0) {

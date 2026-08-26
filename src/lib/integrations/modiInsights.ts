@@ -402,6 +402,55 @@ function rowToForm(row: Record<string, unknown>, newRetail: number): Record<stri
 }
 
 /** POST a form-urlencoded body and return the parsed JSON (or null). */
+/**
+ * Turn a failed response into an error that names the actual cause.
+ *
+ * A 401 and a 403 are different problems with different fixes, and collapsing
+ * them into "session expired" sends people to re-copy a cookie that was never
+ * the issue. Cloudflare in particular answers 403 when the request's
+ * User-Agent doesn't match the browser the `cf_clearance` cookie was issued to,
+ * so a freshly copied cookie fails exactly like a stale one.
+ */
+async function describeFailure(res: Response, path: string): Promise<Error> {
+  const cfRay = res.headers.get("cf-ray");
+  const mitigated = res.headers.get("cf-mitigated");
+  let body = "";
+  try { body = (await res.text()).slice(0, 400); } catch { /* body already consumed */ }
+  const challenged =
+    !!mitigated ||
+    /just a moment|attention required|cf-browser-verification|challenge-platform/i.test(body);
+
+  if (challenged) {
+    return new Error(
+      `Cloudflare blocked the request to ${path} (${res.status}${cfRay ? `, ray ${cfRay}` : ""}). ` +
+        "This is usually the browser fingerprint, not the login: cf_clearance only works with " +
+        "the exact User-Agent it was issued to. Copy your browser's User-Agent into " +
+        "MODI_USER_AGENT, or re-copy the cookie from a browser matching the one already set."
+    );
+  }
+  if (res.status === 401) {
+    return new Error(`Modisoft rejected the login on ${path} (401) — MODI_COOKIE is no longer valid.`);
+  }
+  if (res.status === 403) {
+    return new Error(
+      `Modisoft refused the request to ${path} (403). The session may be valid but not permitted ` +
+        "for this store, or the request was blocked upstream. Check MODI_STORE_ID and MODI_CCODE."
+    );
+  }
+  if (res.status >= 500) {
+    return new Error(`Modisoft returned a server error on ${path} (${res.status}). Nothing was read; try again shortly.`);
+  }
+  return new Error(`Modisoft ${path} responded ${res.status}.`);
+}
+
+/** A login page served in place of data means the session is not being accepted. */
+function notJsonError(path: string, contentType: string | null): Error {
+  return new Error(
+    `Modisoft answered ${path} with ${contentType || "an unknown content type"} instead of JSON — ` +
+      "typically a login page, meaning MODI_COOKIE is not being accepted."
+  );
+}
+
 async function postForm(cookie: string, path: string, body: Record<string, string>, base: string): Promise<unknown> {
   const res = await fetch(base + path, {
     method: "POST",
@@ -417,8 +466,7 @@ async function postForm(cookie: string, path: string, body: Record<string, strin
     body: new URLSearchParams(body).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
-  if (!res.ok) throw new Error(`Modisoft ${path} responded ${res.status}`);
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path);if (!res.ok) throw await describeFailure(res, path);
   try { return await res.json(); } catch { return null; }
 }
 
@@ -459,10 +507,9 @@ async function postGrid(cookie: string, path: string, body: Record<string, strin
     body: new URLSearchParams(body).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
-  if (!res.ok) throw new Error(`Modisoft ${path} responded ${res.status}`);
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path);if (!res.ok) throw await describeFailure(res, path);
   const ct = res.headers.get("content-type") || "";
-  if (!ct.includes("json")) throw new Error("Modisoft returned a non-JSON response (likely a login page) — refresh MODI_COOKIE.");
+  if (!ct.includes("json")) throw notJsonError(path, ct);
   const json = (await res.json()) as { Data?: unknown[]; Total?: number };
   return { data: Array.isArray(json.Data) ? json.Data : [], total: Number(json.Total) || 0 };
 }
@@ -498,9 +545,7 @@ async function setupReport(cookie: string, path: string, body: Record<string, st
     body: new URLSearchParams(body).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) {
-    throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
-  }
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path);
 }
 
 /** Set the active store in the session (POST /Home/ChangeStore). */
@@ -519,12 +564,10 @@ async function changeStore(cookie: string, id: string, ccode: string, base: stri
     body: new URLSearchParams({ ID: id, CCode: ccode, IsLocked: "false", IsRedirectBilling: "false" }).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) {
-    throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
-  }
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, "/Home/ChangeStore");
   const ct = res.headers.get("content-type") || "";
   if (!ct.includes("json")) {
-    throw new Error("Modisoft store-select returned non-JSON (likely a login page) — refresh MODI_COOKIE.");
+    throw notJsonError("store-select", res.headers.get("content-type"));
   }
 }
 
@@ -543,10 +586,8 @@ async function post(cookie: string, path: string, body: Record<string, string>):
     body: new URLSearchParams(body).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) {
-    throw new Error("Modisoft session expired or unauthorized — refresh MODI_COOKIE.");
-  }
-  if (!res.ok) throw new Error(`Modisoft ${path} responded ${res.status}`);
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path);
+  if (!res.ok) throw await describeFailure(res, path);
   const ct = res.headers.get("content-type") || "";
   if (!ct.includes("json")) {
     // Most likely an HTML login page → the cookie isn't valid.
