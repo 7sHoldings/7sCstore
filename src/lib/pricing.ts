@@ -40,3 +40,50 @@ export function marginOf(unitCost: number, price: number): number {
   if (price <= 0) return 0;
   return Math.round(((price - unitCost) / price) * 1000) / 10;
 }
+
+// ---------------------------------------------------------------------------
+// Shelf-friendly price endings
+// ---------------------------------------------------------------------------
+
+/** Optional rounding applied after a price is derived from cost + margin. */
+export type RoundRule = "none" | "nickel" | "dime" | "end99";
+
+export const ROUND_RULES: { value: RoundRule; label: string }[] = [
+  { value: "none", label: "No rounding" },
+  { value: "nickel", label: "Nearest $0.05" },
+  { value: "dime", label: "Nearest $0.10" },
+  { value: "end99", label: "Round up to .99" },
+];
+
+/**
+ * Snap a price to a shelf-friendly ending. `priceFromMargin` yields exact
+ * figures like $1.67 — real stores price at $1.69 or $1.99. Rounding is applied
+ * after the margin math, so the resulting margin is at least the target for
+ * `end99` (which only ever rounds up) and within a few cents for the others.
+ * Never returns a negative price.
+ */
+export function applyRounding(price: number, rule: RoundRule): number {
+  const p = money(price);
+  if (p <= 0) return 0;
+  switch (rule) {
+    case "nickel":
+      return money(Math.round(p / 0.05) * 0.05);
+    case "dime":
+      return money(Math.round(p / 0.1) * 0.1);
+    case "end99":
+      // Next price ending in .99 at or above p (2.34 -> 2.99, 2.99 stays 2.99).
+      // The epsilon stops an exact .99 being pushed up a whole dollar.
+      return money(Math.max(0.99, Math.ceil(p - 0.99 - 1e-9) + 0.99));
+    default:
+      return p;
+  }
+}
+
+/** Retail price from unit cost at a target margin, snapped to a price ending. */
+export function priceFromMarginRounded(
+  unitCost: number,
+  marginPct: number,
+  rule: RoundRule = "none"
+): number {
+  return applyRounding(priceFromMargin(unitCost, marginPct), rule);
+}

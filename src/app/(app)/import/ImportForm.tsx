@@ -12,12 +12,15 @@ export default function ImportForm({
   description,
   templateHref,
   entityLabel,
+  accept = ".csv,text/csv",
 }: {
   action: ImportAction;
   title: string;
   description: string;
   templateHref: string;
   entityLabel: string;
+  /** File types this importer accepts. Defaults to CSV only. */
+  accept?: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
 
@@ -42,7 +45,7 @@ export default function ImportForm({
           <input
             type="file"
             name="file"
-            accept=".csv,text/csv"
+            accept={accept}
             required
             className="block w-full text-body-md text-on-surface file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-primary file:text-on-primary file:font-semibold file:cursor-pointer cursor-pointer bg-surface-container-low border border-outline-variant rounded-md p-2"
           />

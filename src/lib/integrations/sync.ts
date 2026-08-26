@@ -377,7 +377,10 @@ export async function syncInventory(
   const toUpdate = [...byKey.values()].filter((it) => {
     const p = existingByKey.get(it.posItemId);
     return p && (
-      money(it.retailPrice) !== p.sellingPrice ||
+      // A POS retail of 0 means "this item has no price in the POS", not "free"
+      // — a real export carries ~100 of these. Treating it as a change would
+      // wipe a price set in the app, so it is not a reason to update.
+      (it.retailPrice > 0 && money(it.retailPrice) !== p.sellingPrice) ||
       (it.name && it.name !== p.name) ||
       it.category !== p.category ||
       (it.posDeptId != null && it.posDeptId !== p.posDeptId) ||
@@ -392,7 +395,9 @@ export async function syncInventory(
           data: {
             name: it.name || undefined,
             category: it.category as never,
-            sellingPrice: money(it.retailPrice),
+            // Guarded for the same reason as the filter above: never overwrite a
+            // real price with a POS zero.
+            sellingPrice: it.retailPrice > 0 ? money(it.retailPrice) : undefined,
             posDeptId: it.posDeptId ?? undefined,
             department: it.department ?? undefined,
           },

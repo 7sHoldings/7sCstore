@@ -7,6 +7,7 @@ import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { parseCSV, SALES_TEMPLATE_HEADERS, EXPENSE_TEMPLATE_HEADERS, DAILY_SALES_TEMPLATE_HEADERS } from "@/lib/csv";
+import { readTabularFile } from "@/lib/tabular";
 import { pushPrices } from "@/lib/integrations/sync";
 import { money, perGallon } from "@/lib/calc";
 import { unitCostFromCase } from "@/lib/pricing";
@@ -763,8 +764,9 @@ export async function importWholesaleCosts(
   if (!locationId) return { error: "No location assigned." };
 
   const file = formData.get("file") as File | null;
-  if (!file || file.size === 0) return { error: "Choose a CSV file to import." };
-  const rows = parseCSV(await file.text());
+  if (!file || file.size === 0) return { error: "Choose a CSV or Excel file to import." };
+  // Accepts the Modisoft .xlsx export directly, as well as CSV.
+  const rows = await readTabularFile(file);
   if (rows.length < 2) return { error: "The file has no data rows." };
 
   const header = rows[0].map((h) => h.trim().toLowerCase());
@@ -875,9 +877,10 @@ export async function importInventoryPrices(
   if (!locationId) return { error: "No location assigned." };
 
   const file = formData.get("file") as File | null;
-  if (!file || file.size === 0) return { error: "Choose a CSV file to import." };
+  if (!file || file.size === 0) return { error: "Choose a CSV or Excel file to import." };
 
-  const rows = parseCSV(await file.text());
+  // Accepts the Modisoft .xlsx export directly, as well as CSV.
+  const rows = await readTabularFile(file);
   if (rows.length < 2) return { error: "The file has no data rows." };
 
   const header = rows[0].map((h) => h.trim().toLowerCase());

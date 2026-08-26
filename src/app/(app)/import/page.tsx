@@ -26,6 +26,7 @@ export default async function ImportPage() {
         {canPurchases && (
           <ImportForm
             action={importInventoryPrices}
+            accept=".csv,text/csv,.xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             title="Import Price Updates (CSV)"
             description="Bulk-update retail prices and push them to the POS. Edit the newRetail column of an Inventory → Export CSV (or use the template), then upload here. Matches by posItemId or upc. Columns: posItemId, upc, newRetail."
             templateHref="/api/import/template?type=prices"
@@ -35,6 +36,7 @@ export default async function ImportPage() {
         {canPurchases && (
           <ImportForm
             action={importWholesaleCosts}
+            accept=".csv,text/csv,.xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             title="Import Wholesale Costs (CSV)"
             description="Set case cost per product so margins read correctly. Edit the caseCost / unitsPerCase / vendor columns of an Inventory → Export CSV (or a distributor price list), then upload. Matches by posItemId or upc; blank caseCost rows are skipped. Retail is left as-is."
             templateHref="/api/import/template?type=cost"
