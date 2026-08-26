@@ -569,7 +569,7 @@ async function setupReport(cookie: string, path: string, body: Record<string, st
     body: new URLSearchParams(body).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path, base);
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path, BASE);
 }
 
 /** Set the active store in the session (POST /Home/ChangeStore). */
@@ -610,12 +610,11 @@ async function post(cookie: string, path: string, body: Record<string, string>):
     body: new URLSearchParams(body).toString(),
     cache: "no-store",
   });
-  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path, base);
-  if (!res.ok) throw await describeFailure(res, path, base);
+  if (res.status === 401 || res.status === 403) throw await describeFailure(res, path, BASE);
+  if (!res.ok) throw await describeFailure(res, path, BASE);
   const ct = res.headers.get("content-type") || "";
   if (!ct.includes("json")) {
-    // Most likely an HTML login page → the cookie isn't valid.
-    throw new Error("Modisoft returned a non-JSON response (likely a login page) — refresh MODI_COOKIE.");
+    throw notJsonError(path, res.headers.get("content-type"), BASE);
   }
   const data = (await res.json()) as { Data?: unknown[] };
   return Array.isArray(data.Data) ? data.Data : [];
