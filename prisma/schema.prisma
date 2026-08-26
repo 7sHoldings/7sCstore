@@ -617,6 +617,8 @@ model PurchaseOrder {
   status     String    @default("DRAFT") // DRAFT | PLACED | CANCELLED
   /** Weeks of cover the suggestion aimed for, kept for explainability. */
   coverWeeks Float     @default(1)
+  /** Which size is currently selected: full | balanced | lean. */
+  version    String    @default("full")
   note       String?
   createdAt  DateTime  @default(now())
   /** Last time the forecast behind this draft was refreshed. */
@@ -669,6 +671,10 @@ model PurchaseOrderLine {
   soldInHistory   Float?
   /** Estimated units still on the shelf when the order was built. */
   onHand          Float?
+  /** Cases under each version, so switching size needs no rebuild. */
+  casesFull       Float?
+  casesBalanced   Float?
+  casesLean       Float?
 
   @@unique([purchaseOrderId, upcNorm])
   @@index([purchaseOrderId])

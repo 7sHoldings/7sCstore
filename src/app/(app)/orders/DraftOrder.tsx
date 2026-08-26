@@ -4,7 +4,9 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Badge, Icon, Banner } from "@/components/ui";
 import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
-import { setLineCases, removeLine, createOrderNow, markPlaced, deleteDraft } from "./actions";
+import { setLineCases, removeLine, createOrderNow, markPlaced, deleteDraft, setOrderVersion } from "./actions";
+import WhyThisMany from "./WhyThisMany";
+import { ORDER_VERSIONS } from "@/lib/vendors/reorder";
 
 export interface DraftLine {
   id: string;
@@ -28,11 +30,15 @@ export interface DraftLine {
   receivedUnits: number | null;
   soldInHistory: number | null;
   onHand: number | null;
+  casesFull: number | null;
+  casesBalanced: number | null;
+  casesLean: number | null;
+  spikeMean?: number | null;
 }
 
 export default function DraftOrder({
   purchaseOrderId, createdAt, refreshedAt, coverWeeks, canEdit, totalCost, measured, lines,
-  typicalOrder, pastOrderCount,
+  typicalOrder, pastOrderCount, version, versionTotals,
 }: {
   purchaseOrderId: string;
   createdAt: string;
@@ -45,6 +51,9 @@ export default function DraftOrder({
   /** Median cost of recent GSC orders, as a yardstick. */
   typicalOrder: number | null;
   pastOrderCount: number;
+  version: string;
+  /** Cost of each version, so all three can be compared before choosing. */
+  versionTotals: Record<string, { lines: number; cost: number }>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -68,6 +77,7 @@ export default function DraftOrder({
     );
   }, [lines, q, dept]);
 
+  const activeVersion = ORDER_VERSIONS.find((v) => v.key === version) ?? ORDER_VERSIONS[0];
   const casesOf = (l: DraftLine) => edits[l.id] ?? l.cases;
   const editedCount = lines.filter((l) => l.edited || edits[l.id] !== undefined).length;
   const liveTotal = lines.reduce((s, l) => s + casesOf(l) * l.caseCost, 0);
@@ -173,6 +183,52 @@ export default function DraftOrder({
         </p>
       </Card>
 
+      {/* Three sizes of the same order */}
+      {canEdit && (
+        <Card className="p-4 mb-4">
+          <div className="flex items-center gap-2 mb-3 font-semibold text-on-surface text-body-sm">
+            <Icon name="tune" className="text-[20px] text-primary" />
+            How much of it to buy
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {ORDER_VERSIONS.map((v) => {
+              const t = versionTotals[v.key] ?? { lines: 0, cost: 0 };
+              const active = version === v.key;
+              return (
+                <form key={v.key} action={setOrderVersion}>
+                  <input type="hidden" name="version" value={v.key} readOnly />
+                  <button
+                    type="submit"
+                    aria-pressed={active}
+                    className={`w-full text-left rounded-lg border p-3 transition-colors ${
+                      active
+                        ? "border-primary bg-primary/[0.06]"
+                        : "border-outline-variant/60 hover:bg-surface-container-low"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-on-surface">{v.label}</span>
+                      {active && <Badge tone="info">chosen</Badge>}
+                    </div>
+                    <div className="tabular text-lg font-bold text-primary mt-0.5">{fmtMoney(t.cost)}</div>
+                    <div className="text-body-sm text-on-surface-variant">
+                      {fmtNumber(t.lines)} lines
+                      {typicalOrder ? ` · ${Math.round((t.cost / typicalOrder) * 100)}% of usual` : ""}
+                    </div>
+                    <div className="text-body-sm text-on-surface-variant mt-1">{v.blurb}</div>
+                  </button>
+                </form>
+              );
+            })}
+          </div>
+          <p className="text-body-sm text-on-surface-variant mt-2">
+            The same forecast bought for a different slice of the week, so lines stay
+            comparable: an item needing 4 cases for a full week becomes 3, then 2. Quantities
+            you set by hand aren&apos;t touched when you switch.
+          </p>
+        </Card>
+      )}
+
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3 mb-4 bg-surface-container-low border border-outline-variant/60 rounded-lg p-3">
         <input
@@ -209,6 +265,7 @@ export default function DraftOrder({
                 <th className="px-3 py-3 text-right">Suggested</th>
                 <th className="px-3 py-3 text-right">Cases</th>
                 <th className="px-3 py-3 text-right">Cost</th>
+                <th className="px-3 py-3 w-10"><span className="sr-only">Why</span></th>
                 {canEdit && <th className="px-3 py-3 w-10" />}
               </tr>
             </thead>

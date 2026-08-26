@@ -64,6 +64,27 @@ export const DEFAULT_DEMAND_WEEKS = 6;
  */
 export const DEFAULT_SPIKE_GUARD = 1.5;
 
+/**
+ * Three sizes of the same order.
+ *
+ * Each is the same forecast bought for a different slice of the cover period,
+ * so they stay comparable line by line: a product needing 3.2 cases for a full
+ * week comes out at 4 / 3 / 2. Cases round up, so a one-case item stays one
+ * case in all three — the versions trim what is big enough to trim.
+ */
+export type VersionKey = "full" | "balanced" | "lean";
+
+export const ORDER_VERSIONS: {
+  key: VersionKey;
+  label: string;
+  coverMultiplier: number;
+  blurb: string;
+}[] = [
+  { key: "full", label: "Full", coverMultiplier: 1, blurb: "A whole cover period of forecast demand" },
+  { key: "balanced", label: "Balanced", coverMultiplier: 0.7, blurb: "70% of it — trims the big lines, keeps the rest" },
+  { key: "lean", label: "Lean", coverMultiplier: 0.5, blurb: "Half — buys the fastest movers, waits on the rest" },
+];
+
 /** Ignore readings older than this when measuring velocity. */
 const VELOCITY_WINDOW_DAYS = 35;
 /** A pair of readings closer together than this is too noisy to extrapolate. */
@@ -132,6 +153,10 @@ export interface ReorderLine {
   shelfKnown: boolean;
   /** Units the cover period calls for before the shelf is subtracted. */
   grossUnits: number;
+  /** Cases under each version, so the order can be resized without rebuilding. */
+  casesFull: number;
+  casesBalanced: number;
+  casesLean: number;
   /** Days between the two readings used, when basis is "velocity". */
   spanDays: number | null;
   /** Units sold over that span. */
@@ -153,6 +178,8 @@ export interface ReorderResult {
   historyCapped: number;
   /** Products skipped because the shelf already covers the period. */
   coveredByShelf: number;
+  /** Cost of each version, so all three can be compared before choosing. */
+  versionTotals: Record<VersionKey, { lines: number; cost: number }>;
   /** Readings available — velocity needs at least two. */
   snapshotCount: number;
   newestSnapshot: Date | null;
@@ -512,29 +539,31 @@ export async function buildReorder(
       continue;
     }
 
-    let suggestedCases = Math.ceil(unitsNeeded / perCase);
-    if (suggestedCases <= 0) continue;
-
-    // Bound the suggestion by how this product has actually been bought.
-    // Past orders are the strongest evidence of what a sensible quantity looks
-    // like; a forecast leaping far beyond every previous order is far more
-    // often an artefact than real growth, and being wrong means stock that
-    // sits. Growth is still allowed, just not in one jump.
-    let cappedByHistory = false;
+    // Past orders bound every version: a forecast leaping far beyond each
+    // previous order for a product is more often an artefact than real growth,
+    // and being wrong means stock that sits. Growth is allowed, not in one jump.
     const typical = c.avgCasesPerOrder;
-    if (typical > 0) {
-      const ceiling = Math.max(1, Math.ceil(typical * spikeGuard));
-      if (suggestedCases > ceiling) {
-        suggestedCases = ceiling;
-        cappedByHistory = true;
-        historyCapped++;
-      }
-    }
+    const ceiling = typical > 0 ? Math.max(1, Math.ceil(typical * spikeGuard)) : Infinity;
 
-    if (suggestedCases > maxCasesPerLine) {
-      suggestedCases = maxCasesPerLine;
-      notes.push(`${c.description || c.sku} capped at ${maxCasesPerLine} cases.`);
-    }
+    /** Cases for one version, given its slice of the cover period. */
+    const casesFor = (multiplier: number): { cases: number; capped: boolean } => {
+      const need = Math.max(0, weeklyUnits * coverWeeks * multiplier - onHand);
+      let n = Math.ceil(need / perCase);
+      if (n <= 0) return { cases: 0, capped: false };
+      let capped = false;
+      if (n > ceiling) { n = ceiling; capped = true; }
+      if (n > maxCasesPerLine) n = maxCasesPerLine;
+      return { cases: n, capped };
+    };
+
+    const full = casesFor(1);
+    const balanced = casesFor(ORDER_VERSIONS[1].coverMultiplier);
+    const lean = casesFor(ORDER_VERSIONS[2].coverMultiplier);
+
+    let suggestedCases = full.cases;
+    if (suggestedCases <= 0) continue;
+    const cappedByHistory = full.capped;
+    if (cappedByHistory) historyCapped++;
 
     if (basis === "measured") fromMeasured++;
     else if (basis === "velocity") fromVelocity++;
@@ -566,6 +595,9 @@ export async function buildReorder(
       onHand: Math.round(onHand * 10) / 10,
       shelfKnown,
       grossUnits: Math.round(grossUnits * 100) / 100,
+      casesFull: full.cases,
+      casesBalanced: balanced.cases,
+      casesLean: lean.cases,
       lastOrderedCases: c.avgCasesPerOrder > 0 ? Math.round(c.avgCasesPerOrder * 10) / 10 : null,
     });
   }
@@ -612,6 +644,22 @@ export async function buildReorder(
     snapshotCount,
     newestSnapshot: snapshotDays[0]?.takenAt ?? null,
     totalCost: money(lines.reduce((s, l) => s + l.lineCost, 0)),
+    versionTotals: {
+      full: tally(lines, (l) => l.casesFull),
+      balanced: tally(lines, (l) => l.casesBalanced),
+      lean: tally(lines, (l) => l.casesLean),
+    },
     notes: notes.slice(0, 20),
   };
+}
+
+/** Line count and cost of one version. */
+function tally(lines: ReorderLine[], pick: (l: ReorderLine) => number): { lines: number; cost: number } {
+  let count = 0;
+  let cost = 0;
+  for (const l of lines) {
+    const n = pick(l);
+    if (n > 0) { count++; cost += n * l.caseCost; }
+  }
+  return { lines: count, cost: money(cost) };
 }

@@ -8,7 +8,7 @@ import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
 import { generateDraftOrder, refreshDraftOrder } from "@/lib/vendors/draftOrder";
-import { DEFAULT_COVER_WEEKS } from "@/lib/vendors/reorder";
+import { DEFAULT_COVER_WEEKS, ORDER_VERSIONS, type VersionKey } from "@/lib/vendors/reorder";
 import { syncDemand } from "@/lib/integrations/sync";
 
 async function authorize() {
@@ -266,6 +266,53 @@ export async function deleteDraft(formData: FormData): Promise<void> {
     entity: "PurchaseOrder",
     entityId: id || null,
     after: { removed: removed.count },
+  });
+  revalidatePath("/orders");
+}
+
+/**
+ * Switch the order between its Full, Balanced and Lean sizes.
+ *
+ * Only lines still on their suggestion move — a quantity set by hand is the
+ * owner's decision and survives a resize, the same way it survives the daily
+ * refresh.
+ */
+export async function setOrderVersion(formData: FormData): Promise<void> {
+  const auth = await authorize();
+  if ("error" in auth) return;
+
+  const version = String(formData.get("version") ?? "full") as VersionKey;
+  if (!ORDER_VERSIONS.some((v) => v.key === version)) return;
+
+  const draft = await prisma.purchaseOrder.findFirst({
+    where: { locationId: auth.locationId, vendor: "GSC", status: "DRAFT" },
+    include: { lines: true },
+  });
+  if (!draft) return;
+
+  const pick = (l: (typeof draft.lines)[number]): number =>
+    version === "full" ? l.casesFull ?? l.suggestedCases
+      : version === "balanced" ? l.casesBalanced ?? l.suggestedCases
+      : l.casesLean ?? l.suggestedCases;
+
+  await prisma.$transaction([
+    prisma.purchaseOrder.update({ where: { id: draft.id }, data: { version } }),
+    ...draft.lines
+      .filter((l) => !l.edited)
+      .map((l) =>
+        prisma.purchaseOrderLine.update({
+          where: { id: l.id },
+          data: { cases: pick(l), suggestedCases: pick(l) },
+        })
+      ),
+  ]);
+
+  await logAudit({
+    userId: auth.session.userId,
+    action: "ORDER_VERSION_SET",
+    entity: "PurchaseOrder",
+    entityId: draft.id,
+    after: { version },
   });
   revalidatePath("/orders");
 }

@@ -62,6 +62,17 @@ export default async function OrdersPage() {
   const lines = draft?.lines ?? [];
   const draftCover = draft?.coverWeeks ?? 1;
   const totalCost = money(lines.reduce((s, l) => s + l.cases * l.caseCost, 0));
+  const tally = (pick: (l: (typeof lines)[number]) => number | null) => {
+    let n = 0, cost = 0;
+    for (const l of lines) { const c = pick(l) ?? 0; if (c > 0) { n++; cost += c * l.caseCost; } }
+    return { lines: n, cost: money(cost) };
+  };
+  const versionTotals = {
+    full: tally((l) => l.casesFull),
+    balanced: tally((l) => l.casesBalanced),
+    lean: tally((l) => l.casesLean),
+  };
+
   const measured = lines.filter((l) => l.basis === "measured" || l.basis === "velocity").length;
   const readings = snapshotDays.length;
 
@@ -168,6 +179,8 @@ export default async function OrdersPage() {
           totalCost={totalCost}
           typicalOrder={typicalOrder}
           pastOrderCount={pastTotals.length}
+          version={draft.version}
+          versionTotals={versionTotals}
           measured={measured}
           lines={lines.map((l) => ({
             id: l.id,
@@ -191,6 +204,9 @@ export default async function OrdersPage() {
             receivedUnits: l.receivedUnits,
             soldInHistory: l.soldInHistory,
             onHand: l.onHand,
+            casesFull: l.casesFull,
+            casesBalanced: l.casesBalanced,
+            casesLean: l.casesLean,
           }))}
         />
       )}

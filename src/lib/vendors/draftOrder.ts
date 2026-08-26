@@ -47,6 +47,9 @@ export async function generateDraftOrder(
         receivedUnits: l.receivedUnits,
         soldInHistory: l.soldInHistory,
         onHand: l.onHand,
+        casesFull: l.casesFull,
+        casesBalanced: l.casesBalanced,
+        casesLean: l.casesLean,
       })),
       skipDuplicates: true,
     });
@@ -122,6 +125,9 @@ export async function refreshDraftOrder(
           receivedUnits: s.receivedUnits,
           soldInHistory: s.soldInHistory,
           onHand: s.onHand,
+          casesFull: s.casesFull,
+          casesBalanced: s.casesBalanced,
+          casesLean: s.casesLean,
           // An edited quantity is the owner's decision and survives the refresh.
           ...(prev.edited ? {} : { cases: s.suggestedCases }),
         },
@@ -164,6 +170,9 @@ export async function refreshDraftOrder(
           receivedUnits: l.receivedUnits,
           soldInHistory: l.soldInHistory,
           onHand: l.onHand,
+          casesFull: l.casesFull,
+          casesBalanced: l.casesBalanced,
+          casesLean: l.casesLean,
         })),
         skipDuplicates: true,
       }) as unknown as Promise<unknown>
