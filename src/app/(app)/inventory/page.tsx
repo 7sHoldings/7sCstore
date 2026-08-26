@@ -4,7 +4,8 @@ import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { fmtMoney, fmtNumber, fmtDate, catLabel, gradeLabel } from "@/lib/format";
 import { money } from "@/lib/calc";
-import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
+import Link from "next/link";
+import { Card, PageHeader, Badge, EmptyState, Icon } from "@/components/ui";
 import { FuelReadingForm, ProductForm } from "./InventoryForms";
 import { reorderSuggestions } from "@/lib/reorder";
 import { toISODate } from "@/lib/period";
@@ -43,6 +44,9 @@ export default async function InventoryPage() {
         actions={
           canEdit && (
             <div className="flex gap-2">
+              <Link href="/pricing" className="ft-btn-secondary">
+                <Icon name="sell" className="text-[18px]" /> Pricing
+              </Link>
               <FuelReadingForm defaultDate={today} />
               <ProductForm />
             </div>

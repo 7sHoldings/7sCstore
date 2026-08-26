@@ -32,6 +32,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/purchases", label: "Purchases", icon: "local_shipping", perm: "enterPurchases", section: "manage" },
   { href: "/vendors", label: "Vendors", icon: "store", perm: "enterPurchases", section: "manage" },
   { href: "/inventory", label: "Inventory", icon: "inventory_2", perm: "viewAll", section: "manage" },
+  { href: "/pricing", label: "Pricing", icon: "sell", perm: "viewAll", section: "manage" },
   { href: "/shifts", label: "Shifts", icon: "schedule", perm: "enterSales", section: "manage" },
   { href: "/payroll", label: "Payroll", icon: "badge", perm: "viewAll", section: "manage" },
   { href: "/bank", label: "Banking", icon: "account_balance", perm: "viewAll", section: "manage" },
