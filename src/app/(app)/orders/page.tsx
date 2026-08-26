@@ -9,6 +9,7 @@ import { isMissingTableError, SETUP_SQL_PATH } from "@/lib/setupError";
 import DraftOrder from "./DraftOrder";
 import Deliveries from "./Deliveries";
 import PullSales from "./PullSales";
+import Diagnose from "./Diagnose";
 import { createOrderNow } from "./actions";
 import { HISTORY_DAYS } from "@/lib/integrations/sync";
 
@@ -134,6 +135,8 @@ export default async function OrdersPage() {
           )}
         </div>
       </Card>
+
+      {canEdit && <Diagnose />}
 
       {orderStats.length > 0 && (
         <Deliveries

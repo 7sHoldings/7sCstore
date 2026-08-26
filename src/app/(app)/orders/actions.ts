@@ -375,3 +375,124 @@ export async function setOrderVersion(formData: FormData): Promise<void> {
   });
   revalidatePath("/orders");
 }
+
+// ---------------------------------------------------------------------------
+// Diagnosis
+// ---------------------------------------------------------------------------
+
+export interface DemandDiagnosis {
+  error?: string;
+  /** Rows of sales stored, and how they break down. */
+  demandRows: number;
+  weeklyPeriods: number;
+  longPeriods: number;
+  oldest: string | null;
+  newest: string | null;
+  /** Distinct products with any sales figure. */
+  soldProducts: number;
+  /** Products this vendor supplies. */
+  catalogue: number;
+  /** Products present in BOTH — the ones a forecast can actually use. */
+  matched: number;
+  /** Vendor products with no sales row, as examples. */
+  sampleUnmatchedCatalogue: { upcNorm: string; description: string }[];
+  /** Sales rows with no vendor product, as examples. */
+  sampleUnmatchedSales: string[];
+  /** True when every week carries the same figure — a running total, not sales. */
+  looksCumulative: boolean;
+}
+
+/**
+ * Explain why sales are or aren't driving the order.
+ *
+ * The forecast joins vendor products to POS sales on a normalised scan code, and
+ * when that join finds nothing the order silently falls back to past orders and
+ * looks identical every week. This reports the join itself — how many matched,
+ * and examples from each side that didn't — so the answer is a fact rather than
+ * a guess.
+ */
+export async function diagnoseDemand(): Promise<DemandDiagnosis> {
+  const auth = await authorize();
+  const empty: DemandDiagnosis = {
+    demandRows: 0, weeklyPeriods: 0, longPeriods: 0, oldest: null, newest: null,
+    soldProducts: 0, catalogue: 0, matched: 0,
+    sampleUnmatchedCatalogue: [], sampleUnmatchedSales: [], looksCumulative: false,
+  };
+  if ("error" in auth) return { ...empty, error: auth.error };
+  const loc = auth.locationId;
+
+  const [rows] = await prisma.$queryRaw<{
+    demandRows: number; weeklyPeriods: number; longPeriods: number;
+    oldest: Date | null; newest: Date | null; soldProducts: number;
+  }[]>`
+    SELECT COUNT(*)::int                                        AS "demandRows",
+           COUNT(DISTINCT "periodStart") FILTER (WHERE "periodDays" = 7)::int  AS "weeklyPeriods",
+           COUNT(DISTINCT "periodStart") FILTER (WHERE "periodDays" > 7)::int  AS "longPeriods",
+           MIN("periodStart")                                   AS oldest,
+           MAX("periodStart")                                   AS newest,
+           COUNT(DISTINCT "upcNorm")::int                       AS "soldProducts"
+    FROM "ProductDemand" WHERE "locationId" = ${loc}
+  `;
+
+  const [counts] = await prisma.$queryRaw<{ catalogue: number; matched: number }[]>`
+    WITH cat AS (
+      SELECT DISTINCT "upcNorm" FROM "VendorOrderLine"
+      WHERE "locationId" = ${loc} AND vendor = 'GSC'
+    ),
+    sold AS (
+      SELECT DISTINCT "upcNorm" FROM "ProductDemand" WHERE "locationId" = ${loc}
+    )
+    SELECT (SELECT COUNT(*)::int FROM cat)                                  AS catalogue,
+           (SELECT COUNT(*)::int FROM cat JOIN sold USING ("upcNorm"))      AS matched
+  `;
+
+  const unmatchedCat = await prisma.$queryRaw<{ upcNorm: string; description: string }[]>`
+    SELECT DISTINCT v."upcNorm", MIN(v.description) AS description
+    FROM "VendorOrderLine" v
+    WHERE v."locationId" = ${loc} AND v.vendor = 'GSC'
+      AND NOT EXISTS (
+        SELECT 1 FROM "ProductDemand" d
+        WHERE d."locationId" = ${loc} AND d."upcNorm" = v."upcNorm"
+      )
+    GROUP BY v."upcNorm" LIMIT 6
+  `;
+
+  const unmatchedSales = await prisma.$queryRaw<{ upcNorm: string }[]>`
+    SELECT DISTINCT d."upcNorm"
+    FROM "ProductDemand" d
+    WHERE d."locationId" = ${loc}
+      AND NOT EXISTS (
+        SELECT 1 FROM "VendorOrderLine" v
+        WHERE v."locationId" = ${loc} AND v.vendor = 'GSC' AND v."upcNorm" = d."upcNorm"
+      )
+    LIMIT 6
+  `;
+
+  // Same test the engine applies before trusting the figures.
+  const flat = await prisma.$queryRaw<{ flat: number; considered: number }[]>`
+    WITH per AS (
+      SELECT "upcNorm", COUNT(*)::int AS weeks, COUNT(DISTINCT "soldUnits")::int AS distinct_values
+      FROM "ProductDemand"
+      WHERE "locationId" = ${loc} AND "periodDays" = 7 AND "soldUnits" > 0
+      GROUP BY "upcNorm" HAVING COUNT(*) >= 3
+    )
+    SELECT COUNT(*) FILTER (WHERE distinct_values = 1)::int AS flat,
+           COUNT(*)::int                                    AS considered
+    FROM per
+  `;
+  const f = flat[0] ?? { flat: 0, considered: 0 };
+
+  return {
+    demandRows: rows?.demandRows ?? 0,
+    weeklyPeriods: rows?.weeklyPeriods ?? 0,
+    longPeriods: rows?.longPeriods ?? 0,
+    oldest: rows?.oldest ? rows.oldest.toISOString().slice(0, 10) : null,
+    newest: rows?.newest ? rows.newest.toISOString().slice(0, 10) : null,
+    soldProducts: rows?.soldProducts ?? 0,
+    catalogue: counts?.catalogue ?? 0,
+    matched: counts?.matched ?? 0,
+    sampleUnmatchedCatalogue: unmatchedCat,
+    sampleUnmatchedSales: unmatchedSales.map((r) => r.upcNorm),
+    looksCumulative: f.considered >= 20 && f.flat / f.considered > 0.5,
+  };
+}
