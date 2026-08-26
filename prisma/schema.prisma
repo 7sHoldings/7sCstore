@@ -583,3 +583,69 @@ model DepartmentMargin {
   @@unique([locationId, department])
   @@index([locationId])
 }
+
+// ---------------------------------------------------------------------------
+// Demand history + automatic reordering
+// ---------------------------------------------------------------------------
+
+/**
+ * A point-in-time reading of the POS's cumulative units-sold counter.
+ *
+ * Modisoft doesn't maintain stock: on-hand simply decrements from zero as items
+ * sell, so `Current Qty` is the negative of units sold (verified on 16,229 of
+ * 16,230 rows of a real export). The counter's own start date is unknown, but
+ * the DIFFERENCE between two readings is exactly the units sold in between —
+ * which is all a reorder needs. One row per product per reading.
+ */
+model ProductMovement {
+  id         String   @id @default(cuid())
+  locationId String
+  upcNorm    String // leading-zero-stripped scan code
+  takenAt    DateTime // the day of the reading
+  soldUnits  Float    @default(0) // cumulative units sold, as reported
+
+  @@unique([locationId, upcNorm, takenAt])
+  @@index([locationId, takenAt])
+  @@index([locationId, upcNorm])
+}
+
+/** A draft/placed order for one vendor, built from demand history. */
+model PurchaseOrder {
+  id         String    @id @default(cuid())
+  locationId String
+  vendor     String    @default("GSC")
+  status     String    @default("DRAFT") // DRAFT | PLACED | CANCELLED
+  /** Weeks of cover the suggestion aimed for, kept for explainability. */
+  coverWeeks Float     @default(1)
+  note       String?
+  createdAt  DateTime  @default(now())
+  placedAt   DateTime?
+
+  lines PurchaseOrderLine[]
+
+  @@index([locationId, vendor, status])
+  @@index([locationId, createdAt])
+}
+
+model PurchaseOrderLine {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  upcNorm         String
+  sku             String // vendor item number, for keying into their portal
+  description     String
+  department      String?
+  unitsPerCase    Float         @default(1)
+  caseCost        Float         @default(0)
+  /** Units/week the engine measured for this product. */
+  weeklyUnits     Float         @default(0)
+  /** What the engine proposed. */
+  suggestedCases  Float         @default(0)
+  /** What will actually be ordered — owner-editable. */
+  cases           Float         @default(0)
+  /** Short machine reason, e.g. "velocity" or "reorder-history". */
+  basis           String        @default("velocity")
+
+  @@unique([purchaseOrderId, upcNorm])
+  @@index([purchaseOrderId])
+}

@@ -321,6 +321,41 @@ export async function runSync(locationId: string): Promise<{ imported: number; l
 }
 
 /**
+ * Store one units-sold reading per product, stamped to the start of today so
+ * repeated pulls in a day overwrite rather than accumulate. Never throws into
+ * the caller: a failed reading must not fail the inventory pull itself.
+ */
+async function recordMovement(
+  locationId: string,
+  items: { upc: string; qtyOnHand: number }[]
+): Promise<void> {
+  try {
+    const takenAt = new Date();
+    takenAt.setHours(0, 0, 0, 0);
+
+    const rows = items
+      .map((it) => ({
+        upcNorm: String(it.upc ?? "").replace(/\D/g, "").replace(/^0+/, ""),
+        // On-hand runs negative as items sell; that magnitude is units sold.
+        soldUnits: it.qtyOnHand < 0 ? -it.qtyOnHand : 0,
+      }))
+      .filter((r) => r.upcNorm && r.soldUnits > 0);
+    if (rows.length === 0) return;
+
+    // Re-pulling on the same day replaces that day's reading.
+    await prisma.productMovement.deleteMany({ where: { locationId, takenAt } });
+    for (let i = 0; i < rows.length; i += 1000) {
+      await prisma.productMovement.createMany({
+        data: rows.slice(i, i + 1000).map((r) => ({ locationId, takenAt, ...r })),
+        skipDuplicates: true,
+      });
+    }
+  } catch (e) {
+    console.error("recording sales movement failed", e);
+  }
+}
+
+/**
  * Pull the current item-wise inventory from the POS and upsert Products by UPC.
  * POS is the source of truth for name, category, cost, price and on-hand qty;
  * app-managed planning fields (case size, vendor, margin, reorder point, par)
@@ -406,6 +441,12 @@ export async function syncInventory(
     );
     updated += Math.min(50, toUpdate.length - i);
   }
+
+  // Record today's units-sold reading. The POS doesn't maintain stock — its
+  // quantity decrements from zero as items sell — so a negative on-hand is a
+  // cumulative units-sold counter. Two readings apart in time give the sales
+  // rate that drives reordering; a single reading on its own says nothing.
+  await recordMovement(locationId, [...byKey.values()]);
 
   await prisma.syncLog.create({
     data: {
