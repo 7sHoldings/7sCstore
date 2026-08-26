@@ -35,6 +35,13 @@ export interface NormalizedInventoryItem {
   unitCost: number; // POS Cost (often 0 — POS doesn't track cost here)
   retailPrice: number;
   qtyOnHand: number; // POS qty (often 0/negative — POS stock not maintained)
+  /**
+   * Units sold within the requested window, when the report gives one.
+   * Distinct from qtyOnHand on purpose: that field is a running stock level and
+   * carries the same lifetime figure whatever dates are asked for, so using it
+   * as period sales turns a lifetime total into a weekly forecast.
+   */
+  soldInPeriod?: number;
 }
 
 /** A request to set a new retail price on one POS item (scoped to its dept). */

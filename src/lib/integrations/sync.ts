@@ -593,9 +593,16 @@ export async function syncDemand(
     for (const it of items) {
       const upcNorm = String(it.upc ?? "").replace(/\D/g, "").replace(/^0+/, "");
       if (!upcNorm) continue;
-      // On-hand runs negative as items sell; over a window that magnitude is
-      // the units sold within it.
-      const sold = it.qtyOnHand < 0 ? -it.qtyOnHand : 0;
+      // Prefer a genuine per-period figure. The stock level is a fallback and a
+      // poor one: it is a running total that ignores the dates asked for, so
+      // treating it as period sales reads a lifetime figure as one week's.
+      // `productDemandLooksCumulative` downstream catches that if it happens.
+      const sold =
+        it.soldInPeriod != null && it.soldInPeriod > 0
+          ? it.soldInPeriod
+          : it.qtyOnHand < 0
+          ? -it.qtyOnHand
+          : 0;
       if (sold <= 0) continue;
       rows.set(upcNorm, Math.max(rows.get(upcNorm) ?? 0, sold));
     }

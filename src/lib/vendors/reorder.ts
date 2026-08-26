@@ -69,6 +69,18 @@ export const DEFAULT_DEMAND_WEEKS = 6;
  */
 export const DEFAULT_SPIKE_GUARD = 1.5;
 
+/**
+ * An order may not exceed this multiple of a normal one.
+ *
+ * Every per-line rule can still be satisfied while the total lands somewhere
+ * absurd — a bad sales feed produced an order at nearly ten times normal spend,
+ * with each individual line looking defensible. This is the backstop: the order
+ * is trimmed smallest-value-first until it fits, and what was dropped is
+ * reported rather than quietly removed. Nothing here replaces fixing the data;
+ * it exists so bad data cannot turn into a purchase.
+ */
+export const MAX_ORDER_MULTIPLE = 2;
+
 
 
 /** Ignore readings older than this when measuring velocity. */
@@ -77,6 +89,8 @@ const VELOCITY_WINDOW_DAYS = 35;
 const MIN_SPAN_DAYS = 2;
 
 export interface ReorderOptions {
+  /** What a normal order costs, used as the ceiling for the whole order. */
+  typicalOrderCost?: number | null;
   /** Weeks of stock the order should cover. */
   coverWeeks?: number;
   /**
@@ -162,6 +176,12 @@ export interface ReorderResult {
   skippedSlow: number;
   /** Lines trimmed to stay in line with past orders. */
   historyCapped: number;
+  /** The POS returned a running total instead of weekly sales, so it was refused. */
+  demandLooksCumulative: boolean;
+  /** Lines held back to keep the order within reach of a normal one. */
+  trimmedToBudget: number;
+  /** The ceiling applied, when one was. */
+  budgetCeiling: number | null;
   /** Products skipped because the shelf already covers the period. */
   coveredByShelf: number;
   /** Cost of each version, so all three can be compared before choosing. */
@@ -340,6 +360,34 @@ async function loadDemand(
   return { series, periods };
 }
 
+/**
+ * True when the weekly figures look like a running total rather than per-week
+ * sales.
+ *
+ * The POS report accepts a date range but its quantity column is a stock level,
+ * so if it ignores those dates every week comes back carrying the same lifetime
+ * figure. A median of six identical lifetime totals then becomes the weekly
+ * forecast, and a product that has sold 3,557 units since the counter started
+ * gets ordered as 3,557 a week.
+ *
+ * Real sales vary. Identical values across every week, for most of the
+ * catalogue, means the dates were ignored — so the data is refused rather than
+ * forecast from.
+ */
+export function looksCumulative(series: Map<string, DemandSeries>): boolean {
+  let flat = 0;
+  let considered = 0;
+  for (const s of series.values()) {
+    if (s.weeks.length < 3) continue;
+    const nonZero = s.weeks.filter((v) => v > 0);
+    if (nonZero.length < 3) continue;
+    considered++;
+    if (nonZero.every((v) => v === nonZero[0])) flat++;
+  }
+  // A handful of steady sellers can genuinely be flat; most of the shop cannot.
+  return considered >= 20 && flat / considered > 0.5;
+}
+
 /** Middle value; the mean of the two middle values for an even count. */
 function median(values: number[]): number {
   if (values.length === 0) return 0;
@@ -419,6 +467,7 @@ export async function buildReorder(
   const vendor = opts.vendor ?? "GSC";
   const demandWeeks = opts.demandWeeks ?? DEFAULT_DEMAND_WEEKS;
   const spikeGuard = opts.spikeGuard ?? DEFAULT_SPIKE_GUARD;
+  const typicalOrderCost = opts.typicalOrderCost ?? (await medianOrderCost(locationId, vendor));
 
   const since = new Date();
   since.setDate(since.getDate() - VELOCITY_WINDOW_DAYS);
@@ -438,9 +487,20 @@ export async function buildReorder(
   ]);
 
   const demand = demandData.series;
-  const demandPeriods = demandData.periods.length;
+  // Refuse a dataset that is a running total wearing weekly clothing. Ordering
+  // from it would buy a lifetime of stock in one week.
+  const cumulative = looksCumulative(demand);
+  const demandPeriods = cumulative ? 0 : demandData.periods.length;
 
   const notes: string[] = [];
+  if (cumulative) {
+    notes.unshift(
+      "The POS returned the same figure for every week, which means it ignored the date " +
+        "range and reported a running total rather than weekly sales. That data was discarded " +
+        "— quantities below come from past orders instead. Ordering from it would have bought " +
+        "a lifetime of stock in one week."
+    );
+  }
   const lines: ReorderLine[] = [];
   let fromMeasured = 0;
   let fromVelocity = 0;
@@ -591,6 +651,35 @@ export async function buildReorder(
   // Busiest first — that's the order the owner wants to eyeball.
   lines.sort((a, b) => b.weeklyUnits - a.weeklyUnits);
 
+  // Backstop: keep the whole order within reach of a normal one. Per-line rules
+  // can all pass while the total is still far beyond anything ever spent.
+  let trimmedToBudget = 0;
+  let budgetCeiling: number | null = null;
+  if (typicalOrderCost && typicalOrderCost > 0) {
+    budgetCeiling = money(typicalOrderCost * MAX_ORDER_MULTIPLE);
+    let running = lines.reduce((sum, l) => sum + l.lineCost, 0);
+    if (running > budgetCeiling) {
+      // Drop the least valuable lines first, so the fastest movers survive.
+      const bySmallest = [...lines].sort((a, b) => a.lineCost - b.lineCost);
+      const dropped = new Set<string>();
+      for (const l of bySmallest) {
+        if (running <= budgetCeiling) break;
+        dropped.add(l.upcNorm);
+        running -= l.lineCost;
+        trimmedToBudget++;
+      }
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (dropped.has(lines[i].upcNorm)) lines.splice(i, 1);
+      }
+      notes.unshift(
+        `This order came to more than ${MAX_ORDER_MULTIPLE}x a normal one, so ` +
+          `${trimmedToBudget} of the smallest lines were held back to bring it within ` +
+          `${money(budgetCeiling).toLocaleString()}. That usually means the sales data is wrong — ` +
+          `check the figures before ordering.`
+      );
+    }
+  }
+
   const snapshotCount = snapshotDays.length;
   if (fromMeasured === 0 && snapshotCount < 2) {
     notes.unshift(
@@ -626,6 +715,9 @@ export async function buildReorder(
     fromHistory,
     skippedSlow,
     historyCapped,
+    demandLooksCumulative: cumulative,
+    trimmedToBudget,
+    budgetCeiling,
     coveredByShelf,
     snapshotCount,
     newestSnapshot: snapshotDays[0]?.takenAt ?? null,
@@ -648,4 +740,18 @@ function tally(lines: ReorderLine[], pick: (l: ReorderLine) => number): { lines:
     if (n > 0) { count++; cost += n * l.caseCost; }
   }
   return { lines: count, cost: money(cost) };
+}
+
+/** The median cost of recent orders from this vendor — what "normal" means. */
+async function medianOrderCost(locationId: string, vendor: string): Promise<number | null> {
+  const rows = await prisma.$queryRaw<{ total: number }[]>`
+    SELECT SUM("lineCost")::float AS total
+    FROM "VendorOrderLine"
+    WHERE "locationId" = ${locationId} AND vendor = ${vendor}
+    GROUP BY "orderId"
+  `;
+  const totals = rows.map((r) => r.total).filter((n) => n > 0).sort((a, b) => a - b);
+  if (totals.length === 0) return null;
+  const mid = Math.floor(totals.length / 2);
+  return totals.length % 2 ? totals[mid] : (totals[mid - 1] + totals[mid]) / 2;
 }

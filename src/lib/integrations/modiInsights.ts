@@ -275,6 +275,13 @@ export const modiInsightsAdapter: PosAdapter = {
           unitCost: num(r.Cost),
           retailPrice: num(r.Retail),
           qtyOnHand: num(r.CurrentRptQty),
+          // A real per-period sold figure if the grid has one. Field naming
+          // varies, so several spellings are tried; absent them the caller
+          // must not fall back to the stock snapshot, which is cumulative.
+          soldInPeriod: firstNumber(r, [
+            "SoldQty", "Sold", "QtySold", "SoldQuantity", "RptSoldQty",
+            "SaleQty", "SalesQty", "TotalSold", "SoldUnits",
+          ]),
         });
       }
       if (!data.length) break;
@@ -631,4 +638,14 @@ function round2(n: number): number {
 function share(totalGallons: number, sliceAmount: number, totalAmount: number): number {
   if (totalAmount === 0) return round2(totalGallons);
   return round2((totalGallons * sliceAmount) / totalAmount);
+}
+
+/** First of `keys` present on the row as a number, or undefined if none are. */
+function firstNumber(row: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const k of keys) {
+    if (row[k] === undefined || row[k] === null || row[k] === "") continue;
+    const n = Number(row[k]);
+    if (isFinite(n)) return n;
+  }
+  return undefined;
 }
