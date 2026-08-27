@@ -8,15 +8,24 @@ import { mapFuelType, mapDeptToCategory } from "./modiMap";
  * — when it expires, a sync fails and you refresh MODI_COOKIE in Vercel.
  *
  * Config: MODI_COOKIE (required) — the full `Cookie:` header value from a logged
- * in Insights browser session.
+ * in Insights browser session. MODI_BASE / MODI_INV_BASE override the host when
+ * an account sits on a different one than the cookie was copied from.
  */
-const BASE = "https://insights1.modisoft.com";
-// The inventory endpoints were observed on insights.modisoft.com (cookies are
-// shared across *.modisoft.com). Override with MODI_INV_BASE if needed.
-// Inventory lives on a different host from the sales reports. Cookies are
-// scoped per host, so MODI_COOKIE has to come from whichever of these the pull
-// actually uses — override with MODI_INV_BASE when they differ for an account.
-const INV_BASE = process.env.MODI_INV_BASE || "https://insights.modisoft.com";
+// Both the sales reports and the inventory endpoints run on the host the owner
+// is actually logged into. A HAR captured from a live session (report 603, the
+// Sales Transaction report) shows every call going to insights.modisoft.com:
+//
+//     :authority: insights.modisoft.com
+//     :path: /Report/RptSalesTranGrid
+//     referer: https://insights.modisoft.com/ebreports/index/603
+//
+// This matters more than it looks. Session cookies are scoped per HOST, so a
+// cookie copied from insights.modisoft.com is simply not sent to — and not
+// honoured by — insights1.modisoft.com. Pointing the reports at insights1 made
+// every pull look like an expired login when the cookie was perfectly good.
+// Accounts do sit on different hosts, so both stay overridable.
+const BASE = process.env.MODI_BASE || "https://insights.modisoft.com";
+const INV_BASE = process.env.MODI_INV_BASE || BASE;
 
 // Cloudflare's cf_clearance cookie is bound to the browser's User-Agent, so we
 // send a matching one. Override with MODI_USER_AGENT if your browser differs.
@@ -470,8 +479,8 @@ function notJsonError(path: string, contentType: string | null, base?: string): 
     `${host} answered ${path} with ${contentType || "an unknown content type"} instead of JSON — ` +
       `a login page, so MODI_COOKIE is not valid for ${host}. ` +
       "Cookies only work on the host they were copied from: log in to " +
-      `${host} itself and copy the Cookie header from there, or point MODI_INV_BASE ` +
-      "at the host your cookie belongs to."
+      `${host} itself and copy the Cookie header from there, or point MODI_BASE ` +
+      "(reports) / MODI_INV_BASE (inventory) at the host your cookie belongs to."
   );
 }
 
