@@ -60,6 +60,9 @@ export default function DraftOrder({
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [dept, setDept] = useState("");
+  const [basis, setBasis] = useState("");
+  const [flag, setFlag] = useState("");
+  const [sort, setSort] = useState("demand");
   // Local echo of edits so the row doesn't snap back while the server saves.
   const [edits, setEdits] = useState<Record<string, number>>({});
 
@@ -68,14 +71,70 @@ export default function DraftOrder({
     [lines]
   );
 
+  // A forecast line is either measured from sales or guessed from past orders,
+  // and the owner reviews those two very differently — the guesses are the ones
+  // worth a second look, so they have to be separable.
+  const fromSales = (l: DraftLine) =>
+    l.basis === "measured" || l.basis === "imported" || l.basis === "velocity";
+
   const visible = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return lines.filter(
-      (l) =>
-        (!dept || l.department === dept) &&
-        (!s || l.description.toLowerCase().includes(s) || l.sku.includes(s) || l.upcNorm.includes(s))
-    );
-  }, [lines, q, dept]);
+    const rows = lines.filter((l) => {
+      if (dept && l.department !== dept) return false;
+      if (s && !(l.description.toLowerCase().includes(s) || l.sku.includes(s) || l.upcNorm.includes(s)))
+        return false;
+      if (basis === "sales" && !fromSales(l)) return false;
+      if (basis === "guess" && fromSales(l)) return false;
+      const cases = edits[l.id] ?? l.cases;
+      if (flag === "ordering" && cases <= 0) return false;
+      if (flag === "dropped" && cases > 0) return false;
+      if (flag === "edited" && !(l.edited || edits[l.id] !== undefined)) return false;
+      if (flag === "trimmed" && !l.cappedByHistory) return false;
+      if (flag === "noshelf" && (l.receivedUnits ?? 0) > 0) return false;
+      return true;
+    });
+
+    const cost = (l: DraftLine) => (edits[l.id] ?? l.cases) * l.caseCost;
+    const byName = (a: DraftLine, b: DraftLine) => a.description.localeCompare(b.description);
+    const sorted = [...rows];
+    if (sort === "cost") sorted.sort((a, b) => cost(b) - cost(a) || byName(a, b));
+    else if (sort === "cheap") sorted.sort((a, b) => cost(a) - cost(b) || byName(a, b));
+    else if (sort === "name") sorted.sort(byName);
+    else if (sort === "dept")
+      sorted.sort((a, b) => (a.department ?? "~").localeCompare(b.department ?? "~") || byName(a, b));
+    else sorted.sort((a, b) => b.weeklyUnits - a.weeklyUnits || byName(a, b));
+    return sorted;
+  }, [lines, q, dept, basis, flag, sort, edits]);
+
+  // What the rows on screen come to. Filtering to one department and seeing it
+  // costs $2,100 of a $9,288 order is the question this screen gets asked most.
+  const shownCost = visible.reduce((sum, l) => sum + (edits[l.id] ?? l.cases) * l.caseCost, 0);
+  const shownCases = visible.reduce((sum, l) => sum + (edits[l.id] ?? l.cases), 0);
+  const filtered = Boolean(q || dept || basis || flag);
+  function clearFilters() {
+    setQ(""); setDept(""); setBasis(""); setFlag(""); setSort("demand");
+  }
+
+  // Counts on the dropdown options, so the owner can see there are 12 guessed
+  // lines without having to select the filter to find out.
+  const deptCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of lines) if (l.department) m.set(l.department, (m.get(l.department) ?? 0) + 1);
+    return m;
+  }, [lines]);
+
+  const counts = useMemo(() => {
+    const c = { sales: 0, guess: 0, ordering: 0, dropped: 0, edited: 0, trimmed: 0, noshelf: 0 };
+    for (const l of lines) {
+      if (fromSales(l)) c.sales++; else c.guess++;
+      if ((edits[l.id] ?? l.cases) > 0) c.ordering++; else c.dropped++;
+      if (l.edited || edits[l.id] !== undefined) c.edited++;
+      if (l.cappedByHistory) c.trimmed++;
+      if ((l.receivedUnits ?? 0) <= 0) c.noshelf++;
+    }
+    return c;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines, edits]);
 
   const activeVersion = ORDER_VERSIONS.find((v) => v.key === version) ?? ORDER_VERSIONS[0];
   const casesOf = (l: DraftLine) => edits[l.id] ?? l.cases;
@@ -230,22 +289,71 @@ export default function DraftOrder({
       )}
 
       {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 mb-4 bg-surface-container-low border border-outline-variant/60 rounded-lg p-3">
-        <input
-          type="search" value={q} onChange={(e) => setQ(e.target.value)}
-          placeholder="Search product, SKU or UPC…"
-          className="ft-input py-1.5 text-body-sm flex-1 min-w-[12rem]"
-        />
-        <select
-          value={dept} onChange={(e) => setDept(e.target.value)}
-          className="ft-input py-1.5 text-body-sm min-w-[10rem]"
-        >
-          <option value="">All departments</option>
-          {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
-        <span className="text-body-sm text-on-surface-variant tabular ml-auto self-center">
-          {fmtNumber(visible.length)} shown{pending ? " · saving…" : ""}
-        </span>
+      <div className="mb-4 bg-surface-container-low border border-outline-variant/60 rounded-lg p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="search" value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder="Search product, SKU or UPC…"
+            className="ft-input py-1.5 text-body-sm flex-1 min-w-[12rem]"
+          />
+          <select
+            value={dept} onChange={(e) => setDept(e.target.value)}
+            aria-label="Department"
+            className="ft-input py-1.5 text-body-sm min-w-[10rem]"
+          >
+            <option value="">All departments</option>
+            {departments.map((d) => (
+              <option key={d} value={d}>
+                {d} ({deptCounts.get(d) ?? 0})
+              </option>
+            ))}
+          </select>
+          <select
+            value={basis} onChange={(e) => setBasis(e.target.value)}
+            aria-label="Where the quantity came from"
+            className="ft-input py-1.5 text-body-sm min-w-[11rem]"
+          >
+            <option value="">Any source</option>
+            <option value="sales">From sales ({counts.sales})</option>
+            <option value="guess">From past orders ({counts.guess})</option>
+          </select>
+          <select
+            value={flag} onChange={(e) => setFlag(e.target.value)}
+            aria-label="Show which lines"
+            className="ft-input py-1.5 text-body-sm min-w-[11rem]"
+          >
+            <option value="">All lines</option>
+            <option value="ordering">In this order ({counts.ordering})</option>
+            <option value="dropped">Dropped to zero ({counts.dropped})</option>
+            <option value="edited">Changed by you ({counts.edited})</option>
+            <option value="trimmed">Trimmed to usual ({counts.trimmed})</option>
+            <option value="noshelf">Shelf unknown ({counts.noshelf})</option>
+          </select>
+          <select
+            value={sort} onChange={(e) => setSort(e.target.value)}
+            aria-label="Sort"
+            className="ft-input py-1.5 text-body-sm min-w-[11rem]"
+          >
+            <option value="demand">Fastest selling first</option>
+            <option value="cost">Most expensive first</option>
+            <option value="cheap">Cheapest first</option>
+            <option value="name">Product A–Z</option>
+            <option value="dept">Department A–Z</option>
+          </select>
+          {filtered && (
+            <button type="button" onClick={clearFilters} className="ft-btn-ghost py-1.5 text-body-sm">
+              <Icon name="close" className="text-[16px]" />
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="mt-2 text-body-sm text-on-surface-variant tabular">
+          {fmtNumber(visible.length)} of {fmtNumber(lines.length)} lines ·{" "}
+          {fmtNumber(shownCases)} case{shownCases === 1 ? "" : "s"} ·{" "}
+          <strong className="text-on-surface">{fmtMoney(shownCost)}</strong>
+          {filtered && liveTotal > 0 && ` of ${fmtMoney(liveTotal)}`}
+          {pending ? " · saving…" : ""}
+        </div>
       </div>
 
       <Card className="overflow-hidden">
@@ -282,6 +390,8 @@ export default function DraftOrder({
                         {l.department ?? "—"}
                         {l.basis === "measured" ? (
                           <Badge tone="success">from sales</Badge>
+                        ) : l.basis === "imported" ? (
+                          <Badge tone="success">from your export</Badge>
                         ) : l.basis === "velocity" ? (
                           <Badge tone="success">measured</Badge>
                         ) : (
