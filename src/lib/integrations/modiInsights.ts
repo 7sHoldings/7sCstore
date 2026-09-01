@@ -334,7 +334,18 @@ export const modiInsightsAdapter: PosAdapter = {
     const cookie = process.env.MODI_COOKIE!;
     const storeId = process.env.MODI_STORE_ID || "16";
     const ccode = process.env.MODI_CCODE || "854388";
-    await changeStore(cookie, storeId, ccode, INV_BASE);
+
+    // Selecting the store is the first thing that touches the session, so it is
+    // the first thing an expired cookie breaks. Throwing here aborted the whole
+    // price update and the caller could only report a generic failure — the one
+    // useful fact, that the session is dead, was lost. Every other step in this
+    // method already degrades to a per-item error, so this one does too.
+    try {
+      await changeStore(cookie, storeId, ccode, INV_BASE);
+    } catch (e) {
+      const error = e instanceof Error ? e.message : "Could not select the store in Modisoft.";
+      return reqs.map((r) => ({ posItemId: r.posItemId, ok: false, oldPrice: null, error }));
+    }
 
     const today = fmtDate(new Date());
     const results: PricePushResult[] = [];

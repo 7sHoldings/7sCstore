@@ -176,6 +176,8 @@ export interface ApplyPricesResult {
   pushed?: number;
   pushFailed?: number;
   live?: boolean;
+  /** Why the POS refused, when it did — usually one reason for the whole batch. */
+  pushError?: string;
 }
 
 /**
@@ -215,24 +217,35 @@ export async function applyTargetPrices(input: unknown): Promise<ApplyPricesResu
     let live = false;
     const pushedOk = new Set<string>();
 
+    let pushError: string | undefined;
     if (linked.length > 0) {
-      const res = await pushPrices(
-        auth.locationId,
-        linked.map((c) => ({
-          productId: c.productId,
-          posItemId: c.prev!.posItemId as number,
-          posDeptId: c.prev!.posDeptId ?? null,
-          newRetail: c.newPrice,
-        }))
-      );
-      live = res.live;
-      for (const r of res.results) {
-        if (r.ok) {
-          pushed++;
-          pushedOk.add(r.productId);
-        } else {
-          pushFailed++;
+      // A POS that cannot be reached must not take the whole operation with it:
+      // items that need no push still deserve to be applied, and the owner needs
+      // to be told what actually went wrong rather than "could not apply".
+      try {
+        const res = await pushPrices(
+          auth.locationId,
+          linked.map((c) => ({
+            productId: c.productId,
+            posItemId: c.prev!.posItemId as number,
+            posDeptId: c.prev!.posDeptId ?? null,
+            newRetail: c.newPrice,
+          }))
+        );
+        live = res.live;
+        for (const r of res.results) {
+          if (r.ok) {
+            pushed++;
+            pushedOk.add(r.productId);
+          } else {
+            pushFailed++;
+            if (!pushError && r.error) pushError = r.error;
+          }
         }
+      } catch (e) {
+        pushFailed = linked.length;
+        pushError = e instanceof Error ? e.message : "The POS connection failed.";
+        console.error("price push failed", e);
       }
     }
 
@@ -270,7 +283,7 @@ export async function applyTargetPrices(input: unknown): Promise<ApplyPricesResu
 
     revalidatePath("/gsc");
     revalidatePath("/inventory");
-    return { ok: true, updated: toWrite.length, pushed, pushFailed, live };
+    return { ok: true, updated: toWrite.length, pushed, pushFailed, live, pushError };
   } catch (e) {
     console.error("applyTargetPrices failed", e);
     return { error: "Could not apply those prices." };

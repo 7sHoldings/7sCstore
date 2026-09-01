@@ -153,7 +153,7 @@ export default function GscCompare({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ updated: number; pushed: number; pushFailed: number; live?: boolean } | null>(null);
+  const [result, setResult] = useState<{ updated: number; pushed: number; pushFailed: number; live?: boolean; pushError?: string } | null>(null);
 
   // Per-row overrides, keyed by scan code. Deliberately not persisted: this is
   // a decision made while reviewing a page, and once applied the price itself
@@ -261,7 +261,7 @@ export default function GscCompare({
     setError(null);
     setResult(null);
     setProgress(0);
-    const tot = { updated: 0, pushed: 0, pushFailed: 0, live: false };
+    const tot = { updated: 0, pushed: 0, pushFailed: 0, live: false, pushError: undefined as string | undefined };
 
     for (let i = 0; i < items.length; i += BATCH) {
       const res = await applyTargetPrices({ items: items.slice(i, i + BATCH) });
@@ -275,6 +275,7 @@ export default function GscCompare({
       tot.pushed += res.pushed ?? 0;
       tot.pushFailed += res.pushFailed ?? 0;
       tot.live = res.live ?? tot.live;
+      if (!tot.pushError && res.pushError) tot.pushError = res.pushError;
       setProgress(Math.min(i + BATCH, items.length));
     }
 
@@ -291,10 +292,26 @@ export default function GscCompare({
   return (
     <div>
       {result && (
-        <Banner tone="success" icon="check_circle">
+        <Banner
+          tone={result.pushFailed > 0 ? (result.updated === 0 ? "error" : "info") : "success"}
+          icon={result.pushFailed > 0 ? "warning" : "check_circle"}
+        >
           Updated {fmtNumber(result.updated)} price{result.updated === 1 ? "" : "s"}.
-          {result.pushed > 0 && ` ${fmtNumber(result.pushed)} pushed to the POS${result.live ? "" : " (sandbox)"}.`}
-          {result.pushFailed > 0 && ` ${fmtNumber(result.pushFailed)} POS push${result.pushFailed === 1 ? "" : "es"} failed — those prices were left unchanged.`}
+          {result.pushed > 0 && ` ${fmtNumber(result.pushed)} pushed to the register${result.live ? "" : " (sandbox)"}.`}
+          {result.pushFailed > 0 && (
+            <>
+              {" "}
+              {fmtNumber(result.pushFailed)} item{result.pushFailed === 1 ? " was" : "s were"} left
+              unchanged because the register would not take the new price — the app is not allowed
+              to show a price the till does not charge.
+              {result.pushError && (
+                <span className="block mt-1 opacity-90">Reason: {result.pushError}</span>
+              )}
+              <span className="block mt-1">
+                Fix the Modisoft session on <strong>Integrations</strong>, then apply again.
+              </span>
+            </>
+          )}
         </Banner>
       )}
       {error && <Banner tone="error" icon="error">{error}</Banner>}
