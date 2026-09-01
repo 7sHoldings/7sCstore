@@ -26,12 +26,12 @@ const SOURCE_LABEL: Record<"current" | "srp" | "target", string> = {
  */
 type PriceChoice = "auto" | "current" | "srp" | "target" | "custom";
 
+/** Used by the bulk "set selected to" control, which is not a per-row choice. */
 const CHOICE_OPTIONS: { value: PriceChoice; label: string }[] = [
   { value: "auto", label: "Highest (default)" },
   { value: "target", label: "Margin target" },
   { value: "srp", label: "GSC SRP" },
   { value: "current", label: "Keep our price" },
-  { value: "custom", label: "Type a price…" },
 ];
 
 const CHOICE_LABEL: Record<PriceChoice, string> = {
@@ -65,6 +65,49 @@ export interface Row {
   increase: number;
   aboveSrp: boolean;
   unmatched: boolean;
+}
+
+/**
+ * One candidate price with a box beside it. The three are mutually exclusive —
+ * a row is priced at one number — so ticking one moves the tick rather than
+ * adding to it. Checkboxes rather than radios because that is how the owner
+ * reads the screen: tick the price you want.
+ *
+ * A price of zero is not a candidate (no SRP on the order, no price in the POS),
+ * so it shows a dash with nothing to tick.
+ */
+function PricePick({
+  value, ticked, onPick, enabled, label, decimals = 2,
+}: {
+  value: number | null;
+  ticked: boolean;
+  onPick: () => void;
+  enabled: boolean;
+  label: string;
+  decimals?: number;
+}) {
+  if (value == null || value <= 0) {
+    return <span className="opacity-50 tabular">—</span>;
+  }
+  const text = decimals === 2 ? fmtMoney(value) : `$${value.toFixed(decimals)}`;
+  if (!enabled) return <span className="tabular">{text}</span>;
+
+  return (
+    <label
+      className={`inline-flex items-center justify-end gap-1.5 cursor-pointer rounded px-1 -mx-1 py-0.5 hover:bg-surface-container ${
+        ticked ? "font-semibold text-on-surface" : "text-on-surface-variant"
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={ticked}
+        onChange={onPick}
+        aria-label={label}
+        className="accent-primary w-4 h-4 shrink-0"
+      />
+      <span className="tabular">{text}</span>
+    </label>
+  );
 }
 
 /** The price a row lands on, and what that does to the shelf. */
@@ -119,6 +162,24 @@ export default function GscCompare({
   const [typed, setTyped] = useState<Record<string, string>>({});
 
   const choiceOf = (r: Row): PriceChoice => choice[r.upcNorm] ?? "auto";
+
+  /**
+   * Which box is ticked. Under "auto" that is whichever candidate the
+   * max-of-three rule already picked, so the row opens with the default
+   * visibly selected rather than with nothing chosen.
+   */
+  const tickedOn = (r: Row): PriceChoice => {
+    const c = choiceOf(r);
+    return c === "auto" ? r.priceSource : c;
+  };
+
+  /** Tick a price. Ticking the one already in use hands the row back to the default. */
+  function pickPrice(r: Row, which: PriceChoice) {
+    setChoice((prev) => ({
+      ...prev,
+      [r.upcNorm]: choiceOf(r) === which ? "auto" : which,
+    }));
+  }
 
   /** The price this row will be set to under its current choice. */
   function priceFor(r: Row): number {
@@ -314,9 +375,10 @@ export default function GscCompare({
             </label>
 
             <span className="text-body-sm text-on-surface-variant">
-              By default each price becomes the greatest of your price, GSC&apos;s SRP and the
-              margin target. Change any row&apos;s <strong>New Price</strong> dropdown to use a
-              different one, or type your own.
+              Each row opens with the greatest of <strong>Our Price</strong>, <strong>GSC SRP</strong>{" "}
+              and <strong>Target</strong> already ticked. Tick a different one to use it instead, or
+              tick <strong>my price</strong> to type your own. The box on the left is what gets
+              applied.
             </span>
           </div>
 
@@ -380,13 +442,15 @@ export default function GscCompare({
                   <th className="px-3 py-3 text-right">Unit Cost</th>
                   <th className="px-3 py-3 text-right">GSC SRP</th>
                   <th className="px-3 py-3 text-right">Target</th>
-                  <th className="px-3 py-3 text-right">New Price</th>
+                  <th className="px-3 py-3 text-right whitespace-nowrap">New Price</th>
                   <th className="px-3 py-3">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/40">
                 {rows.map((r) => {
                   const pick = choiceOf(r);
+                  const on = tickedOn(r);
+                  const pickable = Boolean(canEdit && r.productId);
                   const price = priceFor(r);
                   const delta = deltaFor(r);
                   const canPick = canApply(r);
@@ -420,8 +484,14 @@ export default function GscCompare({
                           {r.marginPct != null && ` · ${r.marginPct}% target`}
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-right tabular">
-                        {r.currentPrice == null ? <span className="opacity-50">—</span> : fmtMoney(r.currentPrice)}
+                      <td className="px-3 py-3 text-right whitespace-nowrap">
+                        <PricePick
+                          value={r.currentPrice}
+                          ticked={on === "current"}
+                          onPick={() => pickPrice(r, "current")}
+                          enabled={pickable}
+                          label={`Keep our price for ${r.productName ?? r.description}`}
+                        />
                       </td>
                       <td className="px-3 py-3 text-right tabular">{fmtMoney(r.caseCost)}</td>
                       <td className="px-3 py-3 text-right tabular text-on-surface-variant whitespace-nowrap">
@@ -429,46 +499,57 @@ export default function GscCompare({
                         {r.sizeLabel && <span className="opacity-60"> / {r.sizeLabel}</span>}
                       </td>
                       <td className="px-3 py-3 text-right tabular">${r.unitCost.toFixed(4)}</td>
-                      <td className="px-3 py-3 text-right tabular text-on-surface-variant">
-                        {r.srp > 0 ? fmtMoney(r.srp) : "—"}
+                      <td className="px-3 py-3 text-right whitespace-nowrap">
+                        <PricePick
+                          value={r.srp}
+                          ticked={on === "srp"}
+                          onPick={() => pickPrice(r, "srp")}
+                          enabled={pickable}
+                          label={`Use GSC SRP for ${r.productName ?? r.description}`}
+                        />
                       </td>
-                      <td className="px-3 py-3 text-right tabular text-on-surface-variant">
-                        {fmtMoney(r.targetPrice)}
+                      <td className="px-3 py-3 text-right whitespace-nowrap">
+                        <PricePick
+                          value={r.targetPrice}
+                          ticked={on === "target"}
+                          onPick={() => pickPrice(r, "target")}
+                          enabled={pickable}
+                          label={`Use the ${r.marginPct}% margin target for ${r.productName ?? r.description}`}
+                        />
                       </td>
                       <td className="px-3 py-3 text-right">
-                        {canEdit && r.productId ? (
+                        {pickable ? (
                           <div className="flex flex-col items-end gap-1">
-                            <select
-                              value={pick}
-                              aria-label={`Price to use for ${r.productName ?? r.description}`}
-                              onChange={(e) =>
-                                setChoice((prev) => ({ ...prev, [r.upcNorm]: e.target.value as PriceChoice }))
-                              }
-                              className="ft-input py-1 text-body-sm min-w-[9.5rem]"
-                            >
-                              {CHOICE_OPTIONS.map((o) => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
-                              ))}
-                            </select>
+                            <PriceOutcome
+                              price={price}
+                              delta={delta}
+                              note={pick === "auto" ? SOURCE_LABEL[r.priceSource] : CHOICE_LABEL[pick]}
+                            />
+                            <label className="inline-flex items-center gap-1.5 cursor-pointer text-body-sm text-on-surface-variant">
+                              <input
+                                type="checkbox"
+                                checked={pick === "custom"}
+                                onChange={() => pickPrice(r, "custom")}
+                                aria-label={`Type my own price for ${r.productName ?? r.description}`}
+                                className="accent-primary w-4 h-4 shrink-0"
+                              />
+                              my price
+                            </label>
                             {pick === "custom" && (
                               <input
                                 type="number"
                                 step="0.01"
                                 min="0"
                                 inputMode="decimal"
+                                autoFocus
                                 value={typed[r.upcNorm] ?? ""}
                                 placeholder={r.finalPrice.toFixed(2)}
                                 onChange={(e) =>
                                   setTyped((prev) => ({ ...prev, [r.upcNorm]: e.target.value }))
                                 }
-                                className="ft-input py-1 text-body-sm w-28 text-right tabular"
+                                className="ft-input py-1 text-body-sm w-24 text-right tabular"
                               />
                             )}
-                            <PriceOutcome
-                              price={price}
-                              delta={delta}
-                              note={pick === "auto" ? SOURCE_LABEL[r.priceSource] : CHOICE_LABEL[pick]}
-                            />
                           </div>
                         ) : (
                           <div className="tabular font-semibold">
