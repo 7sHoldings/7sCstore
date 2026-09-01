@@ -37,11 +37,11 @@ export default async function IntegrationsPage() {
 
       <Card className="p-5 mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="w-12 h-12 shrink-0 rounded-lg bg-surface-container flex items-center justify-center">
               <Icon name="point_of_sale" className="text-primary text-[26px]" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-semibold text-on-surface">{adapter.label}</h3>
                 {!live ? (
@@ -90,34 +90,61 @@ export default async function IntegrationsPage() {
         {logs.length === 0 ? (
           <EmptyState icon="sync" title="No syncs yet" hint="Click “Sync now” to pull from the POS." />
         ) : (
-          <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-left text-body-sm">
-              <thead>
-                <tr className="bg-surface-container-low text-label-caps uppercase text-on-surface-variant">
-                  <th className="px-4 py-3">Started</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Records</th>
-                  <th className="px-4 py-3">Message</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-outline-variant/40">
-                {logs.map((l) => (
-                  <tr key={l.id} className="hover:bg-surface-container-low/50">
-                    <td className="px-4 py-3 whitespace-nowrap text-on-surface-variant">{fmtDateTime(l.startedAt)}</td>
-                    <td className="px-4 py-3">
-                      {l.status === "SUCCESS" ? <Badge tone="success">Success</Badge> : l.status === "FAILED" ? <Badge tone="error">Failed</Badge> : <Badge tone="info">Running</Badge>}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular">{l.recordsImported}</td>
-                    <td className="px-4 py-3 text-on-surface-variant">{l.message ?? "—"}</td>
+          <>
+            {/* A failure message is a paragraph. In a table cell it has nothing
+                to wrap against, so the row stretches far past a phone screen and
+                no amount of sideways scrolling makes it readable. Below sm each
+                run becomes a block instead. */}
+            <ul className="divide-y divide-outline-variant/40 sm:hidden">
+              {logs.map((l) => (
+                <li key={l.id} className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-on-surface-variant">{fmtDateTime(l.startedAt)}</span>
+                    <StatusBadge status={l.status} />
+                  </div>
+                  <div className="text-body-sm text-on-surface-variant mt-1 tabular">
+                    {l.recordsImported} record{l.recordsImported === 1 ? "" : "s"}
+                  </div>
+                  {l.message && (
+                    <p className="text-body-sm text-on-surface-variant mt-1 break-words">{l.message}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            <div className="hidden sm:block overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left text-body-sm">
+                <thead>
+                  <tr className="bg-surface-container-low text-label-caps uppercase text-on-surface-variant">
+                    <th className="px-4 py-3">Started</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3 text-right">Records</th>
+                    <th className="px-4 py-3">Message</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-outline-variant/40">
+                  {logs.map((l) => (
+                    <tr key={l.id} className="hover:bg-surface-container-low/50">
+                      <td className="px-4 py-3 whitespace-nowrap text-on-surface-variant align-top">{fmtDateTime(l.startedAt)}</td>
+                      <td className="px-4 py-3 align-top"><StatusBadge status={l.status} /></td>
+                      <td className="px-4 py-3 text-right tabular align-top">{l.recordsImported}</td>
+                      <td className="px-4 py-3 text-on-surface-variant align-top max-w-lg break-words">{l.message ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Card>
     </div>
   );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  if (status === "SUCCESS") return <Badge tone="success">Success</Badge>;
+  if (status === "FAILED") return <Badge tone="error">Failed</Badge>;
+  return <Badge tone="info">Running</Badge>;
 }
 
 function InfoCard({ icon, title, body }: { icon: string; title: string; body: string }) {

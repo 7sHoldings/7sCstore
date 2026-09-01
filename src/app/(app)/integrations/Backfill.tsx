@@ -92,15 +92,15 @@ export default function Backfill({ defaultFrom }: { defaultFrom: string }) {
       </p>
 
       <div className="flex flex-wrap items-end gap-3">
-        <div>
+        <div className="flex-1 min-w-[8rem]">
           <label className="text-label-caps uppercase text-on-surface-variant block mb-1">From</label>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="ft-input py-1.5 text-body-sm" disabled={running} />
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="ft-input py-1.5 text-body-sm w-full" disabled={running} />
         </div>
-        <div>
+        <div className="flex-1 min-w-[8rem]">
           <label className="text-label-caps uppercase text-on-surface-variant block mb-1">To</label>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="ft-input py-1.5 text-body-sm" disabled={running} />
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="ft-input py-1.5 text-body-sm w-full" disabled={running} />
         </div>
-        <button onClick={run} disabled={running} className="ft-btn-primary">
+        <button onClick={run} disabled={running} className="ft-btn-primary w-full justify-center sm:w-auto">
           <Icon name={running ? "sync" : "download"} className={`text-[18px] ${running ? "animate-spin" : ""}`} />
           {running ? "Backfilling…" : "Start backfill"}
         </button>
@@ -119,9 +119,14 @@ export default function Backfill({ defaultFrom }: { defaultFrom: string }) {
       )}
 
       {error && (
-        <div className="mt-3 flex items-center gap-2 text-error text-body-sm bg-error-container/50 px-3 py-2 rounded-md">
-          <Icon name="error" className="text-[18px]" /> {error}
-          <span className="text-on-surface-variant"> — fix the cookie if expired, then set “From” to this date and resume.</span>
+        <div className="mt-3 flex items-start gap-2 text-error text-body-sm bg-error-container/50 px-3 py-2 rounded-md">
+          <Icon name="error" className="text-[18px] shrink-0 mt-0.5" />
+          <span className="min-w-0 break-words">
+            {error}
+            <span className="text-on-surface-variant">
+              {" "}— fix the cookie if expired, then set “From” to this date and resume.
+            </span>
+          </span>
         </div>
       )}
     </Card>
