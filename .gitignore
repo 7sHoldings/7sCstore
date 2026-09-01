@@ -38,3 +38,8 @@ yarn-error.log*
 # python cache (from skills)
 __pycache__/
 *.pyc
+
+# HAR / network captures — these contain live session cookies and auth headers.
+# Keep them out of git; drop them in a scratch dir instead.
+*.har
+/captures/

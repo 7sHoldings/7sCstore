@@ -31,7 +31,9 @@ export function mapDeptToCategory(deptName: string): Category {
   const d = (deptName || "").toLowerCase();
   if (/cigarette|tobacco|chew|cigar|vape|nicotine|hookah/.test(d)) return "TOBACCO";
   if (/lottery|lotto|scratch/.test(d)) return "LOTTERY";
-  if (/beer|wine|liquor|alcohol|soda|drink|beverage|candy|snack|food|coffee|deli|grocery|water|juice|tea|energy/.test(d))
+  if (
+    /beer|wine|liquor|alcohol|soda|drink|beverage|candy|snack|food|coffee|deli|grocery|water|juice|tea|energy|ice cream|dairy/.test(d)
+  )
     return "FOOD_DRINK";
   if (/fuel|gas|diesel/.test(d)) return "FUEL";
   return "STORE";

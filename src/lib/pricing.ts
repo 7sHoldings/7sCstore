@@ -6,7 +6,7 @@
  * a target margin. "Margin" here is true gross margin: price = cost / (1 − m),
  * so a $1 unit at 40% margin sells for $1.67 (margin = (1.67 − 1) / 1.67 ≈ 40%).
  */
-import { money } from "./calc";
+import { money, round } from "./calc";
 
 // Default target margin (%) per sale category. Tobacco/cigars run thin and are
 // often minimum-priced; fuel & lottery are pass-through (price set elsewhere).
@@ -86,4 +86,75 @@ export function priceFromMarginRounded(
   rule: RoundRule = "none"
 ): number {
   return applyRounding(priceFromMargin(unitCost, marginPct), rule);
+}
+
+// ---------------------------------------------------------------------------
+// Price book: reading a price, and changing many at once
+// ---------------------------------------------------------------------------
+// Merged in from the price-book branch. Its own copies of RoundRule,
+// ROUND_RULES and applyRounding were identical to the ones above, so only what
+// is genuinely new lands here — the two files were the same maths approached
+// from opposite ends: derive a price from cost, or move prices that exist.
+
+/** How a bulk change reinterprets the current selling price. */
+export type BulkMode = "pct" | "amount" | "set";
+
+export const BULK_MODES: { value: BulkMode; label: string; hint: string }[] = [
+  { value: "pct", label: "Change by %", hint: "e.g. 5 raises prices 5%, -5 lowers them 5%" },
+  { value: "amount", label: "Change by $", hint: "e.g. 0.25 adds a quarter, -0.25 takes one off" },
+  { value: "set", label: "Set price to", hint: "Every selected item gets this exact price" },
+];
+
+/**
+ * Gross margin as a percentage of the retail price: (price − cost) / price.
+ * Null when the item has no selling price yet — margin is undefined, not 0%.
+ */
+export function marginPct(cost: number, price: number): number | null {
+  if (!price) return null;
+  return round(((price - cost) / price) * 100, 1);
+}
+
+/** Markup over cost: (price − cost) / cost. Null when there is no cost basis. */
+export function markupPct(cost: number, price: number): number | null {
+  if (!cost) return null;
+  return round(((price - cost) / cost) * 100, 1);
+}
+
+/** Priced at or below what it cost — the item loses money on every sale. */
+export function isBelowCost(cost: number, price: number): boolean {
+  return price > 0 && cost > 0 && price <= cost;
+}
+
+/** Margin shown as a plain percentage (no +/− trend sign, unlike fmtPct). */
+export function fmtMargin(v: number | null): string {
+  return v === null ? "—" : `${v.toFixed(1)}%`;
+}
+
+/**
+ * The new selling price for one item under a bulk change. Results are clamped
+ * at 0 — a percentage or dollar cut can never drive a price negative.
+ */
+export function applyBulkPrice(
+  currentPrice: number,
+  mode: BulkMode,
+  value: number,
+  rounding: RoundRule = "none"
+): number {
+  if (!isFinite(value)) return money(currentPrice);
+  let next: number;
+  switch (mode) {
+    case "pct":
+      next = currentPrice * (1 + value / 100);
+      break;
+    case "amount":
+      next = currentPrice + value;
+      break;
+    case "set":
+      next = value;
+      break;
+    default:
+      next = currentPrice;
+  }
+  if (!isFinite(next) || next < 0) next = 0;
+  return applyRounding(next, rounding);
 }

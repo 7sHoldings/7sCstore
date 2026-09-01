@@ -308,11 +308,27 @@ model Product {
   source       DataSource   @default(MANUAL)
   createdAt    DateTime     @default(now())
 
+  // --- Price book (Modisoft inventory export) ---
+  // `upc` and `department` are declared above: main grew them independently
+  // while this branch was open, so only the genuinely new columns land here.
+  // `unitsPerCase` likewise stays Int @default(1) — the price book reads it and
+  // does not need it nullable, while the ordering code counts on the default.
+  size         String? // pack/size label as printed in the POS
+  posItemCode  String? // Modisoft "Item Code", when set
+  updatedAt    DateTime @default(now()) @updatedAt
+
   purchases Purchase[]
 
   @@unique([locationId, posItemId])
   @@index([locationId])
   @@index([vendorId])
+  // The price book looks products up by scan code and lists them by POS
+  // department, so both get an index. Deliberately NOT @@unique on
+  // (locationId, upc): the importer already dedupes by UPC in code, and a
+  // unique constraint added to a live table fails outright if any duplicate
+  // scan code is already in there — taking the whole deploy with it.
+  @@index([locationId, department])
+  @@index([upc])
 }
 
 model Vendor {
