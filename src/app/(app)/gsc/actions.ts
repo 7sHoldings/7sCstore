@@ -179,9 +179,13 @@ export interface ApplyPricesResult {
 }
 
 /**
- * Raise the selected products to their target price. POS-linked items go
- * through the existing POS push so the register and the app stay in step;
- * anything not linked is updated locally.
+ * Set the selected products to the price chosen for each on the GSC screen —
+ * by default the greatest of our price, the vendor SRP and the margin target,
+ * but the screen can override that per row, including downwards. The price to
+ * write therefore arrives per item rather than being recomputed here.
+ *
+ * POS-linked items go through the existing POS push so the register and the app
+ * stay in step; anything not linked is updated locally.
  */
 export async function applyTargetPrices(input: unknown): Promise<ApplyPricesResult> {
   const auth = await authorize();
@@ -247,11 +251,17 @@ export async function applyTargetPrices(input: unknown): Promise<ApplyPricesResu
       await prisma.auditLog.createMany({
         data: toWrite.map((c) => ({
           userId: auth.session.userId,
-          action: "PRICE_RAISED_TO_MARGIN",
+          // Not necessarily a raise any more — the screen can pick a lower price
+          // deliberately, and the audit has to be able to say so.
+          action: "PRICE_SET_FROM_GSC",
           entity: "Product",
           entityId: c.productId,
           before: JSON.stringify({ sellingPrice: c.prev!.sellingPrice }),
-          after: JSON.stringify({ sellingPrice: c.newPrice, source: "GSC" }),
+          after: JSON.stringify({
+            sellingPrice: c.newPrice,
+            source: "GSC",
+            direction: c.newPrice > c.prev!.sellingPrice ? "raise" : "lower",
+          }),
         })),
       });
     } catch (e) {

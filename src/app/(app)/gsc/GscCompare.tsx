@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Badge, Icon, Banner, EmptyState } from "@/components/ui";
 import { fmtMoney, fmtNumber } from "@/lib/format";
@@ -13,6 +13,33 @@ const SOURCE_LABEL: Record<"current" | "srp" | "target", string> = {
   current: "keep ours",
   srp: "GSC SRP",
   target: "margin",
+};
+
+/**
+ * Which price a row will be set to.
+ *
+ * "auto" is the house rule — the greatest of our price, GSC's SRP and the
+ * margin target — and stays the default for every row, so doing nothing keeps
+ * the behaviour that was there before. The rest are deliberate overrides for
+ * the cases the rule gets wrong: a slow mover you want left at SRP, a line
+ * where the margin target reads too high for the shelf, a one-off number.
+ */
+type PriceChoice = "auto" | "current" | "srp" | "target" | "custom";
+
+const CHOICE_OPTIONS: { value: PriceChoice; label: string }[] = [
+  { value: "auto", label: "Highest (default)" },
+  { value: "target", label: "Margin target" },
+  { value: "srp", label: "GSC SRP" },
+  { value: "current", label: "Keep our price" },
+  { value: "custom", label: "Type a price…" },
+];
+
+const CHOICE_LABEL: Record<PriceChoice, string> = {
+  auto: "highest",
+  current: "kept ours",
+  srp: "GSC SRP",
+  target: "margin",
+  custom: "your price",
 };
 
 export interface Row {
@@ -40,6 +67,28 @@ export interface Row {
   unmatched: boolean;
 }
 
+/** The price a row lands on, and what that does to the shelf. */
+function PriceOutcome({ price, delta, note }: { price: number; delta: number; note: string }) {
+  if (!(price > 0)) {
+    return <span className="text-body-sm text-on-surface-variant">no price</span>;
+  }
+  const up = delta > 0.005;
+  const down = delta < -0.005;
+  return (
+    <span className="text-right leading-tight">
+      <span className={`tabular font-semibold ${up ? "text-secondary" : down ? "text-error" : "text-on-surface-variant"}`}>
+        {fmtMoney(price)}
+      </span>
+      <span className="block text-body-sm text-on-surface-variant">
+        {up && <span className="text-secondary">+{fmtMoney(delta)} · </span>}
+        {down && <span className="text-error">−{fmtMoney(Math.abs(delta))} · </span>}
+        {!up && !down && "no change · "}
+        {note}
+      </span>
+    </span>
+  );
+}
+
 export default function GscCompare({
   rows, total, page, pageCount, pageSize, view, dept, q, departments, canEdit, counts,
 }: {
@@ -63,6 +112,47 @@ export default function GscCompare({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ updated: number; pushed: number; pushFailed: number; live?: boolean } | null>(null);
 
+  // Per-row overrides, keyed by scan code. Deliberately not persisted: this is
+  // a decision made while reviewing a page, and once applied the price itself
+  // is the record.
+  const [choice, setChoice] = useState<Record<string, PriceChoice>>({});
+  const [typed, setTyped] = useState<Record<string, string>>({});
+
+  const choiceOf = (r: Row): PriceChoice => choice[r.upcNorm] ?? "auto";
+
+  /** The price this row will be set to under its current choice. */
+  function priceFor(r: Row): number {
+    switch (choiceOf(r)) {
+      case "current":
+        return r.currentPrice ?? 0;
+      case "srp":
+        return r.srp;
+      case "target":
+        return r.targetPrice;
+      case "custom": {
+        const n = Number(typed[r.upcNorm]);
+        return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+      }
+      default:
+        return r.finalPrice;
+    }
+  }
+
+  /** What applying this row would do to the shelf price. */
+  function deltaFor(r: Row): number {
+    return Math.round((priceFor(r) - (r.currentPrice ?? 0)) * 100) / 100;
+  }
+
+  /**
+   * A row can be applied when it has a product and its chosen price actually
+   * differs from the shelf. Under "auto" that means a raise, as before; an
+   * explicit choice may also LOWER a price, which is the point of the option —
+   * so it is allowed, and called out in the row and above the button.
+   */
+  function canApply(r: Row): boolean {
+    return Boolean(canEdit && r.productId && priceFor(r) > 0 && Math.abs(deltaFor(r)) > 0.005);
+  }
+
   function go(next: Record<string, string | undefined>) {
     const p = new URLSearchParams();
     const merged: Record<string, string | undefined> = { view, dept, q, ...next };
@@ -74,8 +164,8 @@ export default function GscCompare({
     router.push(p.toString() ? `/gsc?${p}` : "/gsc");
   }
 
-  // Only rows that have a product AND sit below the floor can be raised.
-  const raisable = useMemo(() => rows.filter((r) => r.productId && r.needsRaise), [rows]);
+  // Rows that have a product and a chosen price different from the shelf.
+  const raisable = rows.filter(canApply);
   const allSelected = raisable.length > 0 && raisable.every((r) => selected.has(r.productId!));
 
   function toggleAll() {
@@ -89,10 +179,21 @@ export default function GscCompare({
     });
   }
 
+  /** Set the same choice on every selected row — 100 dropdowns by hand is not a workflow. */
+  function setChoiceForSelected(next: PriceChoice) {
+    const keys = rows.filter((r) => r.productId && selected.has(r.productId)).map((r) => r.upcNorm);
+    if (keys.length === 0) return;
+    setChoice((prev) => {
+      const out = { ...prev };
+      for (const k of keys) out[k] = next;
+      return out;
+    });
+  }
+
   async function onApply() {
     const items = rows
-      .filter((r) => r.productId && selected.has(r.productId) && r.needsRaise)
-      .map((r) => ({ productId: r.productId!, newPrice: r.finalPrice }));
+      .filter((r) => r.productId && selected.has(r.productId) && canApply(r))
+      .map((r) => ({ productId: r.productId!, newPrice: priceFor(r) }));
     if (items.length === 0) return;
 
     setBusy(true);
@@ -122,13 +223,15 @@ export default function GscCompare({
     router.refresh();
   }
 
-  const selCount = rows.filter((r) => r.productId && selected.has(r.productId) && r.needsRaise).length;
+  const chosenRows = rows.filter((r) => r.productId && selected.has(r.productId) && canApply(r));
+  const selCount = chosenRows.length;
+  const loweringCount = chosenRows.filter((r) => deltaFor(r) < 0).length;
 
   return (
     <div>
       {result && (
         <Banner tone="success" icon="check_circle">
-          Raised {fmtNumber(result.updated)} price{result.updated === 1 ? "" : "s"}.
+          Updated {fmtNumber(result.updated)} price{result.updated === 1 ? "" : "s"}.
           {result.pushed > 0 && ` ${fmtNumber(result.pushed)} pushed to the POS${result.live ? "" : " (sandbox)"}.`}
           {result.pushFailed > 0 && ` ${fmtNumber(result.pushFailed)} POS push${result.pushFailed === 1 ? "" : "es"} failed — those prices were left unchanged.`}
         </Banner>
@@ -185,16 +288,45 @@ export default function GscCompare({
           <div className="flex flex-wrap items-center gap-3">
             <span className="flex items-center gap-2 text-body-sm font-semibold text-on-surface">
               <Icon name="trending_up" className="text-[20px] text-primary" />
-              Raise to target
+              Apply prices
               <Badge tone={selCount ? "info" : "neutral"}>{fmtNumber(selCount)} selected</Badge>
             </span>
             <button onClick={onApply} disabled={!selCount || busy} className="ft-btn-primary py-2">
-              {busy ? "Applying…" : `Raise ${fmtNumber(selCount)} price${selCount === 1 ? "" : "s"}`}
+              {busy ? "Applying…" : `Apply ${fmtNumber(selCount)} price${selCount === 1 ? "" : "s"}`}
             </button>
+
+            <label className="flex items-center gap-2 text-body-sm text-on-surface-variant">
+              Set selected to
+              <select
+                value=""
+                disabled={selCount === 0 || busy}
+                onChange={(e) => {
+                  if (e.target.value) setChoiceForSelected(e.target.value as PriceChoice);
+                  e.target.value = "";
+                }}
+                className="ft-input py-1.5 text-body-sm min-w-[11rem] disabled:opacity-50"
+              >
+                <option value="">Choose…</option>
+                {CHOICE_OPTIONS.filter((o) => o.value !== "custom").map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+
             <span className="text-body-sm text-on-surface-variant">
-              Each price becomes the greatest of your price, GSC&apos;s SRP and the margin target — so prices only ever go up.
+              By default each price becomes the greatest of your price, GSC&apos;s SRP and the
+              margin target. Change any row&apos;s <strong>New Price</strong> dropdown to use a
+              different one, or type your own.
             </span>
           </div>
+
+          {loweringCount > 0 && (
+            <p className="mt-2 text-body-sm text-error flex items-start gap-1.5">
+              <Icon name="warning" className="text-[16px] mt-0.5 shrink-0" />
+              {fmtNumber(loweringCount)} of these would <strong>lower</strong> a shelf price. That
+              only happens because you picked it — the default never lowers anything.
+            </p>
+          )}
           {busy && selCount > 0 && (
             <div className="mt-3">
               <div className="h-2 rounded-full bg-surface-container-low overflow-hidden">
@@ -217,7 +349,11 @@ export default function GscCompare({
           <EmptyState
             icon={view === "raise" ? "check_circle" : "search_off"}
             title={view === "raise" ? "Every price is already the highest of the three" : "Nothing to show"}
-            hint={view === "raise" ? "No item is below its SRP or its margin target." : "Try a different filter."}
+            hint={
+              view === "raise"
+                ? "No item is below its SRP or its margin target. Switch to All to set a different price on any item."
+                : "Try a different filter."
+            }
           />
         ) : (
           <div className="overflow-x-auto custom-scrollbar">
@@ -250,7 +386,10 @@ export default function GscCompare({
               </thead>
               <tbody className="divide-y divide-outline-variant/40">
                 {rows.map((r) => {
-                  const canPick = canEdit && r.productId && r.needsRaise;
+                  const pick = choiceOf(r);
+                  const price = priceFor(r);
+                  const delta = deltaFor(r);
+                  const canPick = canApply(r);
                   return (
                     <tr key={r.upcNorm} className="hover:bg-surface-container-low/50">
                       {canEdit && view !== "unmatched" && (
@@ -296,24 +435,62 @@ export default function GscCompare({
                       <td className="px-3 py-3 text-right tabular text-on-surface-variant">
                         {fmtMoney(r.targetPrice)}
                       </td>
-                      <td className="px-3 py-3 text-right tabular font-semibold">
-                        <span className={r.needsRaise ? "text-secondary" : "text-on-surface-variant"}>
-                          {fmtMoney(r.finalPrice)}
-                        </span>
-                        <span className="block text-body-sm text-on-surface-variant">
-                          {r.needsRaise ? (
-                            <span className="text-secondary">+{fmtMoney(r.increase)} · {SOURCE_LABEL[r.priceSource]}</span>
-                          ) : (
-                            "no change"
-                          )}
-                        </span>
+                      <td className="px-3 py-3 text-right">
+                        {canEdit && r.productId ? (
+                          <div className="flex flex-col items-end gap-1">
+                            <select
+                              value={pick}
+                              aria-label={`Price to use for ${r.productName ?? r.description}`}
+                              onChange={(e) =>
+                                setChoice((prev) => ({ ...prev, [r.upcNorm]: e.target.value as PriceChoice }))
+                              }
+                              className="ft-input py-1 text-body-sm min-w-[9.5rem]"
+                            >
+                              {CHOICE_OPTIONS.map((o) => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                              ))}
+                            </select>
+                            {pick === "custom" && (
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                inputMode="decimal"
+                                value={typed[r.upcNorm] ?? ""}
+                                placeholder={r.finalPrice.toFixed(2)}
+                                onChange={(e) =>
+                                  setTyped((prev) => ({ ...prev, [r.upcNorm]: e.target.value }))
+                                }
+                                className="ft-input py-1 text-body-sm w-28 text-right tabular"
+                              />
+                            )}
+                            <PriceOutcome
+                              price={price}
+                              delta={delta}
+                              note={pick === "auto" ? SOURCE_LABEL[r.priceSource] : CHOICE_LABEL[pick]}
+                            />
+                          </div>
+                        ) : (
+                          <div className="tabular font-semibold">
+                            <span className={r.needsRaise ? "text-secondary" : "text-on-surface-variant"}>
+                              {fmtMoney(r.finalPrice)}
+                            </span>
+                            <span className="block text-body-sm text-on-surface-variant">
+                              {r.needsRaise
+                                ? `+${fmtMoney(r.increase)} · ${SOURCE_LABEL[r.priceSource]}`
+                                : "no change"}
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex flex-col gap-1 items-start">
                           {r.unmatched ? (
                             <Badge tone="neutral">No product</Badge>
-                          ) : r.needsRaise ? (
+                          ) : delta > 0.005 ? (
                             <Badge tone="warning">Raise</Badge>
+                          ) : delta < -0.005 ? (
+                            <Badge tone="error">Lower</Badge>
                           ) : (
                             <Badge tone="success">OK</Badge>
                           )}
