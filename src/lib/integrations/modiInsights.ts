@@ -518,6 +518,18 @@ function hostAdvice(base?: string): string {
       "instead, which is where you log in."
     );
   }
+  if (host === DEFAULT_HOST) {
+    // The host is the one the owner logs into, and nothing is overriding it, so
+    // the address is not the problem — the session is. Suggesting the host
+    // variables here would send them back to the misconfiguration they just
+    // escaped, so this says plainly that the cookie itself has to be replaced.
+    return (
+      `The host is correct, so this is the session itself — it has expired or been ` +
+      `signed out. Open ${host} in a browser, copy the Cookie header from a request ` +
+      "on that tab, put it in MODI_COOKIE and redeploy. Modisoft sessions are short-lived, " +
+      "so run the sync straight after."
+    );
+  }
   return (
     "Cookies only work on the host they were copied from: log in to " +
     `${host} itself and copy the Cookie header from there, or set MODI_BASE ` +
