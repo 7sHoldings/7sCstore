@@ -37,3 +37,68 @@ export async function finishBackfill(total: number, fromISO: string, toISO: stri
   revalidatePath("/integrations");
   revalidatePath("/dashboard");
 }
+
+// ---------------------------------------------------------------------------
+// Connection check
+// ---------------------------------------------------------------------------
+
+export interface ConnectionCheck {
+  error?: string;
+  cookiePresent: boolean;
+  cookieNames: string[];
+  cookieLength: number;
+  hasSession: boolean;
+  hasClearance: boolean;
+  /** ISO string; null when cf_clearance is absent or unparseable. */
+  clearanceIssuedAt: string | null;
+  reportHost: string;
+  inventoryHost: string;
+  userAgent: string;
+  /** Result of actually asking Modisoft to select the store. */
+  probeOk: boolean;
+  probeMessage: string;
+}
+
+/**
+ * Report what this deployment actually holds and what Modisoft does with it.
+ *
+ * Refreshing MODI_COOKIE and still seeing the same failure has two very
+ * different causes that look identical from the outside: the new cookie was
+ * saved but the deployment was never rebuilt, so the server is still running
+ * the old one; or the new cookie genuinely is not accepted. Guessing between
+ * them has cost days, so this states which it is — the age of the cookie the
+ * server is holding, and the exact answer Modisoft gives it.
+ *
+ * Cookie VALUES never leave the server. Only names, lengths and issue times.
+ */
+export async function checkConnection(): Promise<ConnectionCheck> {
+  const empty: ConnectionCheck = {
+    cookiePresent: false, cookieNames: [], cookieLength: 0,
+    hasSession: false, hasClearance: false, clearanceIssuedAt: null,
+    reportHost: "", inventoryHost: "", userAgent: "",
+    probeOk: false, probeMessage: "",
+  };
+  const session = await getSession();
+  if (!session) return { ...empty, error: "Not authenticated." };
+  if (!can(session.role, "viewAll")) return { ...empty, error: "You don't have permission." };
+
+  const { describeCookie, probeModiSession } = await import("@/lib/integrations/modiInsights");
+  const facts = describeCookie();
+  const probe = facts.present
+    ? await probeModiSession()
+    : { ok: false, message: "MODI_COOKIE is not set on this deployment.", host: "" };
+
+  return {
+    cookiePresent: facts.present,
+    cookieNames: facts.names,
+    cookieLength: facts.length,
+    hasSession: facts.hasSession,
+    hasClearance: facts.hasClearance,
+    clearanceIssuedAt: facts.clearanceIssuedAt ? facts.clearanceIssuedAt.toISOString() : null,
+    reportHost: new URL(facts.reportBase).host,
+    inventoryHost: new URL(facts.inventoryBase).host,
+    userAgent: facts.userAgent,
+    probeOk: probe.ok,
+    probeMessage: probe.message,
+  };
+}

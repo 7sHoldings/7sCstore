@@ -592,6 +592,91 @@ async function setupReport(cookie: string, path: string, body: Record<string, st
   if (res.status === 401 || res.status === 403) throw await describeFailure(res, path, BASE);
 }
 
+export interface CookieFacts {
+  present: boolean;
+  /** Cookie NAMES only. Values are secrets and never leave the server. */
+  names: string[];
+  length: number;
+  hasSession: boolean;
+  hasClearance: boolean;
+  /**
+   * When Cloudflare issued cf_clearance, decoded from the token itself.
+   *
+   * This is the fact that settles "did my new cookie actually reach the app?".
+   * Environment variables on Vercel are baked in at deploy time, so saving a new
+   * value without redeploying leaves the running server on the old one — and
+   * nothing in the UI would otherwise show that. cf_clearance carries its own
+   * issue time, so the server can state how old the cookie it is really holding
+   * is, rather than the owner having to trust that the save took effect.
+   */
+  clearanceIssuedAt: Date | null;
+  reportBase: string;
+  inventoryBase: string;
+  userAgent: string;
+}
+
+/** What the running server actually holds — names and ages, never values. */
+export function describeCookie(): CookieFacts {
+  const raw = process.env.MODI_COOKIE ?? "";
+  const pairs = raw.split(";").map((c) => c.trim()).filter(Boolean);
+  const names = pairs.map((c) => c.split("=")[0].trim()).filter(Boolean);
+
+  let clearanceIssuedAt: Date | null = null;
+  const clearance = pairs.find((c) => c.startsWith("cf_clearance="));
+  if (clearance) {
+    // cf_clearance is "<token>-<issued unix seconds>-<version>-<…>".
+    for (const part of clearance.slice("cf_clearance=".length).split("-")) {
+      const n = Number(part);
+      // A plausible issue time: seconds, within a few years of now.
+      if (/^\d{10}$/.test(part) && n * 1000 < Date.now() + 86_400_000) {
+        clearanceIssuedAt = new Date(n * 1000);
+        break;
+      }
+    }
+  }
+
+  return {
+    present: raw.length > 0,
+    names,
+    length: raw.length,
+    hasSession: names.some((n) => n.toLowerCase() === "asp.net_sessionid"),
+    hasClearance: names.includes("cf_clearance"),
+    clearanceIssuedAt,
+    reportBase: BASE,
+    inventoryBase: INV_BASE,
+    userAgent: UA,
+  };
+}
+
+/**
+ * Ask Modisoft to select the store and report exactly what came back.
+ *
+ * One request, the same one every pull and every price push starts with, so a
+ * pass here means the session is genuinely usable and a failure carries the
+ * real reason rather than a generic one.
+ */
+export async function probeModiSession(): Promise<{ ok: boolean; message: string; host: string }> {
+  const facts = describeCookie();
+  if (!facts.present) {
+    return { ok: false, host: new URL(INV_BASE).host, message: "MODI_COOKIE is not set on this deployment." };
+  }
+  try {
+    await changeStore(
+      process.env.MODI_COOKIE!,
+      process.env.MODI_STORE_ID || "16",
+      process.env.MODI_CCODE || "854388",
+      INV_BASE
+    );
+    return { ok: true, host: new URL(INV_BASE).host, message: "Store selected — the session works." };
+  } catch (e) {
+    return {
+      ok: false,
+      host: new URL(INV_BASE).host,
+      message: e instanceof Error ? e.message : "The store-select request failed.",
+    };
+  }
+}
+
 /** Set the active store in the session (POST /Home/ChangeStore). */
 async function changeStore(cookie: string, id: string, ccode: string, base: string = BASE): Promise<void> {
   const res = await fetch(base + "/Home/ChangeStore", {

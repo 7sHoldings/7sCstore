@@ -7,6 +7,7 @@ import { fmtDateTime } from "@/lib/format";
 import { Card, PageHeader, Badge, EmptyState, Icon } from "@/components/ui";
 import SyncButton from "./SyncButton";
 import Backfill from "./Backfill";
+import ConnectionCheck from "./ConnectionCheck";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ export default async function IntegrationsPage() {
   // says nothing about whether the session still works. A saved cookie outlives
   // its session by days, so the badge read Live while every sync was failing.
   // What matters is the outcome of the last run.
+  const canRun = can(session.role, "viewAll");
   const lastRun = logs[0] ?? null;
   const failing = live && lastRun?.status === "FAILED";
 
@@ -74,6 +76,8 @@ export default async function IntegrationsPage() {
           <SyncButton />
         </div>
       </Card>
+
+      {canRun && <ConnectionCheck />}
 
       <div className="mb-6">
         <Backfill defaultFrom={`${new Date().getFullYear()}-01-01`} />
