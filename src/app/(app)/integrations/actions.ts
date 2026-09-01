@@ -53,6 +53,9 @@ export interface ConnectionCheck {
   clearanceIssuedAt: string | null;
   reportHost: string;
   inventoryHost: string;
+  /** The host is pinned by an environment variable rather than the default. */
+  reportOverridden: boolean;
+  inventoryOverridden: boolean;
   userAgent: string;
   /** Result of actually asking Modisoft to select the store. */
   probeOk: boolean;
@@ -75,7 +78,7 @@ export async function checkConnection(): Promise<ConnectionCheck> {
   const empty: ConnectionCheck = {
     cookiePresent: false, cookieNames: [], cookieLength: 0,
     hasSession: false, hasClearance: false, clearanceIssuedAt: null,
-    reportHost: "", inventoryHost: "", userAgent: "",
+    reportHost: "", inventoryHost: "", reportOverridden: false, inventoryOverridden: false, userAgent: "",
     probeOk: false, probeMessage: "",
   };
   const session = await getSession();
@@ -97,6 +100,8 @@ export async function checkConnection(): Promise<ConnectionCheck> {
     clearanceIssuedAt: facts.clearanceIssuedAt ? facts.clearanceIssuedAt.toISOString() : null,
     reportHost: new URL(facts.reportBase).host,
     inventoryHost: new URL(facts.inventoryBase).host,
+    reportOverridden: facts.reportOverridden,
+    inventoryOverridden: facts.inventoryOverridden,
     userAgent: facts.userAgent,
     probeOk: probe.ok,
     probeMessage: probe.message,

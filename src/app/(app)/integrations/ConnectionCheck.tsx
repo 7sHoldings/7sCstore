@@ -102,8 +102,12 @@ export default function ConnectionCheck() {
             <Fact label="Cloudflare clearance">
               {d.hasClearance ? "present" : <span className="text-error">missing</span>}
             </Fact>
-            <Fact label="Reports host">{d.reportHost}</Fact>
-            <Fact label="Inventory host">{d.inventoryHost}</Fact>
+            <Fact label="Reports host">
+              <HostFact host={d.reportHost} varName="MODI_BASE" overridden={d.reportOverridden} />
+            </Fact>
+            <Fact label="Inventory host">
+              <HostFact host={d.inventoryHost} varName="MODI_INV_BASE" overridden={d.inventoryOverridden} />
+            </Fact>
           </dl>
 
           <div>
@@ -137,6 +141,23 @@ export default function ConnectionCheck() {
         </div>
       )}
     </Card>
+  );
+}
+
+/**
+ * A host, and whether an environment variable is pinning it.
+ *
+ * An override that points at the wrong host fails exactly like an expired
+ * cookie, so the host alone is not enough — the screen has to say where it
+ * came from.
+ */
+function HostFact({ host, varName, overridden }: { host: string; varName: string; overridden: boolean }) {
+  if (!overridden) return <>{host}</>;
+  return (
+    <span className="text-error">
+      {host}
+      <span className="block text-[11px] opacity-90">set by {varName} — delete it to use the default</span>
+    </span>
   );
 }
 

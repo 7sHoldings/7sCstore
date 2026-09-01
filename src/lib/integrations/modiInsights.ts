@@ -3,7 +3,7 @@ import { mapFuelType, mapDeptToCategory } from "./modiMap";
 
 /**
  * Interim Modisoft adapter that replays a logged-in **Insights session cookie**
- * against insights1.modisoft.com (the same endpoints seen in the HAR captures).
+ * against the Insights host the owner is logged into (see BASE below).
  * This works until the official API is available, but the cookie is short-lived
  * — when it expires, a sync fails and you refresh MODI_COOKIE in Vercel.
  *
@@ -24,7 +24,9 @@ import { mapFuelType, mapDeptToCategory } from "./modiMap";
 // honoured by — insights1.modisoft.com. Pointing the reports at insights1 made
 // every pull look like an expired login when the cookie was perfectly good.
 // Accounts do sit on different hosts, so both stay overridable.
-const BASE = process.env.MODI_BASE || "https://insights.modisoft.com";
+const DEFAULT_BASE = "https://insights.modisoft.com";
+const DEFAULT_HOST = new URL(DEFAULT_BASE).host;
+const BASE = process.env.MODI_BASE || DEFAULT_BASE;
 const INV_BASE = process.env.MODI_INV_BASE || BASE;
 
 // Cloudflare's cf_clearance cookie is bound to the browser's User-Agent, so we
@@ -489,10 +491,46 @@ function notJsonError(path: string, contentType: string | null, base?: string): 
   return new Error(
     `${host} answered ${path} with ${contentType || "an unknown content type"} instead of JSON — ` +
       `a login page, so MODI_COOKIE is not valid for ${host}. ` +
-      "Cookies only work on the host they were copied from: log in to " +
-      `${host} itself and copy the Cookie header from there, or point MODI_BASE ` +
-      "(reports) / MODI_INV_BASE (inventory) at the host your cookie belongs to."
+      hostAdvice(base)
   );
+}
+
+/**
+ * What to actually do about the wrong host.
+ *
+ * The generic advice — "point MODI_BASE / MODI_INV_BASE at your host" — is a
+ * trap once one of them is already set: it reads as a suggestion for something
+ * you have done, so the override that IS the fault looks like the remedy. When
+ * a variable is pinning the failing host, say that, and say to remove it.
+ */
+function hostAdvice(base?: string): string {
+  if (!base) return "Copy the Cookie header from the host you are logged into.";
+  const host = new URL(base).host;
+  const overrides: [string, string | undefined][] = [
+    ["MODI_INV_BASE", process.env.MODI_INV_BASE],
+    ["MODI_BASE", process.env.MODI_BASE],
+  ];
+  const pinned = overrides.find(([, v]) => v && sameHost(v, base));
+  if (pinned) {
+    return (
+      `That host is not the default — it comes from the ${pinned[0]} environment variable. ` +
+      `Delete ${pinned[0]} in Vercel and redeploy, and the app will use ${DEFAULT_HOST} ` +
+      "instead, which is where you log in."
+    );
+  }
+  return (
+    "Cookies only work on the host they were copied from: log in to " +
+    `${host} itself and copy the Cookie header from there, or set MODI_BASE ` +
+    "(reports) / MODI_INV_BASE (inventory) to the host your cookie belongs to."
+  );
+}
+
+function sameHost(a: string, b: string): boolean {
+  try {
+    return new URL(a).host === new URL(b).host;
+  } catch {
+    return false;
+  }
 }
 
 async function postForm(cookie: string, path: string, body: Record<string, string>, base: string): Promise<unknown> {
@@ -612,6 +650,9 @@ export interface CookieFacts {
   clearanceIssuedAt: Date | null;
   reportBase: string;
   inventoryBase: string;
+  /** True when an environment variable pins the host instead of the default. */
+  reportOverridden: boolean;
+  inventoryOverridden: boolean;
   userAgent: string;
 }
 
@@ -644,6 +685,8 @@ export function describeCookie(): CookieFacts {
     clearanceIssuedAt,
     reportBase: BASE,
     inventoryBase: INV_BASE,
+    reportOverridden: Boolean(process.env.MODI_BASE),
+    inventoryOverridden: Boolean(process.env.MODI_INV_BASE),
     userAgent: UA,
   };
 }
