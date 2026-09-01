@@ -24,6 +24,12 @@ export default async function IntegrationsPage() {
     take: 50,
   });
   const lastSuccess = logs.find((l) => l.status === "SUCCESS");
+  // "Live" used to mean only that MODI_COOKIE was set in the environment, which
+  // says nothing about whether the session still works. A saved cookie outlives
+  // its session by days, so the badge read Live while every sync was failing.
+  // What matters is the outcome of the last run.
+  const lastRun = logs[0] ?? null;
+  const failing = live && lastRun?.status === "FAILED";
 
   return (
     <div>
@@ -36,18 +42,33 @@ export default async function IntegrationsPage() {
               <Icon name="point_of_sale" className="text-primary text-[26px]" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-semibold text-on-surface">{adapter.label}</h3>
-                {live ? <Badge tone="success">Live</Badge> : <Badge tone="warning">Sandbox</Badge>}
+                {!live ? (
+                  <Badge tone="warning">Sandbox</Badge>
+                ) : failing ? (
+                  <Badge tone="error">Sign-in needed</Badge>
+                ) : lastSuccess ? (
+                  <Badge tone="success">Live</Badge>
+                ) : (
+                  <Badge tone="info">Not synced yet</Badge>
+                )}
               </div>
               <p className="text-body-sm text-on-surface-variant">
-                {live
-                  ? "Connected to the Modi POS API."
-                  : "Using the sandbox adapter. Set MODI_API_URL and MODI_API_KEY to go live."}
+                {!live
+                  ? "Using the sandbox adapter. Set MODI_API_URL and MODI_API_KEY to go live."
+                  : failing
+                    ? "The saved Modisoft session is no longer being accepted, so nothing is pulling. Ordering is unaffected — the Weekly Order page reads your uploaded inventory export."
+                    : "Connected to Modisoft."}
               </p>
               <p className="text-body-sm text-on-surface-variant mt-0.5">
                 Last successful sync: {lastSuccess ? fmtDateTime(lastSuccess.finishedAt ?? lastSuccess.startedAt) : "never"}
               </p>
+              {failing && lastRun?.message && (
+                <p className="text-body-sm text-error mt-1.5">
+                  Last attempt {fmtDateTime(lastRun.startedAt)}: {lastRun.message}
+                </p>
+              )}
             </div>
           </div>
           <SyncButton />
