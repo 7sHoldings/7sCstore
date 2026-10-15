@@ -12,14 +12,13 @@ import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/s
 import { getLotteryManual, getLotteryManualRange } from "@/lib/lottery";
 import { getCreditManual, getCreditManualRange } from "@/lib/credit";
 import { getReceipts } from "@/lib/receipts";
-import { getMerchExpenses } from "@/lib/reports";
 import { signedUrls } from "@/lib/storage";
 import { getCashDay, getCardDay } from "@/lib/cash";
 import EditCashButton from "../cash/EditCashButton";
 import EditCardButton from "../cash/EditCardButton";
 import EditLotteryButton from "../lottery/EditLotteryButton";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, ProfitTargetCard, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
+import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import DailyActions from "./DailyActions";
 import DailyDateBar from "./DailyDateBar";
 
@@ -192,9 +191,6 @@ export default async function DailySalesPage({
     trend7.push({ label: String(d.getDate()), value, date: dISO, daily, fuel, lottery, tax: dTax });
   }
 
-  const showProfit = can(session.role, "viewProfit");
-  const merchExpenses = showProfit ? await getMerchExpenses(range, loc) : 0;
-
   const empty = sales.length === 0 && fuelSales.length === 0;
   const comparisonSub = isRange ? "vs previous period" : "vs previous day";
 
@@ -219,10 +215,6 @@ export default async function DailySalesPage({
         </Card>
       ) : (
         <>
-          {showProfit && (
-            <ProfitTargetCard className="mb-6" sales={view.merch.split.total} expenses={merchExpenses} />
-          )}
-
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <MetricCard label="Daily Sales" sub="Merchandise only (net of promotions)" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} href="#merch"
               cells={[
