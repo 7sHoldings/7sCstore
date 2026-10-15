@@ -6,7 +6,7 @@ import { money, pctChange } from "@/lib/calc";
 import { fmtMoney, fmtNumber, gradeLabel } from "@/lib/format";
 import { rangeFor, customRange, previousRange, type PeriodKey, type Range } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
-import { getReportData, getMerchExpenses } from "@/lib/reports";
+import { getReportData, getInventoryPurchases } from "@/lib/reports";
 import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
 import { getLotteryManualRange } from "@/lib/lottery";
 import { getCreditManualRange } from "@/lib/credit";
@@ -156,7 +156,10 @@ export default async function DashboardPage({
     trend.push({ label: String(d.getDate()), value: money(sum), date: d.toISOString().slice(0, 10) });
   }
 
-  const merchExpenses = showProfit ? await getMerchExpenses(range, loc) : 0;
+  const inventoryPurchases = showProfit ? await getInventoryPurchases(range, loc) : 0;
+  // Link the Inventory tile to the Expenses list filtered to this window.
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const inventoryHref = `/expenses?category=INVENTORY_PURCHASE&from=${ymd(range.start)}&to=${ymd(new Date(range.end.getTime() - 1))}`;
 
   const empty = sales.length === 0 && fuelSales.length === 0;
 
@@ -178,7 +181,7 @@ export default async function DashboardPage({
       ) : (
         <>
           {showProfit && (
-            <ProfitTargetCard className="mb-6" sales={view.merch.split.total} expenses={merchExpenses} />
+            <ProfitTargetCard className="mb-6" sales={view.merch.split.total} inventory={inventoryPurchases} href={inventoryHref} />
           )}
 
           {/* Sales summary (clickable to sections) */}
