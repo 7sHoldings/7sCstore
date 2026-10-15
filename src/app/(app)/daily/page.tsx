@@ -13,9 +13,10 @@ import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/s
 import { getLotteryManual, getLotteryManualRange } from "@/lib/lottery";
 import { getCreditManual, getCreditManualRange } from "@/lib/credit";
 import { getReceipts } from "@/lib/receipts";
+import { getMerchExpenses } from "@/lib/reports";
 import { signedUrls } from "@/lib/storage";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
+import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, ProfitTargetCard, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import DailyActions from "./DailyActions";
 import DailyDateBar from "./DailyDateBar";
 
@@ -170,6 +171,9 @@ export default async function DailySalesPage({
     trend7.push({ label: String(d.getDate()), value: money(sum), date: d.toISOString().slice(0, 10) });
   }
 
+  const showProfit = can(session.role, "viewProfit");
+  const merchExpenses = showProfit ? await getMerchExpenses(range, loc) : 0;
+
   const empty = sales.length === 0 && fuelSales.length === 0;
   const comparisonSub = isRange ? "vs previous period" : "vs previous day";
 
@@ -209,6 +213,10 @@ export default async function DailySalesPage({
               entryHref={`/lottery?date=${navDate}`}
             />
           </div>
+
+          {showProfit && (
+            <ProfitTargetCard className="mb-4" sales={view.merch.split.total} expenses={merchExpenses} />
+          )}
 
           <TotalSalesBar
             s={totalSplit}

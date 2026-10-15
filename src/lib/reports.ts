@@ -235,3 +235,19 @@ export async function getReportData(r: Range, locationId?: string) {
     },
   };
 }
+
+/**
+ * Expenses that count against Daily (merchandise) Sales for the profit-target
+ * tiles. Fuel purchases are excluded — they belong to fuel sales, not Daily Sales.
+ */
+export async function getMerchExpenses(r: { start: Date; end: Date }, locationId?: string): Promise<number> {
+  const agg = await prisma.expense.aggregate({
+    _sum: { amount: true },
+    where: {
+      date: { gte: r.start, lt: r.end },
+      category: { not: "FUEL_PURCHASE" },
+      ...(locationId ? { locationId } : {}),
+    },
+  });
+  return money(agg._sum.amount ?? 0);
+}
