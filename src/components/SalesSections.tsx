@@ -569,3 +569,58 @@ export function FuelTable({ byGrade, gallons, total, promotions = 0 }: { byGrade
     </div>
   );
 }
+
+/**
+ * Profit target strip for Daily (merchandise) Sales only: sales (100%, excl.
+ * sales tax) − expenses = profit. Profit at/above the target % shows green,
+ * below shows red. Fuel, lottery and sales tax are not part of these numbers.
+ */
+export function ProfitTargetCard({
+  sales, expenses, target = 30, className = "", href = "/expenses",
+}: {
+  sales: number; expenses: number; target?: number; className?: string; href?: string;
+}) {
+  const profit = sales - expenses;
+  const profitPct = sales > 0 ? (profit / sales) * 100 : 0;
+  const expensePct = sales > 0 ? (expenses / sales) * 100 : 0;
+  const good = sales > 0 && profitPct >= target;
+  const tone = good
+    ? { ring: "ring-2 ring-secondary", bg: "bg-secondary-container/40", text: "text-secondary", bar: "bg-secondary", chip: "bg-secondary text-on-secondary" }
+    : { ring: "ring-2 ring-error", bg: "bg-error-container/50", text: "text-error", bar: "bg-error", chip: "bg-error text-on-error" };
+  const pct = (n: number) => `${n.toFixed(1)}%`;
+
+  return (
+    <Card className={`p-5 ${className}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <Icon name="savings" className="text-[20px] text-primary" />
+          <span className="text-label-caps uppercase text-on-surface-variant">Daily Sales Profit — target {target}% profit / {100 - target}% expenses</span>
+        </div>
+        <span className={`text-label-caps uppercase rounded-full px-2.5 py-1 ${tone.chip}`}>
+          {sales <= 0 ? "No daily sales" : good ? "On target" : "Below target"}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="rounded-lg bg-surface-container-low px-4 py-3">
+          <div className="text-label-caps uppercase text-on-surface-variant">Daily Sales · 100%</div>
+          <div className="tabular text-xl font-bold text-primary mt-1">{fmtMoney(sales)}</div>
+          <div className="text-body-sm text-on-surface-variant">Merchandise only · excl. sales tax</div>
+        </div>
+        <a href={href} className={`block rounded-lg px-4 py-3 hover:shadow-floating transition-shadow ${good ? "bg-surface-container-low" : tone.bg}`}>
+          <div className="text-label-caps uppercase text-on-surface-variant">Expenses · {pct(expensePct)}</div>
+          <div className={`tabular text-xl font-bold mt-1 ${good ? "text-on-surface" : "text-error"}`}>{fmtMoney(expenses)}</div>
+          <div className="text-body-sm text-on-surface-variant">Target ≤ {100 - target}% · excl. fuel purchases</div>
+        </a>
+        <div className={`rounded-lg px-4 py-3 ${tone.ring} ${tone.bg}`}>
+          <div className="text-label-caps uppercase text-on-surface-variant">Profit · {pct(profitPct)}</div>
+          <div className={`tabular text-2xl font-bold mt-1 ${tone.text}`}>{fmtMoney(profit)}</div>
+          <div className="mt-2 h-2 rounded-full bg-surface-container-high overflow-hidden relative">
+            <div className={`h-full ${tone.bar}`} style={{ width: `${Math.max(0, Math.min(100, profitPct))}%` }} />
+            <div className="absolute top-0 h-full w-0.5 bg-on-surface" style={{ left: `${target}%` }} title={`${target}% target`} />
+          </div>
+          <div className="text-body-sm text-on-surface-variant mt-1">Target ≥ {target}%</div>
+        </div>
+      </div>
+    </Card>
+  );
+}

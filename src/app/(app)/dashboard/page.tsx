@@ -6,12 +6,12 @@ import { money, pctChange } from "@/lib/calc";
 import { fmtMoney, fmtNumber, gradeLabel } from "@/lib/format";
 import { rangeFor, customRange, previousRange, type PeriodKey, type Range } from "@/lib/period";
 import { buildSalesView } from "@/lib/salesView";
-import { getReportData } from "@/lib/reports";
+import { getReportData, getMerchExpenses } from "@/lib/reports";
 import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
 import { getLotteryManualRange } from "@/lib/lottery";
 import { getCreditManualRange } from "@/lib/credit";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
+import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, ProfitTargetCard, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import PeriodBar from "@/components/PeriodBar";
 
 export const dynamic = "force-dynamic";
@@ -156,6 +156,8 @@ export default async function DashboardPage({
     trend.push({ label: String(d.getDate()), value: money(sum), date: d.toISOString().slice(0, 10) });
   }
 
+  const merchExpenses = showProfit ? await getMerchExpenses(range, loc) : 0;
+
   const empty = sales.length === 0 && fuelSales.length === 0;
 
   return (
@@ -189,6 +191,10 @@ export default async function DashboardPage({
               ]} />
             <LotteryReconcileCard className="sm:col-span-2" system={systemLotto} manual={manualLotto} over={lottoOver} entryHref="/lottery" />
           </div>
+
+          {showProfit && (
+            <ProfitTargetCard className="mb-4" sales={view.merch.split.total} expenses={merchExpenses} />
+          )}
 
           <TotalSalesBar
             s={totalSplit}
