@@ -219,6 +219,10 @@ export default async function DailySalesPage({
         </Card>
       ) : (
         <>
+          {showProfit && (
+            <ProfitTargetCard className="mb-6" sales={view.merch.split.total} expenses={merchExpenses} />
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <MetricCard label="Daily Sales" sub="Merchandise only (net of promotions)" s={view.merch.split} icon="shopping_bag" trend={pctChange(view.merch.split.total, prevView.merch.split.total)} href="#merch"
               cells={[
@@ -242,10 +246,6 @@ export default async function DailySalesPage({
               ) : undefined}
             />
           </div>
-
-          {showProfit && (
-            <ProfitTargetCard className="mb-4" sales={view.merch.split.total} expenses={merchExpenses} />
-          )}
 
           <TotalSalesBar
             s={totalSplit}

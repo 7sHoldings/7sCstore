@@ -177,6 +177,10 @@ export default async function DashboardPage({
         </Card>
       ) : (
         <>
+          {showProfit && (
+            <ProfitTargetCard className="mb-6" sales={view.merch.split.total} expenses={merchExpenses} />
+          )}
+
           {/* Sales summary (clickable to sections) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <MetricCard label="Daily Sales" sub="Merchandise only (net of promotions)" s={view.merch.split} icon="shopping_bag" href="#merch"
@@ -191,10 +195,6 @@ export default async function DashboardPage({
               ]} />
             <LotteryReconcileCard className="sm:col-span-2" system={systemLotto} manual={manualLotto} over={lottoOver} entryHref="/lottery" />
           </div>
-
-          {showProfit && (
-            <ProfitTargetCard className="mb-4" sales={view.merch.split.total} expenses={merchExpenses} />
-          )}
 
           <TotalSalesBar
             s={totalSplit}

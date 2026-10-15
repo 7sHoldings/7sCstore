@@ -571,7 +571,7 @@ export function FuelTable({ byGrade, gallons, total, promotions = 0 }: { byGrade
 }
 
 /**
- * Profit target strip for Daily (merchandise) Sales only: sales (100%, excl.
+ * Profit target banner for Daily (merchandise) Sales only: sales (100%, excl.
  * sales tax) − expenses = profit. Profit at/above the target % shows green,
  * below shows red. Fuel, lottery and sales tax are not part of these numbers.
  */
@@ -584,41 +584,62 @@ export function ProfitTargetCard({
   const profitPct = sales > 0 ? (profit / sales) * 100 : 0;
   const expensePct = sales > 0 ? (expenses / sales) * 100 : 0;
   const good = sales > 0 && profitPct >= target;
-  const tone = good
-    ? { ring: "ring-2 ring-secondary", bg: "bg-secondary-container/40", text: "text-secondary", bar: "bg-secondary", chip: "bg-secondary text-on-secondary" }
-    : { ring: "ring-2 ring-error", bg: "bg-error-container/50", text: "text-error", bar: "bg-error", chip: "bg-error text-on-error" };
+  const t = good
+    ? { border: "border-secondary", tint: "from-secondary-container/50", text: "text-secondary", bar: "bg-secondary", chip: "bg-secondary text-on-secondary", icon: "trending_up" }
+    : { border: "border-error", tint: "from-error-container/70", text: "text-error", bar: "bg-error", chip: "bg-error text-on-error", icon: "trending_down" };
   const pct = (n: number) => `${n.toFixed(1)}%`;
+  const expW = Math.max(0, Math.min(100, expensePct));
 
   return (
-    <Card className={`p-5 ${className}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <div className="flex items-center gap-2">
-          <Icon name="savings" className="text-[20px] text-primary" />
-          <span className="text-label-caps uppercase text-on-surface-variant">Daily Sales Profit — target {target}% profit / {100 - target}% expenses</span>
-        </div>
-        <span className={`text-label-caps uppercase rounded-full px-2.5 py-1 ${tone.chip}`}>
-          {sales <= 0 ? "No daily sales" : good ? "On target" : "Below target"}
-        </span>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="rounded-lg bg-surface-container-low px-4 py-3">
-          <div className="text-label-caps uppercase text-on-surface-variant">Daily Sales · 100%</div>
-          <div className="tabular text-xl font-bold text-primary mt-1">{fmtMoney(sales)}</div>
-          <div className="text-body-sm text-on-surface-variant">Merchandise only · excl. sales tax</div>
-        </div>
-        <a href={href} className={`block rounded-lg px-4 py-3 hover:shadow-floating transition-shadow ${good ? "bg-surface-container-low" : tone.bg}`}>
-          <div className="text-label-caps uppercase text-on-surface-variant">Expenses · {pct(expensePct)}</div>
-          <div className={`tabular text-xl font-bold mt-1 ${good ? "text-on-surface" : "text-error"}`}>{fmtMoney(expenses)}</div>
-          <div className="text-body-sm text-on-surface-variant">Target ≤ {100 - target}% · excl. fuel purchases</div>
-        </a>
-        <div className={`rounded-lg px-4 py-3 ${tone.ring} ${tone.bg}`}>
-          <div className="text-label-caps uppercase text-on-surface-variant">Profit · {pct(profitPct)}</div>
-          <div className={`tabular text-2xl font-bold mt-1 ${tone.text}`}>{fmtMoney(profit)}</div>
-          <div className="mt-2 h-2 rounded-full bg-surface-container-high overflow-hidden relative">
-            <div className={`h-full ${tone.bar}`} style={{ width: `${Math.max(0, Math.min(100, profitPct))}%` }} />
-            <div className="absolute top-0 h-full w-0.5 bg-on-surface" style={{ left: `${target}%` }} title={`${target}% target`} />
+    <Card className={`overflow-hidden border-l-4 ${t.border} bg-gradient-to-r ${t.tint} to-transparent ${className}`}>
+      <div className="p-5 grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,2fr)] gap-5 items-center">
+        {/* Hero: profit amount + % */}
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-label-caps uppercase text-on-surface-variant">Daily Sales Profit</span>
+            <span className={`inline-flex items-center gap-1 text-label-caps uppercase rounded-full px-2 py-0.5 ${t.chip}`}>
+              <Icon name={t.icon} className="text-[14px]" />
+              {sales <= 0 ? "No sales" : good ? "On target" : "Below target"}
+            </span>
           </div>
-          <div className="text-body-sm text-on-surface-variant mt-1">Target ≥ {target}%</div>
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <span className={`text-3xl font-bold tabular ${t.text}`}>{fmtMoney(profit)}</span>
+            <span className={`text-2xl font-bold tabular ${t.text}`}>{pct(profitPct)}</span>
+          </div>
+          <p className="text-body-sm text-on-surface-variant mt-0.5">
+            Target ≥ {target}% profit · {good ? `${pct(profitPct - target)} above` : `${pct(target - profitPct)} short of`} target
+          </p>
+        </div>
+
+        {/* Breakdown: Sales − Expenses = Profit, with a 70/30 split bar */}
+        <div>
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="rounded-lg bg-surface-container-lowest/80 px-3 py-2">
+              <div className="text-label-caps uppercase text-on-surface-variant">Daily Sales · 100%</div>
+              <div className="tabular font-bold text-primary">{fmtMoney(sales)}</div>
+              <div className="text-body-sm text-on-surface-variant hidden sm:block">excl. sales tax</div>
+            </div>
+            <a href={href} className="rounded-lg bg-surface-container-lowest/80 px-3 py-2 hover:shadow-floating transition-shadow">
+              <div className="text-label-caps uppercase text-on-surface-variant">Expenses · {pct(expensePct)}</div>
+              <div className={`tabular font-bold ${good ? "text-on-surface" : "text-error"}`}>−{fmtMoney(expenses)}</div>
+              <div className="text-body-sm text-on-surface-variant hidden sm:block">target ≤ {100 - target}%</div>
+            </a>
+            <div className={`rounded-lg bg-surface-container-lowest/80 px-3 py-2 ring-2 ${good ? "ring-secondary" : "ring-error"}`}>
+              <div className="text-label-caps uppercase text-on-surface-variant">Profit · {pct(profitPct)}</div>
+              <div className={`tabular font-bold ${t.text}`}>{fmtMoney(profit)}</div>
+              <div className="text-body-sm text-on-surface-variant hidden sm:block">target ≥ {target}%</div>
+            </div>
+          </div>
+          <div className="relative h-3 rounded-full bg-surface-container-high overflow-hidden flex">
+            <div className="h-full bg-on-surface-variant/40" style={{ width: `${expW}%` }} title={`Expenses ${pct(expensePct)}`} />
+            <div className={`h-full ${t.bar}`} style={{ width: `${100 - expW}%` }} title={`Profit ${pct(profitPct)}`} />
+            <div className="absolute top-0 h-full w-0.5 bg-on-surface" style={{ left: `${100 - target}%` }} />
+          </div>
+          <div className="flex justify-between text-body-sm text-on-surface-variant mt-1">
+            <span>Expenses {pct(expensePct)}</span>
+            <span>▲ {100 - target}/{target} target</span>
+            <span className={t.text}>Profit {pct(profitPct)}</span>
+          </div>
         </div>
       </div>
     </Card>
