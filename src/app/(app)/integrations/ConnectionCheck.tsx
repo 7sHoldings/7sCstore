@@ -29,7 +29,9 @@ export default function ConnectionCheck() {
   const ageMin = issued ? Math.round((Date.now() - issued.getTime()) / 60000) : null;
   // Cloudflare issues cf_clearance when the browser solves the challenge, so a
   // token older than a couple of hours cannot be one pasted in minutes ago.
-  const looksStale = ageMin != null && ageMin > 120;
+  // Only meaningful for MODI_COOKIE, which needs a redeploy to change; sessions
+  // the app saved itself (sign-in or paste) take effect immediately.
+  const looksStale = d?.cookieSource === "env" && ageMin != null && ageMin > 120;
 
   return (
     <Card className="p-5 mb-6">
@@ -77,15 +79,18 @@ export default function ConnectionCheck() {
             <p className="text-body-sm text-error flex items-start gap-1.5">
               <Icon name="error" className="text-[18px] mt-0.5 shrink-0" />
               <span>
-                <strong>The cookie reached the server but Modisoft rejected it.</strong> It is not a
-                deployment problem — the reason below is Modisoft&apos;s own answer.
+                <strong>Modisoft did not accept the session{d.autoLogin ? ", and signing in again failed" : ""}.</strong>{" "}
+                The reason below is Modisoft&apos;s own answer.
               </span>
             </p>
           )}
 
           <dl className="text-body-sm grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
-            <Fact label="MODI_COOKIE set">
-              {d.cookiePresent ? `yes · ${d.cookieLength} characters` : <span className="text-error">no</span>}
+            <Fact label="Session held">
+              {d.cookiePresent ? `${sourceLabel(d.cookieSource)} · ${d.cookieLength} characters` : <span className="text-error">none</span>}
+            </Fact>
+            <Fact label="Automatic sign-in">
+              {d.autoLogin ? "on (MODI_USERNAME set)" : <span className="text-error">off — set MODI_USERNAME / MODI_PASSWORD</span>}
             </Fact>
             <Fact label="Cookie issued">
               {issued ? (
@@ -168,6 +173,13 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
       <dd className="text-on-surface text-right">{children}</dd>
     </div>
   );
+}
+
+function sourceLabel(source: string): string {
+  if (source === "login") return "from automatic sign-in";
+  if (source === "manual") return "pasted on this page";
+  if (source === "env") return "MODI_COOKIE";
+  return "none";
 }
 
 function formatAge(minutes: number): string {

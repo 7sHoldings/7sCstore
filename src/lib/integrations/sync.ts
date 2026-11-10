@@ -96,6 +96,12 @@ export async function syncRange(locationId: string, from: Date, to: Date): Promi
       where: { source: "POS_MODI", locationId, date: { gte: windowStart, lt: windowEnd } },
     });
     return insertRows(tx, locationId, rows);
+  }, {
+    // A month's backfill is ~2,000 inserts, which outlasts Prisma's default 5s
+    // interactive-transaction timeout. Prisma then closes the transaction under
+    // us and the next insert fails with "Transaction not found".
+    maxWait: 10_000,
+    timeout: 120_000,
   });
 
   // Promotions deducted per day, split merch vs fuel (from the same rows we just

@@ -1,15 +1,26 @@
 import type { PosAdapter, NormalizedSale, NormalizedInventoryItem, PricepushRequest, PricePushResult } from "./types";
 import { mapFuelType, mapDeptToCategory } from "./modiMap";
+import {
+  ModiSessionError,
+  isSessionError,
+  hasCredentials,
+  getStoredSession,
+  saveSession,
+  loginToModisoft,
+  parseCookieHeader,
+  jarToHeader,
+  absorbCookies,
+  type CookieSource,
+} from "./modiSession";
 
 /**
  * Interim Modisoft adapter that replays a logged-in **Insights session cookie**
  * against the Insights host the owner is logged into (see BASE below).
- * This works until the official API is available, but the cookie is short-lived
- * — when it expires, a sync fails and you refresh MODI_COOKIE in Vercel.
- *
- * Config: MODI_COOKIE (required) — the full `Cookie:` header value from a logged
- * in Insights browser session. MODI_BASE / MODI_INV_BASE override the host when
- * an account sits on a different one than the cookie was copied from.
+ * Sessions are short-lived, so the app keeps its own: see openSession() and
+ * modiSession.ts. With MODI_USERNAME / MODI_PASSWORD set it signs in by itself
+ * whenever the held session is refused; otherwise it uses MODI_COOKIE or a
+ * cookie pasted on the Integrations page (saved in the database, no redeploy).
+ * MODI_BASE / MODI_INV_BASE override the host when an account sits elsewhere.
  */
 // Both the sales reports and the inventory endpoints run on the host the owner
 // is actually logged into. A HAR captured from a live session (report 603, the
@@ -38,20 +49,18 @@ const UA =
 export const modiInsightsAdapter: PosAdapter = {
   id: "POS_MODI",
   label: "Modisoft (Insights session)",
-  isConfigured: () => Boolean(process.env.MODI_COOKIE),
+  isConfigured: () => Boolean(process.env.MODI_COOKIE) || hasCredentials(),
 
   async fetchSince(since: Date): Promise<NormalizedSale[]> {
     return this.fetchRange!(since, new Date());
   },
 
   async fetchRange(from: Date, to: Date): Promise<NormalizedSale[]> {
-    const cookie = process.env.MODI_COOKIE!;
     const storeId = process.env.MODI_STORE_ID || "16";
-    const ccode = process.env.MODI_CCODE || "854388";
     const out: NormalizedSale[] = [];
 
     // Select the store in the session first so the report endpoints scope to it.
-    await changeStore(cookie, storeId, ccode);
+    const cookie = await openSession();
 
     for (const day of daysBetween(from, to)) {
       const FromDate = `${fmtDate(day)} 12:00 AM`;
@@ -155,10 +164,7 @@ export const modiInsightsAdapter: PosAdapter = {
   },
 
   async fetchCustomers(from: Date, to: Date): Promise<{ date: string; customers: number }[]> {
-    const cookie = process.env.MODI_COOKIE!;
-    const storeId = process.env.MODI_STORE_ID || "16";
-    const ccode = process.env.MODI_CCODE || "854388";
-    await changeStore(cookie, storeId, ccode);
+    const cookie = await openSession();
 
     const out: { date: string; customers: number }[] = [];
     for (const day of daysBetween(from, to)) {
@@ -179,10 +185,7 @@ export const modiInsightsAdapter: PosAdapter = {
   },
 
   async fetchTax(from: Date, to: Date): Promise<{ date: string; tax: number }[]> {
-    const cookie = process.env.MODI_COOKIE!;
-    const storeId = process.env.MODI_STORE_ID || "16";
-    const ccode = process.env.MODI_CCODE || "854388";
-    await changeStore(cookie, storeId, ccode);
+    const cookie = await openSession();
 
     // Sales Tax comes from the SAME Daily Entry financial (EBDaily) that gives us
     // the cash (Safe Drop) and card (Batch) totals — it lists a "Sales Tax" tran
@@ -214,10 +217,7 @@ export const modiInsightsAdapter: PosAdapter = {
   },
 
   async fetchTender(from: Date, to: Date): Promise<{ date: string; cash: number; card: number }[]> {
-    const cookie = process.env.MODI_COOKIE!;
-    const storeId = process.env.MODI_STORE_ID || "16";
-    const ccode = process.env.MODI_CCODE || "854388";
-    await changeStore(cookie, storeId, ccode);
+    const cookie = await openSession();
 
     // The Daily Entry financial (EBDaily) groups the day's transactions by type.
     // The owner reconciles cash from the "Safe Drop" total and credit-card from
@@ -248,10 +248,7 @@ export const modiInsightsAdapter: PosAdapter = {
   },
 
   async fetchInventory(from?: Date, to?: Date): Promise<NormalizedInventoryItem[]> {
-    const cookie = process.env.MODI_COOKIE!;
-    const storeId = process.env.MODI_STORE_ID || "16";
-    const ccode = process.env.MODI_CCODE || "854388";
-    await changeStore(cookie, storeId, ccode, INV_BASE);
+    const cookie = await openSession(INV_BASE);
 
     // Map a department/tax-department id → name → our category. Best-effort.
     const deptById = await loadDepartments(cookie);
@@ -333,17 +330,15 @@ export const modiInsightsAdapter: PosAdapter = {
   },
 
   async pushItemPricesBulk(reqs: PricepushRequest[]): Promise<PricePushResult[]> {
-    const cookie = process.env.MODI_COOKIE!;
-    const storeId = process.env.MODI_STORE_ID || "16";
-    const ccode = process.env.MODI_CCODE || "854388";
 
     // Selecting the store is the first thing that touches the session, so it is
     // the first thing an expired cookie breaks. Throwing here aborted the whole
     // price update and the caller could only report a generic failure — the one
     // useful fact, that the session is dead, was lost. Every other step in this
     // method already degrades to a per-item error, so this one does too.
+    let cookie: string;
     try {
-      await changeStore(cookie, storeId, ccode, INV_BASE);
+      cookie = await openSession(INV_BASE);
     } catch (e) {
       const error = e instanceof Error ? e.message : "Could not select the store in Modisoft.";
       return reqs.map((r) => ({ posItemId: r.posItemId, ok: false, oldPrice: null, error }));
@@ -462,7 +457,7 @@ async function describeFailure(res: Response, path: string, base?: string): Prom
     );
   }
   if (res.status === 401) {
-    return new Error(`${host} rejected the login on ${path} (401) — MODI_COOKIE is not valid for ${host}.`);
+    return new ModiSessionError(`${host} rejected the login on ${path} (401) — the saved Modisoft session is not valid for ${host}. ${hostAdvice(base)}`);
   }
   if (res.status === 403) {
     return new Error(
@@ -488,9 +483,9 @@ async function describeFailure(res: Response, path: string, base?: string): Prom
  */
 function notJsonError(path: string, contentType: string | null, base?: string): Error {
   const host = base ? new URL(base).host : "the Modisoft host";
-  return new Error(
+  return new ModiSessionError(
     `${host} answered ${path} with ${contentType || "an unknown content type"} instead of JSON — ` +
-      `a login page, so MODI_COOKIE is not valid for ${host}. ` +
+      `a login page, so the saved Modisoft session is not valid for ${host}. ` +
       hostAdvice(base)
   );
 }
@@ -523,12 +518,12 @@ function hostAdvice(base?: string): string {
     // the address is not the problem — the session is. Suggesting the host
     // variables here would send them back to the misconfiguration they just
     // escaped, so this says plainly that the cookie itself has to be replaced.
-    return (
-      `The host is correct, so this is the session itself — it has expired or been ` +
-      `signed out. Open ${host} in a browser, copy the Cookie header from a request ` +
-      "on that tab, put it in MODI_COOKIE and redeploy. Modisoft sessions are short-lived, " +
-      "so run the sync straight after."
-    );
+    return hasCredentials()
+      ? "The host is correct, so the session had expired. The app tried to sign in again by itself " +
+          "with MODI_USERNAME / MODI_PASSWORD — see the sign-in error for why that did not work."
+      : "The host is correct, so the session itself has expired. Set MODI_USERNAME and MODI_PASSWORD " +
+          "in Vercel once and the app will sign in by itself from then on — or paste a fresh cookie " +
+          "under Integrations → Modisoft sign-in (no redeploy needed).";
   }
   return (
     "Cookies only work on the host they were copied from: log in to " +
@@ -644,20 +639,20 @@ async function setupReport(cookie: string, path: string, body: Record<string, st
 
 export interface CookieFacts {
   present: boolean;
+  /** Where the session in use came from. */
+  source: CookieSource;
+  /** When the app saved it (sign-in or paste); null for MODI_COOKIE. */
+  savedAt: Date | null;
+  /** MODI_USERNAME + MODI_PASSWORD are set, so the app can sign in by itself. */
+  autoLogin: boolean;
   /** Cookie NAMES only. Values are secrets and never leave the server. */
   names: string[];
   length: number;
   hasSession: boolean;
   hasClearance: boolean;
   /**
-   * When Cloudflare issued cf_clearance, decoded from the token itself.
-   *
-   * This is the fact that settles "did my new cookie actually reach the app?".
-   * Environment variables on Vercel are baked in at deploy time, so saving a new
-   * value without redeploying leaves the running server on the old one — and
-   * nothing in the UI would otherwise show that. cf_clearance carries its own
-   * issue time, so the server can state how old the cookie it is really holding
-   * is, rather than the owner having to trust that the save took effect.
+   * When Cloudflare issued cf_clearance, decoded from the token itself — shows
+   * how old a copied cookie really is.
    */
   clearanceIssuedAt: Date | null;
   reportBase: string;
@@ -669,8 +664,9 @@ export interface CookieFacts {
 }
 
 /** What the running server actually holds — names and ages, never values. */
-export function describeCookie(): CookieFacts {
-  const raw = process.env.MODI_COOKIE ?? "";
+export async function describeCookie(): Promise<CookieFacts> {
+  const stored = await getStoredSession();
+  const raw = stored.cookie;
   const pairs = raw.split(";").map((c) => c.trim()).filter(Boolean);
   const names = pairs.map((c) => c.split("=")[0].trim()).filter(Boolean);
 
@@ -690,9 +686,12 @@ export function describeCookie(): CookieFacts {
 
   return {
     present: raw.length > 0,
+    source: stored.source,
+    savedAt: stored.savedAt,
+    autoLogin: hasCredentials(),
     names,
     length: raw.length,
-    hasSession: names.some((n) => n.toLowerCase() === "asp.net_sessionid"),
+    hasSession: names.some((n) => /^(asp\.net_sessionid|\.aspxauth|\.aspnetcore\.)/i.test(n)),
     hasClearance: names.includes("cf_clearance"),
     clearanceIssuedAt,
     reportBase: BASE,
@@ -706,34 +705,108 @@ export function describeCookie(): CookieFacts {
 /**
  * Ask Modisoft to select the store and report exactly what came back.
  *
- * One request, the same one every pull and every price push starts with, so a
- * pass here means the session is genuinely usable and a failure carries the
- * real reason rather than a generic one.
+ * Goes through openSession(), so a refused session triggers the same automatic
+ * sign-in a real sync would — a pass here means syncing will work.
  */
 export async function probeModiSession(): Promise<{ ok: boolean; message: string; host: string }> {
-  const facts = describeCookie();
-  if (!facts.present) {
-    return { ok: false, host: new URL(INV_BASE).host, message: "MODI_COOKIE is not set on this deployment." };
+  const host = new URL(INV_BASE).host;
+  const before = await getStoredSession();
+  if (!before.cookie && !hasCredentials()) {
+    return { ok: false, host, message: "No Modisoft session yet: set MODI_USERNAME and MODI_PASSWORD, or paste a cookie." };
   }
   try {
-    await changeStore(
-      process.env.MODI_COOKIE!,
-      process.env.MODI_STORE_ID || "16",
-      process.env.MODI_CCODE || "854388",
-      INV_BASE
-    );
-    return { ok: true, host: new URL(INV_BASE).host, message: "Store selected — the session works." };
-  } catch (e) {
+    await openSession(INV_BASE);
+    const after = await getStoredSession();
+    const signedIn = after.source === "login" && after.savedAt && (!before.savedAt || after.savedAt > before.savedAt);
     return {
-      ok: false,
-      host: new URL(INV_BASE).host,
-      message: e instanceof Error ? e.message : "The store-select request failed.",
+      ok: true,
+      host,
+      message: signedIn ? "Signed in to Modisoft automatically and selected the store." : "Store selected — the session works.",
     };
+  } catch (e) {
+    return { ok: false, host, message: e instanceof Error ? e.message : "The store-select request failed." };
   }
 }
 
+/** Sign in afresh right now (Integrations → "Sign in now"), ignoring the held session. */
+export async function forceModiLogin(): Promise<void> {
+  const held = await getStoredSession();
+  const cookie = await loginToModisoft(INV_BASE, UA, held.cookie);
+  const res = await changeStore(cookie, storeIdEnv(), ccodeEnv(), INV_BASE);
+  await saveSession(mergeSetCookies(cookie, res), "login");
+}
+
+/** Check a pasted cookie actually works before saving it. */
+export async function testCookie(cookie: string): Promise<string> {
+  const res = await changeStore(cookie, storeIdEnv(), ccodeEnv(), INV_BASE);
+  return mergeSetCookies(cookie, res);
+}
+
+function storeIdEnv(): string {
+  return process.env.MODI_STORE_ID || "16";
+}
+function ccodeEnv(): string {
+  return process.env.MODI_CCODE || "854388";
+}
+
+/** Fold any refreshed cookies Modisoft sent back into the header we hold. */
+function mergeSetCookies(cookie: string, res: Response): string {
+  const jar = parseCookieHeader(cookie);
+  absorbCookies(jar, res);
+  return jarToHeader(jar);
+}
+
+/**
+ * Get a session that Modisoft accepts, with the store selected.
+ *
+ * 1. Use the held session (database, else MODI_COOKIE) and select the store.
+ * 2. If Modisoft refuses it and MODI_USERNAME / MODI_PASSWORD are set, sign in
+ *    afresh, select the store, and save the new session for every later call.
+ *
+ * Modisoft also re-issues its auth cookies as a session is used (sliding
+ * expiry); those are saved too, so a session in regular use keeps itself alive.
+ */
+async function openSession(base: string = BASE): Promise<string> {
+  const held = await getStoredSession();
+  let firstError: unknown = null;
+
+  if (held.cookie) {
+    try {
+      const res = await changeStore(held.cookie, storeIdEnv(), ccodeEnv(), base);
+      const merged = mergeSetCookies(held.cookie, res);
+      if (merged !== held.cookie) {
+        // Keep refreshed cookies (an env cookie gets promoted into the database).
+        await saveSession(merged, held.source === "manual" ? "manual" : "login").catch(() => {});
+      }
+      return merged;
+    } catch (e) {
+      if (!hasCredentials() || !isSessionError(e)) throw e;
+      firstError = e;
+    }
+  } else if (!hasCredentials()) {
+    throw new ModiSessionError(
+      "No Modisoft session is set up. Set MODI_USERNAME and MODI_PASSWORD in Vercel so the app can " +
+        "sign in by itself, or paste a cookie under Integrations → Modisoft sign-in."
+    );
+  }
+
+  let fresh: string;
+  try {
+    fresh = await loginToModisoft(base, UA, held.cookie);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      (firstError ? "The saved Modisoft session had expired, and signing in again failed: " : "Signing in to Modisoft failed: ") + why
+    );
+  }
+  const res = await changeStore(fresh, storeIdEnv(), ccodeEnv(), base);
+  const merged = mergeSetCookies(fresh, res);
+  await saveSession(merged, "login").catch((e) => console.error("could not save Modisoft session", e));
+  return merged;
+}
+
 /** Set the active store in the session (POST /Home/ChangeStore). */
-async function changeStore(cookie: string, id: string, ccode: string, base: string = BASE): Promise<void> {
+async function changeStore(cookie: string, id: string, ccode: string, base: string = BASE): Promise<Response> {
   const res = await fetch(base + "/Home/ChangeStore", {
     method: "POST",
     headers: {
@@ -753,6 +826,7 @@ async function changeStore(cookie: string, id: string, ccode: string, base: stri
   if (!ct.includes("json")) {
     throw notJsonError("store-select", res.headers.get("content-type"), base);
   }
+  return res;
 }
 
 async function post(cookie: string, path: string, body: Record<string, string>): Promise<unknown[]> {
