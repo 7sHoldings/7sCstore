@@ -44,6 +44,12 @@ export async function finishBackfill(total: number, fromISO: string, toISO: stri
 
 export interface ConnectionCheck {
   error?: string;
+  /** "login" (automatic sign-in), "manual" (pasted), "env" (MODI_COOKIE), "none". */
+  cookieSource: string;
+  /** ISO time the app saved the session; null for MODI_COOKIE. */
+  cookieSavedAt: string | null;
+  /** MODI_USERNAME + MODI_PASSWORD are set. */
+  autoLogin: boolean;
   cookiePresent: boolean;
   cookieNames: string[];
   cookieLength: number;
@@ -76,6 +82,7 @@ export interface ConnectionCheck {
  */
 export async function checkConnection(): Promise<ConnectionCheck> {
   const empty: ConnectionCheck = {
+    cookieSource: "none", cookieSavedAt: null, autoLogin: false,
     cookiePresent: false, cookieNames: [], cookieLength: 0,
     hasSession: false, hasClearance: false, clearanceIssuedAt: null,
     reportHost: "", inventoryHost: "", reportOverridden: false, inventoryOverridden: false, userAgent: "",
@@ -86,12 +93,15 @@ export async function checkConnection(): Promise<ConnectionCheck> {
   if (!can(session.role, "viewAll")) return { ...empty, error: "You don't have permission." };
 
   const { describeCookie, probeModiSession } = await import("@/lib/integrations/modiInsights");
-  const facts = describeCookie();
-  const probe = facts.present
-    ? await probeModiSession()
-    : { ok: false, message: "MODI_COOKIE is not set on this deployment.", host: "" };
+  // Probe first: it may sign in afresh, and the facts should describe the
+  // session the probe ended up with.
+  const probe = await probeModiSession();
+  const facts = await describeCookie();
 
   return {
+    cookieSource: facts.source,
+    cookieSavedAt: facts.savedAt ? facts.savedAt.toISOString() : null,
+    autoLogin: facts.autoLogin,
     cookiePresent: facts.present,
     cookieNames: facts.names,
     cookieLength: facts.length,
@@ -106,4 +116,54 @@ export async function checkConnection(): Promise<ConnectionCheck> {
     probeOk: probe.ok,
     probeMessage: probe.message,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Modisoft sign-in (no more copying cookies into Vercel)
+// ---------------------------------------------------------------------------
+
+async function requireAdmin(): Promise<{ userId: string } | { error: string }> {
+  const session = await getSession();
+  if (!session) return { error: "Not authenticated." };
+  if (!can(session.role, "viewAll")) return { error: "You don't have permission." };
+  return { userId: session.userId };
+}
+
+/** Sign in to Modisoft now with MODI_USERNAME / MODI_PASSWORD and save the session. */
+export async function modiSignInNow(): Promise<{ ok?: boolean; error?: string }> {
+  const who = await requireAdmin();
+  if ("error" in who) return who;
+  try {
+    const { forceModiLogin } = await import("@/lib/integrations/modiInsights");
+    await forceModiLogin();
+    await logAudit({ userId: who.userId, action: "MODI_SIGN_IN", entity: "Setting", after: { via: "login" } });
+    revalidatePath("/integrations");
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Sign-in failed." };
+  }
+}
+
+/**
+ * Save a pasted Cookie header in the database. It is tested against Modisoft
+ * first, so a bad paste is reported rather than saved. Takes effect at once —
+ * no Vercel environment variable, no redeploy.
+ */
+export async function saveModiCookie(raw: string): Promise<{ ok?: boolean; error?: string }> {
+  const who = await requireAdmin();
+  if ("error" in who) return who;
+  // Accept a pasted "Cookie: …" line or the bare value.
+  const cookie = raw.trim().replace(/^cookie:\s*/i, "").replace(/[\r\n]+/g, " ").trim();
+  if (!cookie || !cookie.includes("=")) return { error: "That doesn't look like a Cookie header (expected name=value; name=value…)." };
+  try {
+    const { testCookie } = await import("@/lib/integrations/modiInsights");
+    const { saveSession } = await import("@/lib/integrations/modiSession");
+    const working = await testCookie(cookie);
+    await saveSession(working, "manual");
+    await logAudit({ userId: who.userId, action: "MODI_SIGN_IN", entity: "Setting", after: { via: "paste" } });
+    revalidatePath("/integrations");
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Modisoft did not accept that cookie." };
+  }
 }

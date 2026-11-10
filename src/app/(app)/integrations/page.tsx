@@ -8,6 +8,8 @@ import { Card, PageHeader, Badge, EmptyState, Icon } from "@/components/ui";
 import SyncButton from "./SyncButton";
 import Backfill from "./Backfill";
 import ConnectionCheck from "./ConnectionCheck";
+import ModiSignIn from "./ModiSignIn";
+import { getStoredSession, hasCredentials } from "@/lib/integrations/modiSession";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +34,7 @@ export default async function IntegrationsPage() {
   const canRun = can(session.role, "viewAll");
   const lastRun = logs[0] ?? null;
   const failing = live && lastRun?.status === "FAILED";
+  const held = canRun && live ? await getStoredSession() : null;
 
   return (
     <div>
@@ -60,7 +63,9 @@ export default async function IntegrationsPage() {
                 {!live
                   ? "Using the sandbox adapter. Set MODI_API_URL and MODI_API_KEY to go live."
                   : failing
-                    ? "The saved Modisoft session is no longer being accepted, so nothing is pulling. Ordering is unaffected — the Weekly Order page reads your uploaded inventory export."
+                    ? hasCredentials()
+                      ? "The last sync could not sign in to Modisoft. Use “Sign in now” below to see why, then sync again."
+                      : "The saved Modisoft session is no longer being accepted, so nothing is pulling. Set up automatic sign-in below so this stops happening."
                     : "Connected to Modisoft."}
               </p>
               <p className="text-body-sm text-on-surface-variant mt-0.5">
@@ -76,6 +81,14 @@ export default async function IntegrationsPage() {
           <SyncButton />
         </div>
       </Card>
+
+      {held && (
+        <ModiSignIn
+          autoLogin={hasCredentials()}
+          source={held.source}
+          savedAt={held.savedAt ? held.savedAt.toISOString() : null}
+        />
+      )}
 
       {canRun && <ConnectionCheck />}
 
