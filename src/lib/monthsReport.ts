@@ -22,6 +22,7 @@ export interface ReportRow {
   noTotal?: boolean;
   threshold?: number; // colour against a fixed target (e.g. gross profit ≥ 30%)
   groupHead?: string; // tap to open the rows of this group (e.g. payees)
+  pctBase?: number[]; // per month: show "(x%)" of this next to each number (share of total expenses)
   group?: string; // hidden until its group is opened
   totalValue?: number | null; // total column override (e.g. whole-period %)
   proj?: { current: number | null; next: number | null } | null;
@@ -51,6 +52,7 @@ type Get = (f: WindowFigures) => number;
 interface Spec extends Omit<ReportRow, "values" | "proj"> {
   get: Get;
   project?: boolean;
+  shareOfExpenses?: boolean; // show each number's share of total expenses in brackets
 }
 
 /** Months from `from` to `to`, oldest first (at most 24). */
@@ -92,11 +94,12 @@ export async function buildMonthsReport(loc: string, from: string, month: string
   const runningInfo = running ? { done, total: daysInMonth(month) } : null;
 
   const build = (specs: Spec[]): ReportRow[] =>
-    specs.map(({ get, project: doProject, ...rest }) => {
+    specs.map(({ get, project: doProject, shareOfExpenses, ...rest }) => {
       const values = figs.map(get);
       return {
         ...rest,
         values,
+        ...(shareOfExpenses ? { pctBase: figs.map((f) => f.expenses.total) } : {}),
         proj: doProject
           ? project({
               values,
@@ -134,24 +137,29 @@ export async function buildMonthsReport(loc: string, from: string, month: string
   const gradeGet = (g: string, k: "gallons" | "total"): Get => (f) => f.fuelGrades.find((x) => x.grade === g)?.[k] ?? 0;
   const grades = GRADES.filter((g) => figs.some((f) => f.fuelGrades.some((x) => x.grade === g)));
 
-  // ---- expenses: group subtotal, then each payee ----
-  const expenseSpecs: Spec[] = [];
-  for (const [group, title] of [["Inventory", "Product buying"], ["Operating", "Store expenses"], ["Fuel", "Fuel purchases"]] as const) {
-    const sub: Get = (f) => (group === "Inventory" ? f.expenses.inventory : group === "Operating" ? f.expenses.operating : f.expenses.fuel);
-    if (!figs.some((f) => sub(f))) continue;
-    expenseSpecs.push({ label: title, get: sub, good: false, strong: true, project: true, groupHead: group });
-    const payees = new Map<string, number>();
-    for (const f of figs) for (const p of f.expenses.byPayee) if (p.group === group) payees.set(p.key, (payees.get(p.key) ?? 0) + p.value);
-    for (const [name] of [...payees.entries()].sort((a, b) => b[1] - a[1])) {
-      expenseSpecs.push({
-        label: name,
-        get: (f) => f.expenses.byPayee.filter((p) => p.group === group && p.key === name).reduce((s, p) => s + p.value, 0),
-        good: false,
-        indent: true,
-        group,
-      });
+  // ---- expenses: group subtotal (opens to its payees), each with its share of all expenses ----
+  const expenseGroupSpecs = (): Spec[] => {
+    const out: Spec[] = [];
+    for (const [group, title] of [["Inventory", "Product buying"], ["Operating", "Store expenses"], ["Fuel", "Fuel purchases"]] as const) {
+      const sub: Get = (f) => (group === "Inventory" ? f.expenses.inventory : group === "Operating" ? f.expenses.operating : f.expenses.fuel);
+      if (!figs.some((f) => sub(f))) continue;
+      out.push({ label: title, get: sub, good: false, strong: true, project: true, groupHead: group, shareOfExpenses: true });
+      const payees = new Map<string, number>();
+      for (const f of figs) for (const p of f.expenses.byPayee) if (p.group === group) payees.set(p.key, (payees.get(p.key) ?? 0) + p.value);
+      for (const [name] of [...payees.entries()].sort((a, b) => b[1] - a[1])) {
+        out.push({
+          label: name,
+          get: (f) => f.expenses.byPayee.filter((p) => p.group === group && p.key === name).reduce((s, p) => s + p.value, 0),
+          good: false,
+          indent: true,
+          group,
+          shareOfExpenses: true,
+        });
+      }
     }
-  }
+    return out;
+  };
+  const expenseSpecs: Spec[] = expenseGroupSpecs();
   expenseSpecs.push({ label: "Total expenses", get: (f) => f.expenses.total, good: false, strong: true, project: true });
   expenseSpecs.push(...gpSpecs("Percent of inside sales"));
 
@@ -286,9 +294,7 @@ export async function buildMonthsReport(loc: string, from: string, month: string
         { section: "Money collected", label: "Cash (safe drop)", get: (f) => f.tender?.cash ?? 0, project: true },
         { label: "Credit / debit cards", get: (f) => f.tender?.card ?? 0, project: true },
         { label: "Short / Over", get: (f) => f.shortOver ?? 0 },
-        { section: "Expenses", label: "Product buying", get: (f) => f.expenses.inventory, good: false, project: true },
-        { label: "Store expenses", get: (f) => f.expenses.operating, good: false, project: true },
-        ...(figs.some((f) => f.expenses.fuel) ? [{ label: "Fuel purchases", get: (f: WindowFigures) => f.expenses.fuel, good: false, project: true } as Spec] : []),
+        ...expenseGroupSpecs().map((x, i) => (i === 0 ? { ...x, section: "Expenses (share of total in brackets)" } : x)),
         { label: "Total expenses", get: (f) => f.expenses.total, good: false, strong: true, project: true },
         ...gpSpecs("Gross profit"),
         { section: "Bottom line", label: "Profit / Loss", get: (f) => f.profit, strong: true },

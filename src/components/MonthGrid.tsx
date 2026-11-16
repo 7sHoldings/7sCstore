@@ -27,7 +27,12 @@ export interface GridRow {
   groupHead?: string;
   /** Hidden while its group is closed. */
   group?: string;
+  /** Per month: show "(x%)" of this value next to each number (e.g. share of total expenses). */
+  pctBase?: (number | null)[];
 }
+
+const Share = ({ v, base }: { v: number; base: number | null | undefined }) =>
+  base ? <span className="ml-0.5 text-[11px] font-normal text-on-surface-variant whitespace-nowrap">({Math.round((v / base) * 100)}%)</span> : null;
 
 const Chevron = ({ open }: { open: boolean }) => (
   <span
@@ -127,7 +132,7 @@ export function MonthGrid({
                           ? (v >= r.threshold) === (r.good !== false) ? "good" : "bad"
                           : r.neutral || v === null || prev === null || months[i].partial ? "none" : delta(v, prev, r.good !== false).tone;
                       return (
-                        <td key={months[i].ym} className="px-1 py-2 text-right">
+                        <td key={months[i].ym} className="px-1 py-2 text-right whitespace-nowrap">
                           {v === null || v === 0 ? (
                             <span className="text-on-surface-variant px-1.5">—</span>
                           ) : (
@@ -139,6 +144,7 @@ export function MonthGrid({
                               title={prev !== null ? `${fmtVal(v, r.unit)} — month before: ${fmtVal(prev, r.unit)}` : fmtVal(v, r.unit)}
                             />
                           )}
+                          {v ? <Share v={v} base={r.pctBase?.[i]} /> : null}
                         </td>
                       );
                     })}
@@ -151,7 +157,17 @@ export function MonthGrid({
                             tone={r.threshold !== undefined ? ((r.totalValue >= r.threshold) === (r.good !== false) ? "good" : "bad") : "none"}
                           />
                         )
-                      ) : r.noTotal ? "" : fmtCompact(r.values.reduce<number>((a, b) => a + (b ?? 0), 0), r.unit)}
+                      ) : r.noTotal ? "" : (
+                        <>
+                          {fmtCompact(r.values.reduce<number>((a, b) => a + (b ?? 0), 0), r.unit)}
+                          {r.pctBase && (
+                            <Share
+                              v={r.values.reduce<number>((a, b) => a + (b ?? 0), 0)}
+                              base={r.pctBase.reduce<number>((a, b) => a + (b ?? 0), 0)}
+                            />
+                          )}
+                        </>
+                      )}
                     </td>
                     {showProj && projLabels!.current && (
                       <td className={`${projTd} border-l border-dashed border-tertiary/40`}>{r.proj?.current != null ? fmtCompact(r.proj.current, r.unit) : ""}</td>
