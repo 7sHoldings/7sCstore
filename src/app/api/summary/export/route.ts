@@ -5,7 +5,7 @@ import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { todayISO } from "@/lib/day";
-import { defaultMonth, delta, isMonth } from "@/lib/compare";
+import { defaultMonth, delta, isMonth, monthLabel } from "@/lib/compare";
 import { buildMonthsReport } from "@/lib/monthsReport";
 
 /**
@@ -34,8 +34,10 @@ export async function GET(req: NextRequest) {
   const today = todayISO();
   const m = req.nextUrl.searchParams.get("month");
   const month = isMonth(m) ? m : defaultMonth(today);
+  const f = req.nextUrl.searchParams.get("from");
+  const from = isMonth(f) && f <= month ? f : `${month.slice(0, 4)}-01`;
   const [report, location] = await Promise.all([
-    buildMonthsReport(loc, month, today),
+    buildMonthsReport(loc, from, month, today),
     prisma.location.findUnique({ where: { id: loc }, select: { name: true } }),
   ]);
 
@@ -92,7 +94,7 @@ export async function GET(req: NextRequest) {
 
   // Sheet 1: everything stacked — the one to share.
   const all = wb.addWorksheet("Monthly Summary", { views: [{ state: "frozen", xSplit: 1 }] });
-  all.addRow([`Monthly Summary — ${location?.name ?? ""} — Jan to ${monthHeads[monthHeads.length - 1]} ${report.year}`]).font = { bold: true, size: 15 };
+  all.addRow([`Monthly Summary — ${location?.name ?? ""} — ${monthLabel(report.months[0].ym)} to ${monthLabel(month)}`]).font = { bold: true, size: 15 };
   all.addRow([`Green = better than the month before, red = worse (for expenses, spending more is red). Projected columns are shaded.`]).font = { italic: true, color: { argb: "FF555555" } };
   all.addRow([]);
   for (const s of report.sections) {

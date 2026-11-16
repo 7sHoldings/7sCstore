@@ -49,12 +49,23 @@ interface Spec extends Omit<ReportRow, "values" | "proj"> {
   project?: boolean;
 }
 
-export async function buildMonthsReport(loc: string, month: string, today: string): Promise<MonthsReport> {
+/** Months from `from` to `to`, oldest first (at most 24). */
+export function monthRange(from: string, to: string): string[] {
+  const out: string[] = [];
+  let ym = from > to ? to : from;
+  while (ym <= to && out.length < 24) {
+    out.push(ym);
+    ym = shiftMonth(ym, 1);
+  }
+  return out.length ? out : [to];
+}
+
+export async function buildMonthsReport(loc: string, from: string, month: string, today: string): Promise<MonthsReport> {
   const year = month.slice(0, 4);
   const running = today.slice(0, 7) === month;
   const done = running ? Math.max(1, Number(today.slice(8, 10)) - 1) : daysInMonth(month);
-  const yms: string[] = [];
-  for (let m = 1; m <= Number(month.slice(5, 7)); m++) yms.push(`${year}-${String(m).padStart(2, "0")}`);
+  const yms = monthRange(from < shiftMonth(month, -23) ? shiftMonth(month, -23) : from, month);
+  const multiYear = yms[0].slice(0, 4) !== month.slice(0, 4);
 
   const window = (ym: string) => {
     const start = monthStart(ym);
@@ -207,12 +218,38 @@ export async function buildMonthsReport(loc: string, month: string, today: strin
         { label: "= Profit / Loss", get: (f) => f.profit, strong: true },
       ]),
     },
+    {
+      // One table with the whole store — departments down to the profit/loss
+      // line — so a single screenshot tells the full story.
+      id: "master",
+      title: "Whole store summary",
+      icon: "summarize",
+      note: "Departments → sales → cash → profit, in one table",
+      rows: build([
+        ...deptNames.map((n, i): Spec => ({ section: i === 0 ? "Departments" : undefined, label: n, dept: n, get: deptGet(n), project: true })),
+        { section: "Sales", label: "Inside sales (all departments)", get: (f) => f.merch, strong: true, project: true },
+        { label: "Gas sales", get: (f) => f.fuel, project: true },
+        { label: "Gallons sold", get: (f) => f.gallons, unit: "gal", project: true },
+        { label: "Lottery net", get: (f) => f.lottoNet, project: true },
+        { label: "Sales tax", get: (f) => f.salesTax, neutral: true, project: true },
+        { label: "Total sales", get: (f) => f.posSales, strong: true, project: true },
+        { section: "Money collected", label: "Cash (safe drop)", get: (f) => f.tender?.cash ?? 0, project: true },
+        { label: "Credit / debit cards", get: (f) => f.tender?.card ?? 0, project: true },
+        { label: "Short / Over", get: (f) => f.shortOver ?? 0 },
+        { section: "Bottom line", label: "Expenses", get: (f) => f.expenses.total, good: false, project: true },
+        { label: "Profit / Loss", get: (f) => f.profit, strong: true },
+      ]),
+    },
   ];
 
   return {
     year,
     month,
-    months: yms.map((ym) => ({ ym, label: monthLabel(ym, true).slice(0, 3), partial: running && ym === month })),
+    months: yms.map((ym) => ({
+      ym,
+      label: multiYear ? `${monthLabel(ym, true).slice(0, 3)} ’${ym.slice(2, 4)}` : monthLabel(ym, true).slice(0, 3),
+      partial: running && ym === month,
+    })),
     running: runningInfo,
     projLabels: {
       current: running ? `${monthLabel(month, true).slice(0, 3)} projected` : null,

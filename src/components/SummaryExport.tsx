@@ -11,11 +11,22 @@ import { useState } from "react";
  */
 const MAX_PIXELS = 16_000_000; // iPhone Safari's canvas limit is ~16.7M pixels
 
-async function capture(el: HTMLElement, type: "png" | "jpeg"): Promise<{ dataUrl: string; width: number; height: number }> {
+async function capture(el: HTMLElement, type: "png" | "jpeg", extra?: string): Promise<{ dataUrl: string; width: number; height: number }> {
   const { toPng, toJpeg } = await import("html-to-image");
   el.classList.add("exporting");
+  if (extra) el.classList.add(extra);
   try {
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // Make the capture wide enough for the widest table (cards clip overflow).
+    const left = el.getBoundingClientRect().left;
+    const need = Math.max(
+      el.scrollWidth,
+      ...Array.from(el.querySelectorAll("table")).map((t) => Math.ceil(t.getBoundingClientRect().left - left + t.scrollWidth + 48))
+    );
+    if (need > el.getBoundingClientRect().width) {
+      el.style.setProperty("width", `${need}px`, "important");
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    }
     const width = el.scrollWidth;
     const height = el.scrollHeight;
     const pixelRatio = Math.max(1, Math.min(2, Math.sqrt(MAX_PIXELS / (width * height))));
@@ -24,6 +35,8 @@ async function capture(el: HTMLElement, type: "png" | "jpeg"): Promise<{ dataUrl
     return { dataUrl, width, height };
   } finally {
     el.classList.remove("exporting");
+    if (extra) el.classList.remove(extra);
+    el.style.removeProperty("width");
   }
 }
 
@@ -51,11 +64,13 @@ async function saveFile(blob: Blob, name: string, title: string) {
 }
 
 export default function SummaryExport({
-  targetId, fileName, excelHref,
+  targetId, fileName, excelHref, exportClass, imageLabel = "Picture (Photos / WhatsApp)",
 }: {
   targetId: string;
   fileName: string;
   excelHref?: string;
+  exportClass?: string; // extra class while capturing (shows a target-specific title)
+  imageLabel?: string;
 }) {
   const [busy, setBusy] = useState<"" | "image" | "pdf">("");
   const [error, setError] = useState("");
@@ -68,7 +83,7 @@ export default function SummaryExport({
     setBusy("image");
     setError("");
     try {
-      const { dataUrl } = await capture(el, "png");
+      const { dataUrl } = await capture(el, "png", exportClass);
       const blob = await (await fetch(dataUrl)).blob();
       await saveFile(blob, `${fileName}.png`, fileName);
     } catch (e) {
@@ -85,7 +100,7 @@ export default function SummaryExport({
     setBusy("pdf");
     setError("");
     try {
-      const [{ dataUrl, width, height }, { jsPDF }] = await Promise.all([capture(el, "jpeg"), import("jspdf")]);
+      const [{ dataUrl, width, height }, { jsPDF }] = await Promise.all([capture(el, "jpeg", exportClass), import("jspdf")]);
       const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
       const pageW = doc.internal.pageSize.getWidth();
       const pageH = doc.internal.pageSize.getHeight();
@@ -119,7 +134,7 @@ export default function SummaryExport({
       <span className="text-label-caps uppercase text-on-surface-variant mr-1">Download</span>
       <button type="button" className={btn} onClick={image} disabled={!!busy}>
         <span className="material-symbols-outlined text-[18px]" aria-hidden>photo_camera</span>
-        {busy === "image" ? "Creating…" : "Picture (Photos / WhatsApp)"}
+        {busy === "image" ? "Creating…" : imageLabel}
       </button>
       <button type="button" className={btn} onClick={pdf} disabled={!!busy}>
         <span className="material-symbols-outlined text-[18px]" aria-hidden>picture_as_pdf</span>

@@ -26,7 +26,7 @@ const GRADES = ["REGULAR", "PREMIUM", "DIESEL"];
 export default async function MonthlySummaryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; vs?: string; b?: string; full?: string; view?: string }>;
+  searchParams: Promise<{ month?: string; from?: string; vs?: string; b?: string; full?: string; view?: string }>;
 }) {
   const session = (await getSession())!;
   if (!can(session.role, "viewProfit") && !can(session.role, "viewAll")) {
@@ -45,13 +45,15 @@ export default async function MonthlySummaryPage({
   const w = compareWindows(month, mode, sp.b, today, full);
   const running = today.slice(0, 7) === month;
   const year = month.slice(0, 4);
-  const yearLabel = month.endsWith("-01") ? `Jan ${year}` : `Jan – ${monthLabel(month, true)}`;
+  const from = isMonth(sp.from) && sp.from <= month ? sp.from : `${year}-01`;
+  const yearLabel = from === month ? monthLabel(month, true) : `${monthLabel(from, true)} – ${monthLabel(month, true)}`;
 
   const query = new URLSearchParams({
     month, vs: w.mode,
     ...(w.mode === "custom" ? { b: w.b.ym } : {}),
     ...(full ? { full: "1" } : {}),
     ...(view === "compare" ? { view: "compare" } : {}),
+    ...(view === "months" && from !== `${year}-01` ? { from } : {}),
   }).toString();
   const deptHref = (name: string) => `/summary/dept/${encodeURIComponent(name)}?${query}`;
 
@@ -59,14 +61,13 @@ export default async function MonthlySummaryPage({
     <Card className="p-4 mb-4">
       <SummaryFilter
         month={month}
+        from={from}
         vs={w.mode}
-        b={w.mode === "custom" ? w.b.ym : shiftMonth(month, -2)}
+        b={w.b.ym}
         full={full}
         running={running}
-        prevLabel={monthLabel(shiftMonth(month, -1), true)}
-        lastYearLabel={monthLabel(shiftMonth(month, -12), true)}
         view={view}
-        yearLabel={yearLabel}
+        thisMonth={today.slice(0, 7)}
       />
       <div className="mt-3 pt-3 border-t border-outline-variant/40 flex flex-wrap items-center justify-between gap-2">
         <ToneLegend />
@@ -83,7 +84,7 @@ export default async function MonthlySummaryPage({
   const header = (
     <PageHeader
       title="Monthly Summary"
-      subtitle={view === "months" ? `Every month of ${year}, January to ${monthLabel(month)}` : `${w.a.label}  vs  ${w.b.label}`}
+      subtitle={view === "months" ? `Month by month · ${monthLabel(from)} to ${monthLabel(month)}` : `${w.a.label}  vs  ${w.b.label}`}
       actions={
         <a href="/summary/year" className="ft-btn-secondary inline-flex items-center gap-1.5">
           <Icon name="table_chart" className="text-[18px]" /> Year P&amp;L table
@@ -97,7 +98,7 @@ export default async function MonthlySummaryPage({
       <div className="flex gap-1.5 w-max">
         {[
           ["overview", "Store totals"], ["departments", "Departments"], ["fuel", "Gas"], ["lottery", "Lottery"],
-          ["shorts", "Short / Over"], ["expenses", "Expenses"], ["profit", "Profit"],
+          ["shorts", "Short / Over"], ["expenses", "Expenses"], ["profit", "Profit"], ["master", "Whole store"],
         ].map(([id, label]) => (
           <a key={id} href={`#${id}`} className="px-3 py-1.5 rounded-full text-body-sm font-medium bg-surface-container-lowest border border-outline-variant/60 text-on-surface hover:bg-surface-container whitespace-nowrap">
             {label}
@@ -111,13 +112,13 @@ export default async function MonthlySummaryPage({
   // ALL MONTHS view — January → selected month, every number vs month before
   // =========================================================================
   if (view === "months") {
-    const report = await buildMonthsReport(loc, month, today);
+    const report = await buildMonthsReport(loc, from, month, today);
     if (!report.hasData) {
       return (
         <div>
           {header}
           {filter}
-          <Card className="p-8"><EmptyState icon="query_stats" title={`No sales recorded in ${year}`} hint="Pick another month." /></Card>
+          <Card className="p-8"><EmptyState icon="query_stats" title={`No sales recorded for ${yearLabel}`} hint="Pick another month." /></Card>
         </div>
       );
     }
@@ -126,27 +127,54 @@ export default async function MonthlySummaryPage({
         {header}
         {filter}
         {jumpTabs}
-        <SummaryExport targetId="summary-export" fileName={`Monthly-Summary-${month}`} excelHref={`/api/summary/export?month=${month}`} />
+        <SummaryExport targetId="summary-export" fileName={`Monthly-Summary-${month}`} excelHref={`/api/summary/export?month=${month}&from=${from}`} />
 
         <div id="summary-export">
           <ExportTitle title={`Monthly Summary — ${yearLabel}`} store={storeName} />
           <ProjectionNote report={report} />
-          {report.sections.map((s) => (
-            <Section key={s.id} id={s.id} title={s.title} icon={s.icon} note={s.note || undefined}>
-              {s.empty ? (
-                <EmptyState icon={s.icon} title={s.empty} />
-              ) : (
-                <MonthGrid
-                  months={report.months}
-                  projLabels={report.projLabels}
-                  rows={s.rows.map((r) => ({
-                    ...r,
-                    label: r.dept ? <a href={deptHref(r.dept)} className="text-primary font-medium hover:underline">{r.label}</a> : r.label,
-                  }))}
-                />
-              )}
-            </Section>
-          ))}
+          {report.sections.map((s) => {
+            const grid = s.empty ? (
+              <EmptyState icon={s.icon} title={s.empty} />
+            ) : (
+              <MonthGrid
+                months={report.months}
+                projLabels={report.projLabels}
+                rows={s.rows.map((r) => ({
+                  ...r,
+                  label: r.dept ? <a href={deptHref(r.dept)} className="text-primary font-medium hover:underline">{r.label}</a> : r.label,
+                }))}
+              />
+            );
+            if (s.id !== "master") {
+              return (
+                <Section key={s.id} id={s.id} title={s.title} icon={s.icon} note={s.note || undefined}>
+                  {grid}
+                </Section>
+              );
+            }
+            // The whole-store table gets its own screenshot button.
+            return (
+              <div key={s.id} id="master" className="scroll-mt-32">
+                <div className="rounded-xl border-2 border-primary/30 bg-primary/[0.03] p-3 sm:p-4 mb-6">
+                  <SummaryExport
+                    targetId="master-export"
+                    fileName={`Whole-Store-Summary-${month}`}
+                    exportClass="exporting-master"
+                    imageLabel="Screenshot this summary"
+                  />
+                  <div id="master-export">
+                    <div className="hidden [.exporting-master_&]:block mb-3">
+                      <div className="text-headline-lg font-bold text-primary whitespace-nowrap">Whole store summary — {yearLabel}</div>
+                      <div className="text-body-sm text-on-surface-variant">7sCstores · {storeName} · green = better than the month before, red = worse · shaded = projected</div>
+                    </div>
+                    <Section id="master-table" title={s.title} icon={s.icon} note={s.note}>
+                      {grid}
+                    </Section>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
           <Footnote />
         </div>
       </div>
