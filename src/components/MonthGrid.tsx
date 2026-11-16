@@ -118,10 +118,12 @@ export function MonthGrid({
                     className="bg-surface-container-low cursor-pointer select-none"
                     onClick={() => toggle(closedSections, r.section!, setClosedSections)}
                   >
-                    <td className="sticky left-0 z-[1] bg-surface-container-low px-3 sm:px-4 py-1.5 text-label-caps uppercase text-on-surface-variant whitespace-nowrap">
-                      <Chevron open={!closedSections.has(r.section)} /> {r.section}
+                    {/* Spans the whole row so a long heading never widens the name column. */}
+                    <td colSpan={months.length + 2 + projCols} className="p-0">
+                      <div className="sticky left-0 inline-block px-3 sm:px-4 py-1.5 text-label-caps uppercase text-on-surface-variant whitespace-nowrap">
+                        <Chevron open={!closedSections.has(r.section)} /> {r.section}
+                      </div>
                     </td>
-                    <td colSpan={months.length + 1 + projCols} />
                   </tr>
                 )}
                 {!(hidden || (!sectionOpen && r.section)) && (

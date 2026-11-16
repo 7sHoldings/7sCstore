@@ -298,7 +298,7 @@ export async function buildMonthsReport(loc: string, from: string, month: string
         { section: "Money collected", label: "Cash (safe drop)", get: (f) => f.tender?.cash ?? 0, project: true },
         { label: "Credit / debit cards", get: (f) => f.tender?.card ?? 0, project: true },
         { label: "Short / Over", get: (f) => f.shortOver ?? 0 },
-        ...expenseGroupSpecs().map((x, i) => (i === 0 ? { ...x, section: "Expenses · small % = share of all expenses" } : x)),
+        ...expenseGroupSpecs().map((x, i) => (i === 0 ? { ...x, section: "Expenses (small % = share)" } : x)),
         { label: "Total expenses", get: (f) => f.expenses.total, good: false, strong: true, project: true },
         ...gpSpecs("Gross profit"),
         { section: "Bottom line", label: "Profit / Loss", get: (f) => f.profit, strong: true },

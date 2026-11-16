@@ -167,7 +167,7 @@ export default async function MonthlySummaryPage({
             // The whole-store table gets its own screenshot button.
             return (
               <div key={s.id} id="master" className="scroll-mt-32">
-                <div className="rounded-xl border-2 border-primary/30 bg-primary/[0.03] p-3 sm:p-4 mb-6">
+                <div className="sm:rounded-xl sm:border-2 sm:border-primary/30 sm:bg-primary/[0.03] sm:p-4 mb-6">
                   <SummaryExport
                     targetId="master-export"
                     fileName={`Whole-Store-Summary-${month}`}
