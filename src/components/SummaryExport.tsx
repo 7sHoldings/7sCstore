@@ -72,7 +72,7 @@ export default function SummaryExport({
   exportClass?: string; // extra class while capturing (shows a target-specific title)
   imageLabel?: string;
 }) {
-  const [busy, setBusy] = useState<"" | "image" | "pdf">("");
+  const [busy, setBusy] = useState<"" | "image" | "pdf" | "excel">("");
   const [error, setError] = useState("");
 
   const target = () => document.getElementById(targetId);
@@ -126,6 +126,26 @@ export default function SummaryExport({
     }
   };
 
+  // Fetched in the page (not a plain link) so on a phone it opens the share
+  // sheet — Save to Files / WhatsApp / Excel — instead of replacing the app
+  // with a file viewer that has no way back.
+  const excel = async () => {
+    if (!excelHref) return;
+    setBusy("excel");
+    setError("");
+    try {
+      const res = await fetch(excelHref);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? `${fileName}.xlsx`;
+      await saveFile(await res.blob(), name, fileName);
+    } catch (e) {
+      console.error(e);
+      setError("Couldn't create the Excel file. Try again.");
+    } finally {
+      setBusy("");
+    }
+  };
+
   const btn =
     "inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface text-body-sm font-medium hover:bg-surface-container disabled:opacity-60";
 
@@ -140,11 +160,48 @@ export default function SummaryExport({
         <span className="material-symbols-outlined text-[18px]" aria-hidden>picture_as_pdf</span>
         {busy === "pdf" ? "Creating…" : "PDF"}
       </button>
-      {excelHref && <a className={btn} href={excelHref} download>
-        <span className="material-symbols-outlined text-[18px]" aria-hidden>table_view</span>
-        Excel
-      </a>}
+      {excelHref && (
+        <button type="button" className={btn} onClick={excel} disabled={!!busy}>
+          <span className="material-symbols-outlined text-[18px]" aria-hidden>table_view</span>
+          {busy === "excel" ? "Creating…" : "Excel"}
+        </button>
+      )}
       {error && <span className="text-body-sm text-error">{error}</span>}
     </div>
+  );
+}
+
+/**
+ * A small camera button for one section: captures just that section (the
+ * element with `targetId`) as a picture — Photos / WhatsApp on a phone.
+ */
+export function SectionShot({ targetId, fileName }: { targetId: string; fileName: string }) {
+  const [busy, setBusy] = useState(false);
+  const shot = async () => {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    setBusy(true);
+    try {
+      const { dataUrl } = await capture(el, "png", "exporting-section");
+      await saveFile(await (await fetch(dataUrl)).blob(), `${fileName}.png`, fileName);
+    } catch (e) {
+      console.error(e);
+      alert("Couldn't create the picture. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={shot}
+      disabled={busy}
+      data-noexport
+      title="Screenshot this section"
+      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface text-[12px] font-medium hover:bg-surface-container disabled:opacity-60 whitespace-nowrap"
+    >
+      <span className="material-symbols-outlined text-[16px]" aria-hidden>photo_camera</span>
+      {busy ? "…" : "Screenshot"}
+    </button>
   );
 }

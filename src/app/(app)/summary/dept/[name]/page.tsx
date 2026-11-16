@@ -186,7 +186,7 @@ export default async function DepartmentMonthPage({
           <div className="text-body-sm text-on-surface-variant">7sCstores · {store?.name ?? ""} · {measure === "sales" ? "estimated sales ($)" : "units sold"}</div>
         </div>
 
-        <Section id="sales" title={`${dept} sales by month`} icon="payments" note="From the POS department totals">
+        <Section id="sales" title={`${dept} sales by month`} icon="payments" note="From the POS department totals" shot={{ fileName: `${dept}-sales-${month}`.replace(/[^\w]+/g, "-"), caption: `7sCstores · ${store?.name ?? ""} · ${monthLabel(from)} to ${monthLabel(month)}` }}>
           <MonthGrid
             months={months}
             projLabels={projLabels}
@@ -196,6 +196,7 @@ export default async function DepartmentMonthPage({
 
         <Section
           id="products"
+          shot={{ fileName: `${dept}-${brand || "brands"}-${month}`.replace(/[^\w]+/g, "-"), caption: `7sCstores · ${store?.name ?? ""} · ${monthLabel(from)} to ${monthLabel(month)} · ${measure === "sales" ? "est. sales $" : "units sold"}` }}
           title={brand ? `${brand} — products` : `Brands in ${dept}`}
           icon={brand ? "inventory_2" : "sell"}
           note={

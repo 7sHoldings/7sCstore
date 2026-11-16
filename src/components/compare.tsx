@@ -2,6 +2,7 @@ import { Fragment, ReactNode } from "react";
 import { fmtMoney, fmtNumber } from "@/lib/format";
 import { delta, type Delta, type Tone } from "@/lib/compare";
 import { Card, Icon } from "@/components/ui";
+import { SectionShot } from "@/components/SummaryExport";
 
 /** Row / cell background for a change: green when better, red when worse. */
 export const toneBg: Record<Tone, string> = {
@@ -78,18 +79,30 @@ export function CompareKpi({
 
 /** Section card with a title, an optional right-hand note, and an anchor. */
 export function Section({
-  id, title, icon, note, children,
+  id, title, icon, note, children, shot,
 }: {
-  id: string; title: string; icon: string; note?: ReactNode; children: ReactNode;
+  id: string;
+  title: string;
+  icon: string;
+  note?: ReactNode;
+  children: ReactNode;
+  /** Adds a "Screenshot" button for just this section; caption shows on the picture. */
+  shot?: { fileName: string; caption: string };
 }) {
   return (
     <Card id={id} className="mb-6 scroll-mt-32 overflow-hidden">
+      {shot && (
+        <div className="hidden [.exporting-section_&]:block px-5 pt-4 text-body-sm text-on-surface-variant whitespace-nowrap">{shot.caption}</div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-4 border-b border-outline-variant/50">
         <h2 className="flex items-center gap-2 font-semibold text-on-surface text-headline-sm">
           <Icon name={icon} className="text-[20px] text-primary" />
           {title}
         </h2>
-        {note && <div className="text-body-sm text-on-surface-variant">{note}</div>}
+        <div className="flex flex-wrap items-center gap-2">
+          {note && <div className="text-body-sm text-on-surface-variant">{note}</div>}
+          {shot && <SectionShot targetId={id} fileName={shot.fileName} />}
+        </div>
       </div>
       {children}
     </Card>
