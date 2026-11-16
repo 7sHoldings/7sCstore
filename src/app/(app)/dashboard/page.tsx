@@ -8,8 +8,8 @@ import { rangeFor, customRange, previousRange, type PeriodKey, type Range } from
 import { buildSalesView } from "@/lib/salesView";
 import { getReportData, getInventoryPurchases } from "@/lib/reports";
 import { getTaxRange, getTenderRange, getPromoRange } from "@/lib/integrations/sync";
-import { getLotteryManualRange } from "@/lib/lottery";
 import { getCreditManualRange } from "@/lib/credit";
+import { getWindowFigures } from "@/lib/monthCompare";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { MetricCard, LotteryReconcileCard, LotteryReconcileStrip, ManualCreditPanel, ProfitTargetCard, TotalSalesBar, SalesSection, DeptTable, FuelTable, SalesTrend } from "@/components/SalesSections";
 import PeriodBar from "@/components/PeriodBar";
@@ -80,10 +80,9 @@ export default async function DashboardPage({
   const prevPosSales = money(prevTotal + (prevRealTax > 0 ? money(prevRealTax) : 0));
 
   // Actual tender (Safe Drop = cash, Credit Card Jobber = card).
-  const [tender, promo, manualRaw] = await Promise.all([
+  const [tender, promo] = await Promise.all([
     getTenderRange(loc ?? "", range.start, range.end),
     getPromoRange(loc ?? "", range.start, range.end),
-    getLotteryManualRange(loc ?? "", range.start, range.end),
   ]);
   const cashRatio = view.total.total > 0 ? view.total.cash / view.total.total : 0;
   const totalSplit = tender
@@ -94,57 +93,25 @@ export default async function DashboardPage({
         total: posSales,
       };
 
-  // Lottery: system (POS) breakdown vs the employee's manual entry → short/over.
-  let lottoSales = 0, lottoPayout = 0;
-  for (const d of view.lotto.depts) {
-    if (d.sales >= 0) lottoSales += d.sales;
-    else lottoPayout += -d.sales;
-  }
-  const systemLotto = { sales: money(lottoSales), payout: money(lottoPayout), net: view.lotto.split.total };
-  const manualLotto = manualRaw
-    ? { sales: manualRaw.sales, payout: manualRaw.payout, credit: manualRaw.credit, net: money(manualRaw.sales - manualRaw.payout - manualRaw.credit) }
-    : null;
-  const lottoOver = manualLotto ? money(systemLotto.net - manualLotto.net) : 0;
-  const creditManual = await getCreditManualRange(loc ?? "", range.start, range.end);
-  const houseTotal = creditManual ? creditManual.house.reduce((s, h) => s + h.amount, 0) : 0;
-  const payoutTotal = creditManual ? creditManual.payouts.reduce((s, h) => s + h.amount, 0) : 0;
-
+  // Lottery, short/over and Profit / Loss come from ONE shared calculation
+  // (lib/monthCompare.getWindowFigures) — the Monthly Summary uses the very
+  // same function, so the two pages can never disagree.
+  const [fig, creditManual] = await Promise.all([
+    getWindowFigures(loc, range.start, range.end),
+    getCreditManualRange(loc ?? "", range.start, range.end),
+  ]);
+  const systemLotto = { sales: fig.lotto.sales, payout: fig.lotto.payout, net: fig.lotto.net };
+  const manualLotto = fig.lotto.manual;
+  const lottoOver = fig.lotto.over;
   // Short/Over: POS sales (expected) less everything actually collected/paid, plus
   // the lottery short/over. Each part is a signed contribution to the short/over.
-  const reconParts = [
-    { label: "Credit card", value: totalSplit.card },
-    { label: "Safe drop", value: totalSplit.cash },
-    { label: "EBT", value: creditManual?.ebt ?? 0 },
-    { label: "Other credit", value: creditManual?.otherCredit ?? 0 },
-    { label: "Payout in cash", value: payoutTotal },
-    { label: "House account", value: houseTotal },
-    // Signed: lottery short (negative) subtracts, lottery over (positive) adds.
-    { label: "Lottery short/over", value: lottoOver },
-    { label: "POS sales", value: -posSales },
-  ];
-  const shortOver = money(reconParts.reduce((s, p) => s + p.value, 0));
-
-  // Profit / Loss for the window (owner's formula):
+  const reconParts = fig.recon;
+  const shortOver = fig.shortOver ?? 0;
+  // Profit / Loss (owner's formula):
   //   Total Sales − Total Expenses − Fuel − manual lottery net
   //   + lottery short/over + Money Incoming + total-sales short/over
-  const [expenseAgg, incomingAgg] = await Promise.all([
-    prisma.expense.aggregate({ _sum: { amount: true }, where: { ...locWhere, date: { gte: range.start, lt: range.end } } }),
-    prisma.moneyIncoming.aggregate({ _sum: { total: true }, where: { ...locWhere, date: { gte: range.start, lt: range.end } } }),
-  ]);
-  const totalExpenses = money(expenseAgg._sum.amount ?? 0);
-  const incomingTotal = money(incomingAgg._sum.total ?? 0);
-  const manualLottoNet = manualLotto ? manualLotto.net : systemLotto.net; // system net when no manual entry yet
-  const salesShortOver = tender ? shortOver : 0; // only meaningful once tender (Safe Drop / card batch) is synced
-  const plParts: { label: string; op: "+" | "−"; raw: number }[] = [
-    { label: "Total Sales", op: "+", raw: posSales },
-    { label: "Total Expenses", op: "−", raw: totalExpenses },
-    { label: "Fuel", op: "−", raw: view.fuel.split.total },
-    { label: "Lottery net (manual)", op: "−", raw: manualLottoNet },
-    { label: "Lottery short/over", op: "+", raw: lottoOver },
-    { label: "Money Incoming", op: "+", raw: incomingTotal },
-    { label: "Sales short/over", op: "+", raw: salesShortOver },
-  ];
-  const profitLoss = money(plParts.reduce((s, p) => s + (p.op === "−" ? -p.raw : p.raw), 0));
+  const plParts = fig.profitParts;
+  const profitLoss = fig.profit;
 
   const trend: { label: string; value: number; date: string }[] = [];
   for (let i = 0; i < trendDays; i++) {
