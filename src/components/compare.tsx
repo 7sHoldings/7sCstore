@@ -172,13 +172,11 @@ export function Num({
   );
 }
 
+/** Full amount in whole dollars (e.g. $203,412) — no "k" / "M" shorthand. */
 export function fmtCompact(v: number, unit: Unit = "money"): string {
   if (unit !== "money") return fmtNumber(Math.round(v));
-  const a = Math.abs(v), sign = v < 0 ? "-" : "";
-  if (a >= 1000000) return `${sign}$${(a / 1000000).toFixed(2)}M`;
-  if (a >= 100000) return `${sign}$${Math.round(a / 1000)}k`;
-  if (a >= 1000) return `${sign}$${(a / 1000).toFixed(1)}k`;
-  return `${sign}$${Math.round(a)}`;
+  const sign = v < 0 ? "-" : "";
+  return `${sign}$${Math.round(Math.abs(v)).toLocaleString("en-US")}`;
 }
 
 export interface GridMonth {
