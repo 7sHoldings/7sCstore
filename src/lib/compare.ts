@@ -128,17 +128,25 @@ export function compareWindows(
   full = false
 ): CompareWindows {
   const bYm = mode === "lastyear" ? shiftMonth(aYm, -12) : mode === "custom" && isMonth(customB) ? customB : shiftMonth(aYm, -1);
-  const running = today.slice(0, 7) === aYm;
+  const thisMonth = today.slice(0, 7);
+  const running = thisMonth === aYm || thisMonth === bYm; // either side still in progress
   const completeDays = Math.max(1, Number(today.slice(8, 10)) - 1);
   const toDate = running && !full;
-  const aDays = toDate ? completeDays : running ? Number(today.slice(8, 10)) : daysInMonth(aYm);
-  const bDays = toDate ? completeDays : daysInMonth(bYm);
+  const days = (ym: string) => (toDate ? completeDays : ym === thisMonth ? Number(today.slice(8, 10)) : daysInMonth(ym));
   return {
-    a: window(aYm, aDays),
-    b: window(bYm, bDays),
+    a: window(aYm, days(aYm)),
+    b: window(bYm, days(bYm)),
     mode: mode === "custom" && !isMonth(customB) ? "prev" : mode,
     toDate,
   };
+}
+
+/**
+ * The same two windows, older month first — so a table reads left to right in
+ * time ("Sep 2026 → Oct 2026 · change") whichever order they were picked in.
+ */
+export function chronological(w: CompareWindows): { older: Window; newer: Window } {
+  return w.a.start <= w.b.start ? { older: w.a, newer: w.b } : { older: w.b, newer: w.a };
 }
 
 /** The default month: the running month, unless today is the 1st (nothing complete yet). */

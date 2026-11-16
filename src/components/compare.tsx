@@ -134,8 +134,8 @@ export function CompareTable({
         <thead>
           <tr className="text-left text-label-caps uppercase text-on-surface-variant border-b border-outline-variant/50">
             <th className="sticky left-0 z-[1] bg-surface-container-lowest px-5 py-2.5 font-semibold">{firstHead}</th>
-            <th className="px-3 py-2.5 font-semibold text-right whitespace-nowrap">{aLabel}</th>
             <th className="px-3 py-2.5 font-semibold text-right whitespace-nowrap">{bLabel}</th>
+            <th className="px-3 py-2.5 font-semibold text-right whitespace-nowrap">{aLabel}</th>
             <th className="px-3 py-2.5 font-semibold text-right">Change</th>
             <th className="px-3 py-2.5 font-semibold text-right">%</th>
             {extraHead !== undefined && <th className="px-5 py-2.5 font-semibold text-right">{extraHead}</th>}
@@ -147,8 +147,8 @@ export function CompareTable({
             return (
               <tr key={i} className={`border-b border-outline-variant/30 last:border-0 ${r.strong ? "font-semibold" : ""}`}>
                 <td className={`sticky left-0 z-[1] bg-surface-container-lowest px-5 py-2.5 text-on-surface ${r.indent ? "pl-9" : ""}`}>{r.label}</td>
-                <td className="px-3 py-2.5 text-right whitespace-nowrap"><Num v={r.d.a} unit={r.unit} tone={tone} /></td>
                 <td className="px-3 py-2.5 text-right tabular text-on-surface-variant whitespace-nowrap">{fmtVal(r.d.b, r.unit)}</td>
+                <td className="px-3 py-2.5 text-right whitespace-nowrap"><Num v={r.d.a} unit={r.unit} tone={tone} /></td>
                 <td className={`px-3 py-2.5 text-right tabular font-semibold whitespace-nowrap ${toneText[tone]}`}>
                   {r.d.tone === "none" ? "—" : fmtDiff(r.d.diff, r.unit ?? "money")}
                 </td>
@@ -302,10 +302,10 @@ export function MonthGrid({
 }
 
 /** A small legend explaining the colours. */
-export function ToneLegend() {
+export function ToneLegend({ better = "Better than the month before" }: { better?: string } = {}) {
   return (
     <div className="flex flex-wrap items-center gap-3 text-body-sm text-on-surface-variant">
-      <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-secondary/30" /> Better than the month before</span>
+      <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-secondary/30" /> {better}</span>
       <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-error/30" /> Worse</span>
       <span className="text-[12px]">(for expenses and payouts, spending less is better)</span>
     </div>

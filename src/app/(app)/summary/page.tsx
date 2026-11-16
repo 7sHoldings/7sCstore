@@ -5,14 +5,14 @@ import { can } from "@/lib/rbac";
 import { todayISO } from "@/lib/day";
 import { gradeLabel } from "@/lib/format";
 import {
-  compareByKey, compareWindows, defaultMonth, delta, isMonth, monthLabel, shiftMonth,
+  chronological, compareByKey, compareWindows, defaultMonth, delta, isMonth, monthLabel, shiftMonth,
   type CompareMode, type Delta, type Tone,
 } from "@/lib/compare";
 import { getWindowFigures, type WindowFigures } from "@/lib/monthCompare";
 import { buildMonthsReport, type MonthsReport } from "@/lib/monthsReport";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import {
-  CompareKpi, CompareTable, MonthGrid, Num, Section, ToneLegend, toneText, fmtVal,
+  CompareTable, MonthGrid, Num, Section, ToneLegend, toneText, fmtVal,
   type CompareRow, type Unit,
 } from "@/components/compare";
 import SummaryFilter from "@/components/SummaryFilter";
@@ -56,7 +56,8 @@ export default async function MonthlySummaryPage({
     ...(view === "months" && from !== `${year}-01` ? { from } : {}),
   }).toString();
   // Per-section screenshot: file name + the caption printed on the picture.
-  const periodLabel = view === "months" ? yearLabel : `${w.a.label} vs ${w.b.label}`;
+  const cmp = chronological(w);
+  const periodLabel = view === "months" ? yearLabel : `${cmp.older.label} vs ${cmp.newer.label}`;
   const shotFor = (name: string) => ({
     fileName: `${name}-${periodLabel}`.replace(/[^\w]+/g, "-").replace(/-+$/, ""),
     caption: `7sCstores · ${storeName} · ${periodLabel} · green = better, red = worse`,
@@ -66,6 +67,7 @@ export default async function MonthlySummaryPage({
   const filter = (
     <Card className="p-4 mb-4">
       <SummaryFilter
+        key={`${view}|${month}|${from}|${w.mode}|${w.b.ym}|${full}`}
         month={month}
         from={from}
         vs={w.mode}
@@ -76,11 +78,11 @@ export default async function MonthlySummaryPage({
         thisMonth={today.slice(0, 7)}
       />
       <div className="mt-3 pt-3 border-t border-outline-variant/40 flex flex-wrap items-center justify-between gap-2">
-        <ToneLegend />
+        <ToneLegend better={view === "compare" ? `${cmp.newer.label} better than ${cmp.older.label}` : undefined} />
         {view === "compare" && w.toDate && (
           <span className="text-body-sm text-on-surface-variant">
             <Icon name="info" className="text-[16px] align-[-3px] mr-1" />
-            {monthLabel(month)} is still running — comparing the same {w.a.days} complete days of both months.
+            {monthLabel(today.slice(0, 7))} is still running — comparing the same {w.a.days} complete days of both months.
           </span>
         )}
       </div>
@@ -90,7 +92,7 @@ export default async function MonthlySummaryPage({
   const header = (
     <PageHeader
       title="Monthly Summary"
-      subtitle={view === "months" ? `Month by month · ${monthLabel(from)} to ${monthLabel(month)}` : `${w.a.label}  vs  ${w.b.label}`}
+      subtitle={view === "months" ? `Month by month · ${monthLabel(from)} to ${monthLabel(month)}` : `${cmp.older.label}  vs  ${cmp.newer.label}`}
       actions={
         <a href="/summary/year" className="ft-btn-secondary inline-flex items-center gap-1.5">
           <Icon name="table_chart" className="text-[18px]" /> Year P&amp;L table
@@ -190,9 +192,12 @@ export default async function MonthlySummaryPage({
   // =========================================================================
   // COMPARE 2 MONTHS view
   // =========================================================================
-  const [A, B] = await Promise.all([getWindowFigures(loc, w.a.start, w.a.end), getWindowFigures(loc, w.b.start, w.b.end)]);
-  const aShort = monthLabel(w.a.ym, true);
-  const bShort = monthLabel(w.b.ym, true);
+  // Tables read left → right in time: older month, newer month, change
+  // (newer − older), whichever order the two months were picked in.
+  const { older, newer } = chronological(w);
+  const [A, B] = await Promise.all([getWindowFigures(loc, newer.start, newer.end), getWindowFigures(loc, older.start, older.end)]);
+  const aShort = newer.label;
+  const bShort = older.label;
 
   const d = {
     total: delta(A.posSales, B.posSales),
@@ -208,8 +213,6 @@ export default async function MonthlySummaryPage({
     A.depts.map((x) => ({ key: x.name, value: x.sales })),
     B.depts.map((x) => ({ key: x.name, value: x.sales }))
   );
-  const gainers = depts.filter((x) => x.tone === "good").sort((x, y) => y.diff - x.diff).slice(0, 3);
-  const losers = depts.filter((x) => x.tone === "bad").sort((x, y) => x.diff - y.diff).slice(0, 3);
   const gradeOf = (f: WindowFigures, g: string) => f.fuelGrades.find((x) => x.grade === g);
   const gradeRows = GRADES.map((g) => ({ g, a: gradeOf(A, g), b: gradeOf(B, g) })).filter((x) => x.a || x.b);
 
@@ -218,40 +221,37 @@ export default async function MonthlySummaryPage({
       {header}
       {filter}
 
-      {!B.hasSales && (
+      {(!A.hasSales || !B.hasSales) && (
         <Banner tone="info" icon="info">
-          No sales are recorded for {monthLabel(w.b.ym)}, so every change below shows as new. Pick another month to compare with.
+          No sales are recorded for {!B.hasSales ? older.label : newer.label}, so its column shows $0. Pick another month to compare with.
         </Banner>
       )}
 
-      {!A.hasSales ? (
-        <Card className="p-8"><EmptyState icon="query_stats" title={`No sales recorded for ${monthLabel(month)}`} hint="Pick another month." /></Card>
+      {!A.hasSales && !B.hasSales ? (
+        <Card className="p-8"><EmptyState icon="query_stats" title="No sales recorded for these months" hint="Pick other months." /></Card>
       ) : (
         <>
           {jumpTabs}
-          <SummaryExport targetId="summary-export" fileName={`Monthly-Summary-${w.a.ym}-vs-${w.b.ym}`} excelHref={`/api/summary/export?month=${month}`} />
+          <SummaryExport targetId="summary-export" fileName={`Monthly-Summary-${older.ym}-vs-${newer.ym}`} excelHref={`/api/summary/export?month=${month}`} />
           <div id="summary-export">
-          <ExportTitle title={`Monthly Summary — ${w.a.label} vs ${w.b.label}`} store={storeName} />
+          <ExportTitle title={`Monthly Summary — ${older.label} vs ${newer.label}`} store={storeName} />
 
-          <div id="overview" className="scroll-mt-32 grid grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3 mb-4">
-            <CompareKpi label="Total sales" icon="point_of_sale" d={d.total} bLabel={bShort} sub="Inside + Gas + Lottery + Tax" />
-            <CompareKpi label="Inside sales" icon="shopping_bag" d={d.merch} bLabel={bShort} href="#departments" />
-            <CompareKpi label="Gas sales" icon="local_gas_station" d={d.fuel} bLabel={bShort} href="#fuel" />
-            <CompareKpi label="Gallons sold" icon="water_drop" d={d.gallons} unit="gal" bLabel={bShort} href="#fuel" />
-            <CompareKpi label="Lottery net" icon="confirmation_number" d={d.lotto} bLabel={bShort} href="#lottery" />
-            <CompareKpi label="Expenses" icon="receipt_long" d={d.expenses} bLabel={bShort} sub="Lower is better" href="#expenses" />
-            <CompareKpi label="Profit / Loss" icon="account_balance_wallet" d={d.profit} bLabel={bShort} href="#profit" />
-            <CompareKpi label="Short / Over" icon="balance" d={d.short} bLabel={bShort} href="#shorts" />
-          </div>
-
-          {(gainers.length > 0 || losers.length > 0) && (
-            <Card className="p-4 mb-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Movers title={`Departments up vs ${bShort}`} icon="trending_up" tone="good" rows={gainers} href={deptHref} />
-                <Movers title={`Departments down vs ${bShort}`} icon="trending_down" tone="bad" rows={losers} href={deptHref} />
-              </div>
-            </Card>
-          )}
+          <Section id="overview" title="Store totals" icon="storefront" note={`${bShort} → ${aShort}`} shot={shotFor("Store-totals")}>
+            <CompareTable
+              aLabel={aShort}
+              bLabel={bShort}
+              rows={[
+                { label: "Total sales", d: d.total, strong: true },
+                { label: "Inside sales", d: d.merch },
+                { label: "Gas sales", d: d.fuel },
+                { label: "Gallons sold", d: d.gallons, unit: "gal" },
+                { label: "Lottery net", d: d.lotto },
+                { label: "Expenses", d: d.expenses },
+                { label: "Short / Over", d: d.short },
+                { label: "Profit / Loss", d: d.profit, strong: true },
+              ]}
+            />
+          </Section>
 
           <Section id="departments" title="Departments" icon="category" note="Tap a department to see its products" shot={shotFor("Departments")}>
             <CompareTable
@@ -394,37 +394,6 @@ function Change({ d, unit = "money" }: { d: Delta; unit?: Unit }) {
       {sign}{fmtVal(Math.abs(d.diff), unit)}
       <span className="font-normal opacity-80 ml-1 text-[12px]">{d.pct === null ? "new" : `${d.pct > 0 ? "+" : ""}${d.pct.toFixed(1)}%`}</span>
     </span>
-  );
-}
-
-function Movers({
-  title, icon, tone, rows, href,
-}: {
-  title: string; icon: string; tone: Tone; rows: (Delta & { key: string })[]; href: (n: string) => string;
-}) {
-  return (
-    <div>
-      <div className={`flex items-center gap-1.5 text-label-caps uppercase mb-2 ${toneText[tone]}`}>
-        <Icon name={icon} className="text-[18px]" /> {title}
-      </div>
-      {rows.length === 0 ? (
-        <p className="text-body-sm text-on-surface-variant">None</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {rows.map((r) => (
-            <li key={r.key}>
-              <a href={href(r.key)} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 border border-outline-variant/50 hover:bg-surface-container">
-                <span className="font-medium text-on-surface truncate">{r.key}</span>
-                <span className="flex items-center gap-2">
-                  <Num v={r.a} tone={r.tone} />
-                  <Change d={r} />
-                </span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   );
 }
 
