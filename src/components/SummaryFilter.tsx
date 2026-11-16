@@ -113,6 +113,9 @@ export default function SummaryFilter({
     );
   }
 
+  // Always show the month actually being compared — never a stale pick.
+  const bShown = state.vs === "custom" && state.b ? state.b : state.vs === "lastyear" ? shift(state.month, -12) : shift(state.month, -1);
+
   return (
     <div>
       {viewTabs}
@@ -124,7 +127,7 @@ export default function SummaryFilter({
         <span className="pb-2.5 font-semibold text-on-surface-variant">vs</span>
         <label className="flex flex-col gap-1">
           <span className={cap}>Compare with</span>
-          <input type="month" value={state.b} onChange={(e) => e.target.value && go({ vs: "custom", b: e.target.value })} className={input} />
+          <input type="month" value={bShown} onChange={(e) => e.target.value && go({ vs: "custom", b: e.target.value })} className={input} />
         </label>
         {running && (
           <label className="flex items-center gap-2 text-body-sm text-on-surface pb-2.5 cursor-pointer">
