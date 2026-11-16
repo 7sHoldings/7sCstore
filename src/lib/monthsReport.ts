@@ -237,7 +237,7 @@ export async function buildMonthsReport(loc: string, from: string, month: string
       id: "expenses",
       title: "Expenses — where the money went",
       icon: "receipt_long",
-      note: "Spending more than the month before shows red",
+      note: "Red = spent more than the month before · small % = share of all expenses",
       rows: build(expenseSpecs),
     },
     {
@@ -294,7 +294,7 @@ export async function buildMonthsReport(loc: string, from: string, month: string
         { section: "Money collected", label: "Cash (safe drop)", get: (f) => f.tender?.cash ?? 0, project: true },
         { label: "Credit / debit cards", get: (f) => f.tender?.card ?? 0, project: true },
         { label: "Short / Over", get: (f) => f.shortOver ?? 0 },
-        ...expenseGroupSpecs().map((x, i) => (i === 0 ? { ...x, section: "Expenses (share of total in brackets)" } : x)),
+        ...expenseGroupSpecs().map((x, i) => (i === 0 ? { ...x, section: "Expenses · small % = share of all expenses" } : x)),
         { label: "Total expenses", get: (f) => f.expenses.total, good: false, strong: true, project: true },
         ...gpSpecs("Gross profit"),
         { section: "Bottom line", label: "Profit / Loss", get: (f) => f.profit, strong: true },

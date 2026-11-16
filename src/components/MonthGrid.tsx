@@ -32,7 +32,11 @@ export interface GridRow {
 }
 
 const Share = ({ v, base }: { v: number; base: number | null | undefined }) =>
-  base ? <span className="ml-0.5 text-[11px] font-normal text-on-surface-variant whitespace-nowrap">({Math.round((v / base) * 100)}%)</span> : null;
+  base ? (
+    <div className="text-[10px] leading-none font-normal text-on-surface-variant mt-0.5 pr-1.5" title="Share of total expenses">
+      {Math.round((v / base) * 100)}%
+    </div>
+  ) : null;
 
 const Chevron = ({ open }: { open: boolean }) => (
   <span
