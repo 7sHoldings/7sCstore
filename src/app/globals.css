@@ -88,3 +88,4 @@ body {
 .exporting .shadow-card { box-shadow: none !important; }
 .exporting h2, .exporting .text-headline-lg { white-space: nowrap; }
 .exporting .overflow-hidden { overflow: visible !important; }
+.exporting .grid-label { max-width: none !important; white-space: nowrap !important; }

@@ -20,13 +20,11 @@ export const toneText: Record<Tone, string> = {
 
 export type { Unit } from "@/lib/compare";
 import type { Unit } from "@/lib/compare";
+import { fmtVal, fmtCompact, cellTone, Num } from "@/components/num";
+export { fmtVal, fmtCompact, cellTone, Num };
+export { MonthGrid } from "@/components/MonthGrid";
+export type { GridMonth, GridRow } from "@/components/MonthGrid";
 
-export function fmtVal(v: number, unit: Unit = "money"): string {
-  if (unit === "gal") return `${fmtNumber(Math.round(v))} gal`;
-  if (unit === "units") return fmtNumber(Math.round(v));
-  if (unit === "pct") return `${v.toFixed(1)}%`;
-  return fmtMoney(v);
-}
 
 function fmtDiff(v: number, unit: Unit): string {
   const sign = v > 0 ? "+" : v < 0 ? "−" : "";
@@ -80,7 +78,7 @@ export function CompareKpi({
 
 /** Section card with a title, an optional right-hand note, and an anchor. */
 export function Section({
-  id, title, icon, note, children, shot,
+  id, title, icon, note, children, shot, defaultOpen = true,
 }: {
   id: string;
   title: string;
@@ -89,14 +87,24 @@ export function Section({
   children: ReactNode;
   /** Adds a "Screenshot" button for just this section; caption shows on the picture. */
   shot?: { fileName: string; caption: string };
+  /** Sections fold: tap the title to open/close. */
+  defaultOpen?: boolean;
 }) {
   return (
-    <Card id={id} className="mb-6 scroll-mt-32 overflow-hidden">
+    <details
+      id={id}
+      open={defaultOpen}
+      data-section
+      className="group mb-6 scroll-mt-32 overflow-hidden bg-surface-container-lowest border border-outline-variant/60 rounded-lg shadow-card"
+    >
       {shot && (
         <div className="hidden [.exporting-section_&]:block px-5 pt-4 text-body-sm text-on-surface-variant whitespace-nowrap">{shot.caption}</div>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-4 border-b border-outline-variant/50">
+      <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5 py-4 group-open:border-b border-outline-variant/50 hover:bg-surface-container-low/50">
         <h2 className="flex items-center gap-2 font-semibold text-on-surface text-headline-sm">
+          <span aria-hidden className="material-symbols-outlined text-[22px] text-on-surface-variant transition-transform -rotate-90 group-open:rotate-0" data-noexport>
+            expand_more
+          </span>
           <Icon name={icon} className="text-[20px] text-primary" />
           {title}
         </h2>
@@ -104,9 +112,9 @@ export function Section({
           {note && <div className="text-body-sm text-on-surface-variant">{note}</div>}
           {shot && <SectionShot targetId={id} fileName={shot.fileName} />}
         </div>
-      </div>
+      </summary>
       {children}
-    </Card>
+    </details>
   );
 }
 
@@ -165,151 +173,6 @@ export function CompareTable({
               </tr>
             );
           })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** Pill classes for a single highlighted number. */
-export const cellTone: Record<Tone, string> = {
-  good: "bg-secondary/15 text-secondary font-semibold",
-  bad: "bg-error/[0.12] text-error font-semibold",
-  flat: "text-on-surface",
-  none: "text-on-surface",
-};
-
-/** One number, highlighted on its own (never its whole row). */
-export function Num({
-  v, unit = "money", tone = "none", compact = false, title,
-}: {
-  v: number; unit?: Unit; tone?: Tone; compact?: boolean; title?: string;
-}) {
-  return (
-    <span title={title} className={`inline-block tabular rounded-md px-1.5 py-0.5 -my-0.5 whitespace-nowrap ${cellTone[tone]}`}>
-      {compact ? fmtCompact(v, unit) : fmtVal(v, unit)}
-    </span>
-  );
-}
-
-/** Full amount in whole dollars (e.g. $203,412) — no "k" / "M" shorthand. */
-export function fmtCompact(v: number, unit: Unit = "money"): string {
-  if (unit === "pct") return `${v.toFixed(1)}%`;
-  if (unit !== "money") return fmtNumber(Math.round(v));
-  const sign = v < 0 ? "-" : "";
-  return `${sign}$${Math.round(Math.abs(v)).toLocaleString("en-US")}`;
-}
-
-export interface GridMonth {
-  ym: string;
-  label: string;
-  partial?: boolean; // running month — shown, but not coloured
-}
-export interface GridRow {
-  label: ReactNode;
-  values: (number | null)[]; // one per month; null = no data for that month
-  unit?: Unit;
-  good?: boolean; // default true: higher is better
-  neutral?: boolean; // never coloured
-  strong?: boolean;
-  indent?: boolean;
-  noTotal?: boolean;
-  /** Colour against a fixed target instead of the month before (e.g. gross profit ≥ 30%). */
-  threshold?: number;
-  /** Shown in the total column instead of the sum (e.g. a whole-period percentage). */
-  totalValue?: number | null;
-  section?: string; // small header row before this one
-  proj?: { current: number | null; next: number | null } | null;
-}
-
-/**
- * Month-by-month grid (January → selected month) with a year total and,
- * optionally, projected columns at the end. Each number is coloured on its
- * own against the month before it.
- */
-export function MonthGrid({
-  months, rows, totalLabel = "Year total", projLabels,
-}: {
-  months: GridMonth[];
-  rows: GridRow[];
-  totalLabel?: string;
-  projLabels?: { current: string | null; next: string } | null;
-}) {
-  const showProj = !!projLabels && rows.some((r) => r.proj);
-  const projCols = showProj ? (projLabels!.current ? 2 : 1) : 0;
-  const projTh = "px-3 py-2.5 text-right whitespace-nowrap bg-tertiary-container/40 text-on-tertiary-container";
-  const projTd = "px-3 py-2 text-right tabular whitespace-nowrap bg-tertiary-container/25 italic text-on-surface";
-  return (
-    <div className="overflow-x-auto">
-      {months.length > 3 && (
-        <div className="md:hidden px-4 pt-2 text-[11px] text-on-surface-variant flex items-center gap-1" data-noexport>
-          <Icon name="swipe" className="text-[14px]" /> Swipe sideways to see every month
-        </div>
-      )}
-      <table className="text-body-sm min-w-full">
-        <thead>
-          <tr className="text-label-caps uppercase text-on-surface-variant border-b border-outline-variant/50">
-            <th className="sticky left-0 z-[1] bg-surface-container-lowest px-4 py-2.5 text-left min-w-[120px]" />
-            {months.map((m) => (
-              <th key={m.ym} className="px-2 py-2.5 text-right whitespace-nowrap">
-                {m.label}
-                {m.partial && <div className="normal-case font-normal text-[11px]">to date</div>}
-              </th>
-            ))}
-            <th className="px-4 py-2.5 text-right whitespace-nowrap border-l border-outline-variant/50">{totalLabel}</th>
-            {showProj && projLabels!.current && <th className={`${projTh} border-l border-dashed border-tertiary/40`}>{projLabels!.current}</th>}
-            {showProj && <th className={`${projTh} ${projLabels!.current ? "" : "border-l border-dashed border-tertiary/40"}`}>{projLabels!.next}</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, ri) => (
-            <Fragment key={ri}>
-              {r.section && (
-                <tr className="bg-surface-container-low">
-                  <td className="sticky left-0 z-[1] bg-surface-container-low px-4 py-1.5 text-label-caps uppercase text-on-surface-variant whitespace-nowrap">{r.section}</td>
-                  <td colSpan={months.length + 1 + projCols} />
-                </tr>
-              )}
-              <tr className={`border-b border-outline-variant/30 ${r.strong ? "font-semibold" : ""}`}>
-                <td className={`sticky left-0 z-[1] bg-surface-container-lowest px-4 py-2 whitespace-nowrap ${r.indent ? "pl-7" : ""}`}>{r.label}</td>
-                {r.values.map((v, i) => {
-                  const prev = i > 0 ? r.values[i - 1] : null;
-                  const tone: Tone =
-                    r.threshold !== undefined && v !== null && v !== 0
-                      ? (v >= r.threshold) === (r.good !== false) ? "good" : "bad"
-                      : r.neutral || v === null || prev === null || months[i].partial ? "none" : delta(v, prev, r.good !== false).tone;
-                  return (
-                    <td key={months[i].ym} className="px-1 py-2 text-right">
-                      {v === null || v === 0 ? (
-                        <span className="text-on-surface-variant px-1.5">—</span>
-                      ) : (
-                        <Num
-                          v={v}
-                          unit={r.unit}
-                          tone={tone}
-                          compact
-                          title={prev !== null ? `${fmtVal(v, r.unit)} — month before: ${fmtVal(prev, r.unit)}` : fmtVal(v, r.unit)}
-                        />
-                      )}
-                    </td>
-                  );
-                })}
-                <td className="px-4 py-2 text-right tabular whitespace-nowrap border-l border-outline-variant/50 font-semibold">
-                  {r.totalValue !== undefined
-                    ? r.totalValue === null ? "" : <Num v={r.totalValue} unit={r.unit} tone={r.threshold !== undefined ? ((r.totalValue >= r.threshold) === (r.good !== false) ? "good" : "bad") : "none"} />
-                    : r.noTotal ? "" : fmtCompact(r.values.reduce<number>((a, b) => a + (b ?? 0), 0), r.unit)}
-                </td>
-                {showProj && projLabels!.current && (
-                  <td className={`${projTd} border-l border-dashed border-tertiary/40`}>{r.proj?.current != null ? fmtCompact(r.proj.current, r.unit) : ""}</td>
-                )}
-                {showProj && (
-                  <td className={`${projTd} ${projLabels!.current ? "" : "border-l border-dashed border-tertiary/40"}`}>
-                    {r.proj?.next != null ? fmtCompact(r.proj.next, r.unit) : ""}
-                  </td>
-                )}
-              </tr>
-            </Fragment>
-          ))}
         </tbody>
       </table>
     </div>

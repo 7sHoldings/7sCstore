@@ -13,6 +13,11 @@ const MAX_PIXELS = 16_000_000; // iPhone Safari's canvas limit is ~16.7M pixels
 
 async function capture(el: HTMLElement, type: "png" | "jpeg", extra?: string): Promise<{ dataUrl: string; width: number; height: number }> {
   const { toPng, toJpeg } = await import("html-to-image");
+  // Folded sections/details open for the picture, then fold back.
+  const closed = [el, ...Array.from(el.querySelectorAll("details"))].filter(
+    (d): d is HTMLDetailsElement => d instanceof HTMLDetailsElement && !d.open
+  );
+  closed.forEach((d) => (d.open = true));
   el.classList.add("exporting");
   if (extra) el.classList.add(extra);
   try {
@@ -37,6 +42,7 @@ async function capture(el: HTMLElement, type: "png" | "jpeg", extra?: string): P
     el.classList.remove("exporting");
     if (extra) el.classList.remove(extra);
     el.style.removeProperty("width");
+    closed.forEach((d) => (d.open = false));
   }
 }
 
@@ -194,7 +200,12 @@ export function SectionShot({ targetId, fileName }: { targetId: string; fileName
   return (
     <button
       type="button"
-      onClick={shot}
+      onClick={(e) => {
+        // The button sits in a section title, which would otherwise fold the section.
+        e.preventDefault();
+        e.stopPropagation();
+        shot();
+      }}
       disabled={busy}
       data-noexport
       title="Screenshot this section"

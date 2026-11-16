@@ -21,6 +21,8 @@ export interface ReportRow {
   dept?: string; // links to the department page
   noTotal?: boolean;
   threshold?: number; // colour against a fixed target (e.g. gross profit ≥ 30%)
+  groupHead?: string; // tap to open the rows of this group (e.g. payees)
+  group?: string; // hidden until its group is opened
   totalValue?: number | null; // total column override (e.g. whole-period %)
   proj?: { current: number | null; next: number | null } | null;
 }
@@ -112,15 +114,15 @@ export async function buildMonthsReport(loc: string, from: string, month: string
   const gpSpecs = (section: string): Spec[] => [
     {
       section,
-      label: "Product buying % of inside sales (target ≤ 70%)",
+      label: "Product buying % (≤ 70%)",
       get: (f) => (f.merch > 0 ? Math.round((f.expenses.inventory / f.merch) * 1000) / 10 : 0),
       unit: "pct",
       threshold: 70,
       good: false,
       totalValue: gpPctTotal === null ? null : Math.round((100 - gpPctTotal) * 10) / 10,
     },
-    { label: "Gross profit (inside sales − product buying)", get: (f) => f.grossProfit, project: true },
-    { label: "Gross profit % (target ≥ 30%)", get: (f) => f.grossProfitPct ?? 0, unit: "pct", threshold: 30, strong: true, totalValue: gpPctTotal },
+    { label: "Gross profit", get: (f) => f.grossProfit, project: true },
+    { label: "Gross profit % (≥ 30%)", get: (f) => f.grossProfitPct ?? 0, unit: "pct", threshold: 30, strong: true, totalValue: gpPctTotal },
   ];
 
   // ---- departments, biggest first by year total ----
@@ -134,10 +136,10 @@ export async function buildMonthsReport(loc: string, from: string, month: string
 
   // ---- expenses: group subtotal, then each payee ----
   const expenseSpecs: Spec[] = [];
-  for (const [group, title] of [["Inventory", "Product buying (inventory purchases)"], ["Operating", "Store expenses"], ["Fuel", "Fuel purchases"]] as const) {
+  for (const [group, title] of [["Inventory", "Product buying"], ["Operating", "Store expenses"], ["Fuel", "Fuel purchases"]] as const) {
     const sub: Get = (f) => (group === "Inventory" ? f.expenses.inventory : group === "Operating" ? f.expenses.operating : f.expenses.fuel);
     if (!figs.some((f) => sub(f))) continue;
-    expenseSpecs.push({ label: title, get: sub, good: false, strong: true, project: true });
+    expenseSpecs.push({ label: title, get: sub, good: false, strong: true, project: true, groupHead: group });
     const payees = new Map<string, number>();
     for (const f of figs) for (const p of f.expenses.byPayee) if (p.group === group) payees.set(p.key, (payees.get(p.key) ?? 0) + p.value);
     for (const [name] of [...payees.entries()].sort((a, b) => b[1] - a[1])) {
@@ -146,6 +148,7 @@ export async function buildMonthsReport(loc: string, from: string, month: string
         get: (f) => f.expenses.byPayee.filter((p) => p.group === group && p.key === name).reduce((s, p) => s + p.value, 0),
         good: false,
         indent: true,
+        group,
       });
     }
   }
@@ -169,7 +172,7 @@ export async function buildMonthsReport(loc: string, from: string, month: string
         { label: "Lottery net", get: (f) => f.lottoNet, project: true },
         { label: "Expenses", get: (f) => f.expenses.total, good: false, project: true },
         { label: "Profit / Loss", get: (f) => f.profit, strong: true },
-        { label: "Gross profit % (target 30%)", get: (f) => f.grossProfitPct ?? 0, unit: "pct", threshold: 30, totalValue: gpPctTotal },
+        { label: "Gross profit % (≥ 30%)", get: (f) => f.grossProfitPct ?? 0, unit: "pct", threshold: 30, totalValue: gpPctTotal },
         { label: "Profit taken out", get: (f) => f.profitTaken, neutral: true },
         { label: "Short / Over", get: (f) => f.shortOver ?? 0 },
       ]),
@@ -243,7 +246,7 @@ export async function buildMonthsReport(loc: string, from: string, month: string
         })),
         { label: "= Profit / Loss", get: (f) => f.profit, strong: true },
         { label: "Profit taken out", get: (f) => f.profitTaken, neutral: true },
-        { label: "Left after profit taken out", get: (f) => f.profit - f.profitTaken, strong: true },
+        { label: "Left after taken out", get: (f) => f.profit - f.profitTaken, strong: true },
       ]),
     },
     {
@@ -255,7 +258,7 @@ export async function buildMonthsReport(loc: string, from: string, month: string
         ...build([
           { label: "Profit / Loss", get: (f) => f.profit },
           { label: "Profit taken out", get: (f) => f.profitTaken, neutral: true, strong: true },
-          { label: "Left after profit taken out", get: (f) => f.profit - f.profitTaken, strong: true },
+          { label: "Left after taken out", get: (f) => f.profit - f.profitTaken, strong: true },
         ]),
         {
           label: "Left — running total",
@@ -274,23 +277,23 @@ export async function buildMonthsReport(loc: string, from: string, month: string
       note: "Departments → sales → cash → profit, in one table",
       rows: build([
         ...deptNames.map((n, i): Spec => ({ section: i === 0 ? "Departments" : undefined, label: n, dept: n, get: deptGet(n), project: true })),
-        { section: "Sales", label: "Inside sales (all departments)", get: (f) => f.merch, strong: true, project: true },
+        { section: "Sales", label: "Inside sales", get: (f) => f.merch, strong: true, project: true },
         { label: "Gas sales", get: (f) => f.fuel, project: true },
         { label: "Gallons sold", get: (f) => f.gallons, unit: "gal", project: true },
         { label: "Lottery net", get: (f) => f.lottoNet, project: true },
-        { label: "Sales tax paid (from expenses)", get: (f) => f.salesTaxPaid, neutral: true },
+        { label: "Sales tax (from expenses)", get: (f) => f.salesTaxPaid, neutral: true },
         { label: "Total sales", get: (f) => f.posSales, strong: true, project: true },
         { section: "Money collected", label: "Cash (safe drop)", get: (f) => f.tender?.cash ?? 0, project: true },
         { label: "Credit / debit cards", get: (f) => f.tender?.card ?? 0, project: true },
         { label: "Short / Over", get: (f) => f.shortOver ?? 0 },
-        { section: "Expenses", label: "Product buying (inventory)", get: (f) => f.expenses.inventory, good: false, project: true },
+        { section: "Expenses", label: "Product buying", get: (f) => f.expenses.inventory, good: false, project: true },
         { label: "Store expenses", get: (f) => f.expenses.operating, good: false, project: true },
         ...(figs.some((f) => f.expenses.fuel) ? [{ label: "Fuel purchases", get: (f: WindowFigures) => f.expenses.fuel, good: false, project: true } as Spec] : []),
         { label: "Total expenses", get: (f) => f.expenses.total, good: false, strong: true, project: true },
-        ...gpSpecs("Gross profit (like the Dashboard banner)"),
+        ...gpSpecs("Gross profit"),
         { section: "Bottom line", label: "Profit / Loss", get: (f) => f.profit, strong: true },
         { label: "Profit taken out", get: (f) => f.profitTaken, neutral: true },
-        { label: "Left after profit taken out", get: (f) => f.profit - f.profitTaken, strong: true },
+        { label: "Left after taken out", get: (f) => f.profit - f.profitTaken, strong: true },
       ]),
     },
   ];

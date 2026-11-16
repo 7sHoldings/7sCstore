@@ -17,6 +17,7 @@ import {
 } from "@/components/compare";
 import SummaryFilter from "@/components/SummaryFilter";
 import SummaryExport from "@/components/SummaryExport";
+import SectionControls from "@/components/SectionControls";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -135,7 +136,10 @@ export default async function MonthlySummaryPage({
         {header}
         {filter}
         {jumpTabs}
-        <SummaryExport targetId="summary-export" fileName={`Monthly-Summary-${month}`} excelHref={`/api/summary/export?month=${month}&from=${from}`} />
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <SummaryExport targetId="summary-export" fileName={`Monthly-Summary-${month}`} excelHref={`/api/summary/export?month=${month}&from=${from}`} />
+          <SectionControls />
+        </div>
 
         <div id="summary-export">
           <ExportTitle title={`Monthly Summary — ${yearLabel}`} store={storeName} />
@@ -149,13 +153,13 @@ export default async function MonthlySummaryPage({
                 projLabels={report.projLabels}
                 rows={s.rows.map((r) => ({
                   ...r,
-                  label: r.dept ? <a href={deptHref(r.dept)} className="text-primary font-medium hover:underline">{r.label}</a> : r.label,
+                  label: r.dept ? <a key={r.dept} href={deptHref(r.dept)} className="text-primary font-medium hover:underline">{r.label}</a> : r.label,
                 }))}
               />
             );
             if (s.id !== "master") {
               return (
-                <Section key={s.id} id={s.id} title={s.title} icon={s.icon} note={s.note || undefined} shot={shotFor(s.title.split(" —")[0])}>
+                <Section key={s.id} id={s.id} title={s.title} icon={s.icon} note={s.note || undefined} shot={shotFor(s.title.split(" —")[0])} defaultOpen={s.id === "overview"}>
                   {grid}
                 </Section>
               );
@@ -232,7 +236,10 @@ export default async function MonthlySummaryPage({
       ) : (
         <>
           {jumpTabs}
-          <SummaryExport targetId="summary-export" fileName={`Monthly-Summary-${older.ym}-vs-${newer.ym}`} excelHref={`/api/summary/export?month=${month}`} />
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <SummaryExport targetId="summary-export" fileName={`Monthly-Summary-${older.ym}-vs-${newer.ym}`} excelHref={`/api/summary/export?month=${month}`} />
+            <SectionControls />
+          </div>
           <div id="summary-export">
           <ExportTitle title={`Monthly Summary — ${older.label} vs ${newer.label}`} store={storeName} />
 
@@ -256,7 +263,7 @@ export default async function MonthlySummaryPage({
             />
           </Section>
 
-          <Section id="departments" title="Departments" icon="category" note="Tap a department to see its products" shot={shotFor("Departments")}>
+          <Section id="departments" defaultOpen={false} title="Departments" icon="category" note="Tap a department to see its products" shot={shotFor("Departments")}>
             <CompareTable
               aLabel={aShort}
               bLabel={bShort}
@@ -271,7 +278,7 @@ export default async function MonthlySummaryPage({
             />
           </Section>
 
-          <Section id="fuel" title="Gas — gallons & sales by grade" icon="local_gas_station" note="Mid-grade is split 50/50 into Regular and Premium" shot={shotFor("Gas")}>
+          <Section id="fuel" defaultOpen={false} title="Gas — gallons & sales by grade" icon="local_gas_station" note="Mid-grade is split 50/50 into Regular and Premium" shot={shotFor("Gas")}>
             <CompareTable
               aLabel={aShort}
               bLabel={bShort}
@@ -293,7 +300,7 @@ export default async function MonthlySummaryPage({
             />
           </Section>
 
-          <Section id="lottery" title="Lottery / Lotto" icon="confirmation_number" shot={shotFor("Lottery")}>
+          <Section id="lottery" defaultOpen={false} title="Lottery / Lotto" icon="confirmation_number" shot={shotFor("Lottery")}>
             <CompareTable
               aLabel={aShort}
               bLabel={bShort}
@@ -307,7 +314,7 @@ export default async function MonthlySummaryPage({
             />
           </Section>
 
-          <Section id="shorts" title="Short / Over — cash reconciliation" icon="balance" note="Money collected minus POS sales" shot={shotFor("Short-Over")}>
+          <Section id="shorts" defaultOpen={false} title="Short / Over — cash reconciliation" icon="balance" note="Money collected minus POS sales" shot={shotFor("Short-Over")}>
             {A.recon.length || B.recon.length ? (
               <CompareTable aLabel={aShort} bLabel={bShort} rows={[...reconRows(A.recon, B.recon), { label: "Short / Over", d: d.short, strong: true }]} />
             ) : (
@@ -315,7 +322,7 @@ export default async function MonthlySummaryPage({
             )}
           </Section>
 
-          <Section id="expenses" title="Expenses — where the money went" icon="receipt_long" note="Spending more shows red" shot={shotFor("Expenses")}>
+          <Section id="expenses" defaultOpen={false} title="Expenses — where the money went" icon="receipt_long" note="Spending more shows red" shot={shotFor("Expenses")}>
             <ExpenseCompare A={A.expenses} B={B.expenses} aLabel={aShort} bLabel={bShort} />
             <div className="border-t border-outline-variant/50" />
             <CompareTable
@@ -336,7 +343,7 @@ export default async function MonthlySummaryPage({
             />
           </Section>
 
-          <Section id="profit" title="Profit / Loss" icon="account_balance_wallet" note="Same formula as the Dashboard" shot={shotFor("Profit-Loss")}>
+          <Section id="profit" defaultOpen={false} title="Profit / Loss" icon="account_balance_wallet" note="Same formula as the Dashboard" shot={shotFor("Profit-Loss")}>
             <CompareTable
               aLabel={aShort}
               bLabel={bShort}
