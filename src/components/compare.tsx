@@ -185,7 +185,7 @@ export function ToneLegend({ better = "Better than the month before" }: { better
     <div className="flex flex-wrap items-center gap-3 text-body-sm text-on-surface-variant">
       <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-secondary/30" /> {better}</span>
       <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-error/30" /> Worse</span>
-      <span className="text-[12px]">(for expenses and payouts, spending less is better)</span>
+      <span className="text-[12px]">(sales compare the daily average · for expenses, spending less is better)</span>
     </div>
   );
 }

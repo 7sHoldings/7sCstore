@@ -5,7 +5,7 @@ import { can } from "@/lib/rbac";
 import { todayISO } from "@/lib/day";
 import { gradeLabel } from "@/lib/format";
 import {
-  chronological, compareByKey, compareWindows, defaultMonth, delta, isMonth, monthLabel, shiftMonth,
+  chronological, compareByKey, compareWindows, deltaPerDay, defaultMonth, delta, isMonth, monthLabel, shiftMonth,
   type CompareMode, type Delta, type Tone,
 } from "@/lib/compare";
 import { getWindowFigures, type WindowFigures } from "@/lib/monthCompare";
@@ -203,12 +203,14 @@ export default async function MonthlySummaryPage({
   const aShort = newer.label;
   const bShort = older.label;
 
+  // Sales-type figures: colour and % on the daily average (31 vs 30 vs 28 days).
+  const pd = (a: number, b: number) => deltaPerDay(a, b, newer.days, older.days);
   const d = {
-    total: delta(A.posSales, B.posSales),
-    merch: delta(A.merch, B.merch),
-    fuel: delta(A.fuel, B.fuel),
-    gallons: delta(A.gallons, B.gallons),
-    lotto: delta(A.lottoNet, B.lottoNet),
+    total: pd(A.posSales, B.posSales),
+    merch: pd(A.merch, B.merch),
+    fuel: pd(A.fuel, B.fuel),
+    gallons: pd(A.gallons, B.gallons),
+    lotto: pd(A.lottoNet, B.lottoNet),
     expenses: delta(A.expenses.total, B.expenses.total, false),
     profit: delta(A.profit, B.profit),
     short: delta(A.shortOver ?? 0, B.shortOver ?? 0),
@@ -217,6 +219,7 @@ export default async function MonthlySummaryPage({
     A.depts.map((x) => ({ key: x.name, value: x.sales })),
     B.depts.map((x) => ({ key: x.name, value: x.sales }))
   );
+  for (const r of depts) Object.assign(r, pd(r.a, r.b));
   const gradeOf = (f: WindowFigures, g: string) => f.fuelGrades.find((x) => x.grade === g);
   const gradeRows = GRADES.map((g) => ({ g, a: gradeOf(A, g), b: gradeOf(B, g) })).filter((x) => x.a || x.b);
 
@@ -284,7 +287,7 @@ export default async function MonthlySummaryPage({
               bLabel={bShort}
               firstHead="Gallons"
               rows={[
-                ...gradeRows.map((x): CompareRow => ({ label: gradeLabel(x.g), d: delta(x.a?.gallons ?? 0, x.b?.gallons ?? 0), unit: "gal" })),
+                ...gradeRows.map((x): CompareRow => ({ label: gradeLabel(x.g), d: pd(x.a?.gallons ?? 0, x.b?.gallons ?? 0), unit: "gal" })),
                 { label: "All grades", d: d.gallons, unit: "gal", strong: true },
               ]}
             />
@@ -294,7 +297,7 @@ export default async function MonthlySummaryPage({
               bLabel={bShort}
               firstHead="Gas sales"
               rows={[
-                ...gradeRows.map((x): CompareRow => ({ label: gradeLabel(x.g), d: delta(x.a?.total ?? 0, x.b?.total ?? 0) })),
+                ...gradeRows.map((x): CompareRow => ({ label: gradeLabel(x.g), d: pd(x.a?.total ?? 0, x.b?.total ?? 0) })),
                 { label: "All grades", d: d.fuel, strong: true },
               ]}
             />
@@ -305,9 +308,9 @@ export default async function MonthlySummaryPage({
               aLabel={aShort}
               bLabel={bShort}
               rows={[
-                { label: "Lottery sales", d: delta(A.lotto.sales, B.lotto.sales) },
-                { label: "Payouts (winners)", d: delta(A.lotto.payout, B.lotto.payout), neutral: true },
-                { label: "Lottery net (POS)", d: delta(A.lotto.net, B.lotto.net), strong: true },
+                { label: "Lottery sales", d: pd(A.lotto.sales, B.lotto.sales) },
+                { label: "Payouts (winners)", d: pd(A.lotto.payout, B.lotto.payout), neutral: true },
+                { label: "Lottery net (POS)", d: pd(A.lotto.net, B.lotto.net), strong: true },
                 { label: "Net entered by staff", d: delta(A.lotto.manual?.net ?? 0, B.lotto.manual?.net ?? 0), neutral: true },
                 { label: "Lottery short / over", d: delta(A.lotto.over, B.lotto.over), strong: true },
               ]}
@@ -337,7 +340,7 @@ export default async function MonthlySummaryPage({
                   threshold: 70,
                   lowerIsBetter: true,
                 },
-                { label: "Gross profit (inside sales − product buying)", d: delta(A.grossProfit, B.grossProfit) },
+                { label: "Gross profit (inside sales − product buying)", d: pd(A.grossProfit, B.grossProfit) },
                 { label: "Gross profit % (target ≥ 30%)", d: delta(A.grossProfitPct ?? 0, B.grossProfitPct ?? 0), unit: "pct", strong: true, threshold: 30 },
               ]}
             />
@@ -410,7 +413,9 @@ function Footnote() {
     <p className="text-[12px] text-on-surface-variant mb-6">
       Sales, gas and lottery come from the POS sync — the same numbers as the Dashboard for the same dates. Expenses are what was entered on the
       Expenses page, grouped by payee. Short / Over = card + safe drop + EBT + other credit + cash payouts + house accounts + lottery short/over − POS sales.
-      The running month is shown up to today and isn’t coloured, because it isn’t finished yet.
+      Sales colours (and the % in Compare) use the <b>daily average</b> — month total ÷ days in the month — so a 31-day month
+      isn’t green and February isn’t red just because of their length; the running month compares its average so far.
+      Expenses and profit compare whole months, because bills like rent and loans don’t change with the number of days.
     </p>
   );
 }

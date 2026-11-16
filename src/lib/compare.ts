@@ -161,3 +161,16 @@ export function monthsEnding(endYm: string, n: number): string[] {
 }
 
 export type Unit = "money" | "gal" | "units" | "pct";
+
+/**
+ * Like `delta`, but the colour and % compare the DAILY AVERAGE, so a 31-day
+ * month isn't green (and February red) just for having more or fewer days.
+ * The $ difference stays the real one. Use for sales-type figures, not for
+ * monthly bills (rent, loan) which don't scale with days.
+ */
+export function deltaPerDay(a: number, b: number, daysA: number, daysB: number, higherIsGood = true): Delta {
+  const raw = delta(a, b, higherIsGood);
+  if (!daysA || !daysB || daysA === daysB) return raw;
+  const pd = delta(a / daysA, b / daysB, higherIsGood);
+  return { ...raw, pct: pd.pct, tone: raw.tone === "none" ? "none" : pd.tone };
+}

@@ -5,7 +5,7 @@ import { getActiveLocationId } from "@/lib/location";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { todayISO } from "@/lib/day";
-import { defaultMonth, delta, isMonth, monthLabel } from "@/lib/compare";
+import { defaultMonth, delta, deltaPerDay, isMonth, monthLabel } from "@/lib/compare";
 import { buildMonthsReport } from "@/lib/monthsReport";
 
 /**
@@ -81,8 +81,11 @@ export async function GET(req: NextRequest) {
           row.getCell(i + 2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: ok ? GREEN : RED } };
           return;
         }
-        if (i === 0 || r.neutral || report.months[i].partial) return;
-        const tone = delta(v, r.values[i - 1], r.good !== false).tone;
+        const perDay = !!r.perDay && !!report.months[i].days && !!report.months[i - 1]?.days;
+        if (i === 0 || r.neutral || (report.months[i].partial && !perDay)) return;
+        const tone = perDay
+          ? deltaPerDay(v, r.values[i - 1], report.months[i].days, report.months[i - 1].days, r.good !== false).tone
+          : delta(v, r.values[i - 1], r.good !== false).tone;
         if (tone === "good" || tone === "bad") {
           row.getCell(i + 2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: tone === "good" ? GREEN : RED } };
         }
