@@ -248,7 +248,7 @@ function DeptTrend({ values, running }: { values: { ym: string; v: number }[]; r
                 const tone: Tone = !dd || x.ym === running ? "none" : dd.tone;
                 return (
                   <td key={x.ym} className={`px-1 py-1.5 text-center tabular whitespace-nowrap rounded ${toneBg[tone]}`}>
-                    <div className="font-semibold text-on-surface">{x.v >= 1000 ? `$${(x.v / 1000).toFixed(1)}k` : `$${Math.round(x.v)}`}</div>
+                    <div className="font-semibold text-on-surface">{`$${Math.round(x.v).toLocaleString("en-US")}`}</div>
                     <div className={`text-[11px] ${toneText[tone]}`}>
                       {x.ym === running ? "to date" : dd && dd.pct !== null ? `${dd.pct > 0 ? "+" : ""}${dd.pct.toFixed(0)}%` : ""}
                     </div>
