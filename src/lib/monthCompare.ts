@@ -275,3 +275,50 @@ export async function productUnits(
 }
 
 export const normUpc = (u: string | null | undefined) => String(u ?? "").replace(/\D/g, "").replace(/^0+/, "");
+
+/**
+ * Units sold per product for each calendar month. A month uploaded from a
+ * Modisoft export (ProductMonthSales) wins; otherwise the daily counter
+ * readings are used where they cover it. `source` says where each month came
+ * from, and `days` how many days of it are actually counted.
+ */
+export interface ProductMonth {
+  ym: string;
+  source: "upload" | "tracked" | null;
+  days: number; // days of the month the numbers cover
+  units: Map<string, number>;
+}
+
+export async function productMonths(
+  loc: string,
+  upcs: string[],
+  windows: { ym: string; start: Date; end: Date }[],
+  trackedFrom: Date | null
+): Promise<ProductMonth[]> {
+  if (!upcs.length || !windows.length) return windows.map((w) => ({ ym: w.ym, source: null, days: 0, units: new Map() }));
+  const uploaded = await prisma.productMonthSales.findMany({
+    where: { locationId: loc, ym: { in: windows.map((w) => w.ym) }, upcNorm: { in: upcs } },
+    select: { ym: true, upcNorm: true, units: true },
+  });
+  const byYm = new Map<string, Map<string, number>>();
+  for (const r of uploaded) {
+    const m = byYm.get(r.ym) ?? new Map<string, number>();
+    m.set(r.upcNorm, (m.get(r.upcNorm) ?? 0) + r.units);
+    byYm.set(r.ym, m);
+  }
+  // A month counts as uploaded if ANY product in the store has a row for it.
+  const uploadedMonths = new Set(
+    (await prisma.productMonthSales.groupBy({ by: ["ym"], where: { locationId: loc, ym: { in: windows.map((w) => w.ym) } } })).map((g) => g.ym)
+  );
+  return Promise.all(
+    windows.map(async (w): Promise<ProductMonth> => {
+      const fullDays = Math.round((w.end.getTime() - w.start.getTime()) / 86400000);
+      if (uploadedMonths.has(w.ym)) return { ym: w.ym, source: "upload", days: fullDays, units: byYm.get(w.ym) ?? new Map() };
+      const t = await productUnits(loc, upcs, w.start, w.end, trackedFrom);
+      if (!t) return { ym: w.ym, source: null, days: 0, units: new Map() };
+      const from = trackedFrom && w.start < trackedFrom ? trackedFrom : w.start;
+      const days = Math.max(1, Math.round((w.end.getTime() - from.getTime()) / 86400000));
+      return { ym: w.ym, source: "tracked", days, units: t.units };
+    })
+  );
+}

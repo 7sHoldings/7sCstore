@@ -17,7 +17,8 @@ export const toneText: Record<Tone, string> = {
   none: "text-on-surface-variant",
 };
 
-export type Unit = "money" | "gal" | "units";
+export type { Unit } from "@/lib/compare";
+import type { Unit } from "@/lib/compare";
 
 export function fmtVal(v: number, unit: Unit = "money"): string {
   if (unit === "gal") return `${fmtNumber(Math.round(v))} gal`;
@@ -186,7 +187,7 @@ export interface GridMonth {
 }
 export interface GridRow {
   label: ReactNode;
-  values: number[]; // one per month
+  values: (number | null)[]; // one per month; null = no data for that month
   unit?: Unit;
   good?: boolean; // default true: higher is better
   neutral?: boolean; // never coloured
@@ -194,21 +195,30 @@ export interface GridRow {
   indent?: boolean;
   noTotal?: boolean;
   section?: string; // small header row before this one
+  proj?: { current: number | null; next: number | null } | null;
 }
 
 /**
- * Month-by-month grid (January → selected month) with a year-to-date total.
- * Each number is coloured on its own against the month before it.
+ * Month-by-month grid (January → selected month) with a year total and,
+ * optionally, projected columns at the end. Each number is coloured on its
+ * own against the month before it.
  */
 export function MonthGrid({
-  months, rows, totalLabel = "Year total",
+  months, rows, totalLabel = "Year total", projLabels,
 }: {
-  months: GridMonth[]; rows: GridRow[]; totalLabel?: string;
+  months: GridMonth[];
+  rows: GridRow[];
+  totalLabel?: string;
+  projLabels?: { current: string | null; next: string } | null;
 }) {
+  const showProj = !!projLabels && rows.some((r) => r.proj);
+  const projCols = showProj ? (projLabels!.current ? 2 : 1) : 0;
+  const projTh = "px-3 py-2.5 text-right whitespace-nowrap bg-tertiary-container/40 text-on-tertiary-container";
+  const projTd = "px-3 py-2 text-right tabular whitespace-nowrap bg-tertiary-container/25 italic text-on-surface";
   return (
     <div className="overflow-x-auto">
       {months.length > 3 && (
-        <div className="md:hidden px-4 pt-2 text-[11px] text-on-surface-variant flex items-center gap-1">
+        <div className="md:hidden px-4 pt-2 text-[11px] text-on-surface-variant flex items-center gap-1" data-noexport>
           <Icon name="swipe" className="text-[14px]" /> Swipe sideways to see every month
         </div>
       )}
@@ -223,6 +233,8 @@ export function MonthGrid({
               </th>
             ))}
             <th className="px-4 py-2.5 text-right whitespace-nowrap border-l border-outline-variant/50">{totalLabel}</th>
+            {showProj && projLabels!.current && <th className={`${projTh} border-l border-dashed border-tertiary/40`}>{projLabels!.current}</th>}
+            {showProj && <th className={`${projTh} ${projLabels!.current ? "" : "border-l border-dashed border-tertiary/40"}`}>{projLabels!.next}</th>}
           </tr>
         </thead>
         <tbody>
@@ -231,7 +243,7 @@ export function MonthGrid({
               {r.section && (
                 <tr className="bg-surface-container-low">
                   <td className="sticky left-0 z-[1] bg-surface-container-low px-4 py-1.5 text-label-caps uppercase text-on-surface-variant whitespace-nowrap">{r.section}</td>
-                  <td colSpan={months.length + 1} />
+                  <td colSpan={months.length + 1 + projCols} />
                 </tr>
               )}
               <tr className={`border-b border-outline-variant/30 ${r.strong ? "font-semibold" : ""}`}>
@@ -239,10 +251,10 @@ export function MonthGrid({
                 {r.values.map((v, i) => {
                   const prev = i > 0 ? r.values[i - 1] : null;
                   const tone: Tone =
-                    r.neutral || prev === null || months[i].partial ? "none" : delta(v, prev, r.good !== false).tone;
+                    r.neutral || v === null || prev === null || months[i].partial ? "none" : delta(v, prev, r.good !== false).tone;
                   return (
                     <td key={months[i].ym} className="px-1 py-2 text-right">
-                      {v === 0 ? (
+                      {v === null || v === 0 ? (
                         <span className="text-on-surface-variant px-1.5">—</span>
                       ) : (
                         <Num
@@ -257,8 +269,16 @@ export function MonthGrid({
                   );
                 })}
                 <td className="px-4 py-2 text-right tabular whitespace-nowrap border-l border-outline-variant/50 font-semibold">
-                  {r.noTotal ? "" : fmtCompact(r.values.reduce((a, b) => a + b, 0), r.unit)}
+                  {r.noTotal ? "" : fmtCompact(r.values.reduce<number>((a, b) => a + (b ?? 0), 0), r.unit)}
                 </td>
+                {showProj && projLabels!.current && (
+                  <td className={`${projTd} border-l border-dashed border-tertiary/40`}>{r.proj?.current != null ? fmtCompact(r.proj.current, r.unit) : ""}</td>
+                )}
+                {showProj && (
+                  <td className={`${projTd} ${projLabels!.current ? "" : "border-l border-dashed border-tertiary/40"}`}>
+                    {r.proj?.next != null ? fmtCompact(r.proj.next, r.unit) : ""}
+                  </td>
+                )}
               </tr>
             </Fragment>
           ))}
