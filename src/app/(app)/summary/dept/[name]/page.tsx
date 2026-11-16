@@ -136,7 +136,7 @@ export default async function DepartmentMonthPage({
       .map((u) => {
         const p = byUpc.get(u)!;
         return rowFor(
-          <span>
+          <span key={u}>
             {p.name}
             {p.size ? <span className="text-on-surface-variant text-[11px] ml-1">{p.size}</span> : null}
           </span>,
@@ -151,7 +151,7 @@ export default async function DepartmentMonthPage({
       .map(([b, keys]) =>
         Object.assign(
           rowFor(
-            <a href={link({ brand: b }) + "#products"} className="text-primary font-medium hover:underline inline-flex items-center gap-0.5">
+            <a key={b} href={link({ brand: b }) + "#products"} className="text-primary font-medium hover:underline inline-flex items-center gap-0.5">
               {b} <span className="text-on-surface-variant text-[11px]">({keys.length})</span>
             </a>,
             keys
