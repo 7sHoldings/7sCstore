@@ -160,4 +160,4 @@ export function monthsEnding(endYm: string, n: number): string[] {
   return Array.from({ length: n }, (_, i) => shiftMonth(endYm, i - (n - 1)));
 }
 
-export type Unit = "money" | "gal" | "units";
+export type Unit = "money" | "gal" | "units" | "pct";

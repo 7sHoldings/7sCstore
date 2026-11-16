@@ -65,14 +65,22 @@ export async function GET(req: NextRequest) {
       const proj = hasProj
         ? [...(report.projLabels.current ? [r.proj?.current ?? null] : []), r.proj?.next ?? null]
         : [];
-      const row = ws.addRow([(r.indent ? "    " : "") + r.label, ...r.values.map((v) => v || null), r.noTotal ? null : total, ...proj]);
+      const totalCell = r.totalValue !== undefined ? r.totalValue : r.noTotal ? null : total;
+      const row = ws.addRow([(r.indent ? "    " : "") + r.label, ...r.values.map((v) => v || null), totalCell, ...proj]);
       if (r.strong) row.font = { bold: true };
-      const fmt = r.unit === "gal" || r.unit === "units" ? "#,##0" : '"$"#,##0.00;[Red]-"$"#,##0.00';
+      const fmt = r.unit === "pct" ? '0.0"%"' : r.unit === "gal" || r.unit === "units" ? "#,##0" : '"$"#,##0.00;[Red]-"$"#,##0.00';
       row.eachCell((c, col) => {
         if (col > 1) c.numFmt = fmt;
       });
       // Colour each month against the month before (not the running month).
+      // Percent rows with a target (gross profit ≥ 30%) are coloured against it.
       r.values.forEach((v, i) => {
+        if (r.threshold !== undefined) {
+          if (!v) return;
+          const ok = (v >= r.threshold) === (r.good !== false);
+          row.getCell(i + 2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: ok ? GREEN : RED } };
+          return;
+        }
         if (i === 0 || r.neutral || report.months[i].partial) return;
         const tone = delta(v, r.values[i - 1], r.good !== false).tone;
         if (tone === "good" || tone === "bad") {
