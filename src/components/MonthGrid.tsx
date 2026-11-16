@@ -1,12 +1,13 @@
 "use client";
 import { Fragment, ReactNode, useState } from "react";
-import { delta, type Tone, type Unit } from "@/lib/compare";
+import { delta, deltaPerDay, type Tone, type Unit } from "@/lib/compare";
 import { Num, fmtCompact, fmtVal } from "@/components/num";
 
 export interface GridMonth {
   ym: string;
   label: string;
-  partial?: boolean; // running month — shown, but not coloured
+  partial?: boolean; // running month — shown; coloured only for per-day rows
+  days?: number; // days the numbers cover (31, 30, 28 — or days so far in the running month)
 }
 export interface GridRow {
   label: ReactNode;
@@ -29,6 +30,8 @@ export interface GridRow {
   group?: string;
   /** Per month: show "(x%)" of this value next to each number (e.g. share of total expenses). */
   pctBase?: (number | null)[];
+  /** Colour on the DAILY AVERAGE (total ÷ days), so month length doesn't decide green/red. */
+  perDay?: boolean;
 }
 
 const Share = ({ v, base }: { v: number; base: number | null | undefined }) =>
@@ -131,10 +134,16 @@ export function MonthGrid({
                     </td>
                     {r.values.map((v, i) => {
                       const prev = i > 0 ? r.values[i - 1] : null;
+                      const days = months[i].days, prevDays = i > 0 ? months[i - 1].days : undefined;
+                      const perDay = !!r.perDay && !!days && !!prevDays;
                       const tone: Tone =
                         r.threshold !== undefined && v !== null && v !== 0
                           ? (v >= r.threshold) === (r.good !== false) ? "good" : "bad"
-                          : r.neutral || v === null || prev === null || months[i].partial ? "none" : delta(v, prev, r.good !== false).tone;
+                          : r.neutral || v === null || prev === null || (months[i].partial && !perDay)
+                            ? "none"
+                            : perDay
+                            ? deltaPerDay(v, prev, days!, prevDays!, r.good !== false).tone
+                            : delta(v, prev, r.good !== false).tone;
                       return (
                         <td key={months[i].ym} className="px-1 py-2 text-right whitespace-nowrap">
                           {v === null || v === 0 ? (
@@ -145,7 +154,13 @@ export function MonthGrid({
                               unit={r.unit}
                               tone={tone}
                               compact
-                              title={prev !== null ? `${fmtVal(v, r.unit)} — month before: ${fmtVal(prev, r.unit)}` : fmtVal(v, r.unit)}
+                              title={
+                                prev === null
+                                  ? fmtVal(v, r.unit)
+                                  : perDay
+                                  ? `${fmtVal(v, r.unit)} over ${days} days = ${fmtVal(v / days!, r.unit)}/day — month before ${fmtVal(prev / prevDays!, r.unit)}/day`
+                                  : `${fmtVal(v, r.unit)} — month before: ${fmtVal(prev, r.unit)}`
+                              }
                             />
                           )}
                           {v ? <Share v={v} base={r.pctBase?.[i]} /> : null}

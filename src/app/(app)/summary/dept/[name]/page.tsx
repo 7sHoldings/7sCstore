@@ -83,6 +83,7 @@ export default async function DepartmentMonthPage({
     ym,
     label: multiYear ? `${monthLabel(ym, true).slice(0, 3)} ’${ym.slice(2, 4)}` : monthLabel(ym, true).slice(0, 3),
     partial: running && ym === month,
+    days: running && ym === month ? done : daysInMonth(ym),
   }));
   const projLabels = {
     current: running ? `${monthLabel(month, true).slice(0, 3)} projected` : null,
@@ -123,7 +124,7 @@ export default async function DepartmentMonthPage({
           lastYear: lyPmOk ? { prev: sum(lyPm[0], keys, value), cur: sum(lyPm[1], keys, value), next: sum(lyPm[2], keys, value) } : null,
         })
       : null;
-    return { label, values, unit: measure === "sales" ? "money" : "units", strong, proj, total: values.reduce<number>((a, b) => a + (b ?? 0), 0) };
+    return { label, values, unit: measure === "sales" ? "money" : "units", strong, proj, perDay: true, total: values.reduce<number>((a, b) => a + (b ?? 0), 0) };
   };
 
   const brands = new Map<string, string[]>();
@@ -190,7 +191,7 @@ export default async function DepartmentMonthPage({
           <MonthGrid
             months={months}
             projLabels={projLabels}
-            rows={[{ label: `${dept} sales`, values: deptVals, strong: true, proj: deptProj }]}
+            rows={[{ label: `${dept} sales`, values: deptVals, strong: true, proj: deptProj, perDay: true }]}
           />
         </Section>
 
@@ -226,7 +227,7 @@ export default async function DepartmentMonthPage({
           ) : rows.length <= 1 ? (
             <EmptyState icon="inventory_2" title={`No product sales found${brand ? ` for ${brand}` : ""}`} />
           ) : (
-            <MonthGrid months={months.slice(firstData)} projLabels={projLabels} rows={rows.map((r) => ({ ...r, values: r.values.slice(firstData) }))} totalLabel={measure === "sales" ? "Year total" : "Year units"} />
+            <MonthGrid months={months.map((m, i) => ({ ...m, days: pm[i].days || m.days })).slice(firstData)} projLabels={projLabels} rows={rows.map((r) => ({ ...r, values: r.values.slice(firstData) }))} totalLabel={measure === "sales" ? "Year total" : "Year units"} />
           )}
           <div className="px-5 py-3 border-t border-outline-variant/40 flex flex-wrap items-center justify-between gap-2">
             <ToneLegend />

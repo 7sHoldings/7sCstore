@@ -22,7 +22,8 @@ export interface ReportRow {
   noTotal?: boolean;
   threshold?: number; // colour against a fixed target (e.g. gross profit ≥ 30%)
   groupHead?: string; // tap to open the rows of this group (e.g. payees)
-  pctBase?: number[]; // per month: show "(x%)" of this next to each number (share of total expenses)
+  pctBase?: number[];
+  perDay?: boolean; // green/red on the daily average (sales-type rows) // per month: show "(x%)" of this next to each number (share of total expenses)
   group?: string; // hidden until its group is opened
   totalValue?: number | null; // total column override (e.g. whole-period %)
   proj?: { current: number | null; next: number | null } | null;
@@ -38,7 +39,7 @@ export interface ReportSection {
 export interface MonthsReport {
   year: string;
   month: string;
-  months: { ym: string; label: string; partial: boolean }[];
+  months: { ym: string; label: string; partial: boolean; days: number }[];
   running: { done: number; total: number } | null;
   projLabels: { current: string | null; next: string };
   seasonal: boolean; // last-year data was available for projections
@@ -97,6 +98,9 @@ export async function buildMonthsReport(loc: string, from: string, month: string
     specs.map(({ get, project: doProject, shareOfExpenses, ...rest }) => {
       const values = figs.map(get);
       return {
+        // Sales-type rows (projected, higher-is-better, not %) compare the daily
+        // average so month length doesn't decide the colour. Bills don't.
+        perDay: !!doProject && rest.good !== false && rest.unit !== "pct",
         ...rest,
         values,
         ...(shareOfExpenses ? { pctBase: figs.map((f) => f.expenses.total) } : {}),
@@ -311,6 +315,7 @@ export async function buildMonthsReport(loc: string, from: string, month: string
       ym,
       label: multiYear ? `${monthLabel(ym, true).slice(0, 3)} ’${ym.slice(2, 4)}` : monthLabel(ym, true).slice(0, 3),
       partial: running && ym === month,
+      days: running && ym === month ? done : daysInMonth(ym),
     })),
     running: runningInfo,
     projLabels: {
