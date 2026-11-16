@@ -87,3 +87,4 @@ body {
 .exporting .material-symbols-outlined { display: none !important; }
 .exporting .shadow-card { box-shadow: none !important; }
 .exporting h2, .exporting .text-headline-lg { white-space: nowrap; }
+.exporting .overflow-hidden { overflow: visible !important; }

@@ -7,6 +7,7 @@ import { fmtDate } from "@/lib/format";
 import { daysInMonth, defaultMonth, isMonth, monthLabel, monthStart, shiftMonth } from "@/lib/compare";
 import { getTrend, normUpc, productMonths, productTrackingStart, type ProductMonth } from "@/lib/monthCompare";
 import { project } from "@/lib/projection";
+import { monthRange } from "@/lib/monthsReport";
 import { brandOf } from "@/lib/brand";
 import { Card, PageHeader, EmptyState, Icon } from "@/components/ui";
 import { MonthGrid, Section, ToneLegend, type GridMonth, type GridRow } from "@/components/compare";
@@ -21,7 +22,7 @@ export default async function DepartmentMonthPage({
   searchParams,
 }: {
   params: Promise<{ name: string }>;
-  searchParams: Promise<{ month?: string; brand?: string; measure?: string; vs?: string; b?: string; full?: string; view?: string }>;
+  searchParams: Promise<{ month?: string; from?: string; brand?: string; measure?: string; vs?: string; b?: string; full?: string; view?: string }>;
 }) {
   const session = (await getSession())!;
   if (!can(session.role, "viewProfit") && !can(session.role, "viewAll")) {
@@ -39,13 +40,14 @@ export default async function DepartmentMonthPage({
   const running = today.slice(0, 7) === month;
   const done = running ? Math.max(1, Number(today.slice(8, 10)) - 1) : daysInMonth(month);
   const year = month.slice(0, 4);
-  const yms: string[] = [];
-  for (let m = 1; m <= Number(month.slice(5, 7)); m++) yms.push(`${year}-${String(m).padStart(2, "0")}`);
+  const from = isMonth(sp.from) && sp.from <= month ? sp.from : `${year}-01`;
+  const yms = monthRange(from, month);
+  const multiYear = yms[0].slice(0, 4) !== year;
   const lyYms = [shiftMonth(month, -13), shiftMonth(month, -12), shiftMonth(month, -11)];
 
   // Keep the summary's own filters on every link back and forth.
   const keep: Record<string, string> = {};
-  for (const k of ["month", "vs", "b", "full", "view"] as const) if (sp[k]) keep[k] = sp[k]!;
+  for (const k of ["month", "from", "vs", "b", "full", "view"] as const) if (sp[k]) keep[k] = sp[k]!;
   const link = (extra: Record<string, string | undefined>) => {
     const q = new URLSearchParams(keep);
     for (const [k, v] of Object.entries({ brand: brand || undefined, measure: measure === "sales" ? "sales" : undefined, ...extra })) {
@@ -77,7 +79,11 @@ export default async function DepartmentMonthPage({
   const deptVals = trend.map((t) => t.depts.get(dept) ?? 0);
   const lyDept = lyTrend.map((t) => t.depts.get(dept) ?? 0);
   const lyOk = lyTrend.every((t) => t.posSales > 0);
-  const months: GridMonth[] = yms.map((ym) => ({ ym, label: monthLabel(ym, true).slice(0, 3), partial: running && ym === month }));
+  const months: GridMonth[] = yms.map((ym) => ({
+    ym,
+    label: multiYear ? `${monthLabel(ym, true).slice(0, 3)} ’${ym.slice(2, 4)}` : monthLabel(ym, true).slice(0, 3),
+    partial: running && ym === month,
+  }));
   const projLabels = {
     current: running ? `${monthLabel(month, true).slice(0, 3)} projected` : null,
     next: `${monthLabel(shiftMonth(month, 1), true).slice(0, 3)} projected`,
@@ -171,12 +177,12 @@ export default async function DepartmentMonthPage({
       <a href={`/summary?${new URLSearchParams(keep).toString()}#departments`} className="inline-flex items-center gap-1 text-body-sm text-primary hover:underline mb-2">
         <Icon name="arrow_back" className="text-[18px]" /> Monthly Summary
       </a>
-      <PageHeader title={brand ? `${dept} · ${brand}` : dept} subtitle={`January to ${monthLabel(month)}`} />
+      <PageHeader title={brand ? `${dept} · ${brand}` : dept} subtitle={`${monthLabel(from)} to ${monthLabel(month)}`} />
       <SummaryExport targetId="dept-export" fileName={`${dept}${brand ? "-" + brand : ""}-${month}`.replace(/[^\w-]+/g, "-")} />
 
       <div id="dept-export">
         <div className="hidden [.exporting_&]:block mb-4 pb-3 border-b border-outline-variant">
-          <div className="text-headline-lg font-bold text-primary">{brand ? `${dept} · ${brand}` : dept} — Jan to {monthLabel(month)}</div>
+          <div className="text-headline-lg font-bold text-primary">{brand ? `${dept} · ${brand}` : dept} — {monthLabel(from)} to {monthLabel(month)}</div>
           <div className="text-body-sm text-on-surface-variant">7sCstores · {store?.name ?? ""} · {measure === "sales" ? "estimated sales ($)" : "units sold"}</div>
         </div>
 
