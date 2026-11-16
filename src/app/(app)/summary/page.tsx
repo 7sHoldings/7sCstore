@@ -55,6 +55,12 @@ export default async function MonthlySummaryPage({
     ...(view === "compare" ? { view: "compare" } : {}),
     ...(view === "months" && from !== `${year}-01` ? { from } : {}),
   }).toString();
+  // Per-section screenshot: file name + the caption printed on the picture.
+  const periodLabel = view === "months" ? yearLabel : `${w.a.label} vs ${w.b.label}`;
+  const shotFor = (name: string) => ({
+    fileName: `${name}-${periodLabel}`.replace(/[^\w]+/g, "-").replace(/-+$/, ""),
+    caption: `7sCstores · ${storeName} · ${periodLabel} · green = better, red = worse`,
+  });
   const deptHref = (name: string) => `/summary/dept/${encodeURIComponent(name)}?${query}`;
 
   const filter = (
@@ -147,7 +153,7 @@ export default async function MonthlySummaryPage({
             );
             if (s.id !== "master") {
               return (
-                <Section key={s.id} id={s.id} title={s.title} icon={s.icon} note={s.note || undefined}>
+                <Section key={s.id} id={s.id} title={s.title} icon={s.icon} note={s.note || undefined} shot={shotFor(s.title.split(" —")[0])}>
                   {grid}
                 </Section>
               );
@@ -247,7 +253,7 @@ export default async function MonthlySummaryPage({
             </Card>
           )}
 
-          <Section id="departments" title="Departments" icon="category" note="Tap a department to see its products">
+          <Section id="departments" title="Departments" icon="category" note="Tap a department to see its products" shot={shotFor("Departments")}>
             <CompareTable
               aLabel={aShort}
               bLabel={bShort}
@@ -262,7 +268,7 @@ export default async function MonthlySummaryPage({
             />
           </Section>
 
-          <Section id="fuel" title="Gas — gallons & sales by grade" icon="local_gas_station" note="Mid-grade is split 50/50 into Regular and Premium">
+          <Section id="fuel" title="Gas — gallons & sales by grade" icon="local_gas_station" note="Mid-grade is split 50/50 into Regular and Premium" shot={shotFor("Gas")}>
             <CompareTable
               aLabel={aShort}
               bLabel={bShort}
@@ -284,7 +290,7 @@ export default async function MonthlySummaryPage({
             />
           </Section>
 
-          <Section id="lottery" title="Lottery / Lotto" icon="confirmation_number">
+          <Section id="lottery" title="Lottery / Lotto" icon="confirmation_number" shot={shotFor("Lottery")}>
             <CompareTable
               aLabel={aShort}
               bLabel={bShort}
@@ -298,7 +304,7 @@ export default async function MonthlySummaryPage({
             />
           </Section>
 
-          <Section id="shorts" title="Short / Over — cash reconciliation" icon="balance" note="Money collected minus POS sales">
+          <Section id="shorts" title="Short / Over — cash reconciliation" icon="balance" note="Money collected minus POS sales" shot={shotFor("Short-Over")}>
             {A.recon.length || B.recon.length ? (
               <CompareTable aLabel={aShort} bLabel={bShort} rows={[...reconRows(A.recon, B.recon), { label: "Short / Over", d: d.short, strong: true }]} />
             ) : (
@@ -306,11 +312,11 @@ export default async function MonthlySummaryPage({
             )}
           </Section>
 
-          <Section id="expenses" title="Expenses — where the money went" icon="receipt_long" note="Spending more shows red">
+          <Section id="expenses" title="Expenses — where the money went" icon="receipt_long" note="Spending more shows red" shot={shotFor("Expenses")}>
             <ExpenseCompare A={A.expenses} B={B.expenses} aLabel={aShort} bLabel={bShort} />
           </Section>
 
-          <Section id="profit" title="Profit / Loss" icon="account_balance_wallet" note="Same formula as the Dashboard">
+          <Section id="profit" title="Profit / Loss" icon="account_balance_wallet" note="Same formula as the Dashboard" shot={shotFor("Profit-Loss")}>
             <CompareTable
               aLabel={aShort}
               bLabel={bShort}
