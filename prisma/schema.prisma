@@ -718,3 +718,22 @@ model ProductDemand {
   @@index([locationId, periodStart])
   @@index([locationId, upcNorm])
 }
+
+/**
+ * Units sold per product for one whole calendar month, uploaded from a Modisoft
+ * item-wise export taken for that month. Fills in product history for months
+ * before the daily POS readings (ProductMovement) began. Kept apart from
+ * ProductDemand on purpose: that table feeds reorder forecasting, which expects
+ * weekly periods.
+ */
+model ProductMonthSales {
+  id         String   @id @default(cuid())
+  locationId String
+  ym         String // "YYYY-MM"
+  upcNorm    String
+  units      Float    @default(0)
+  importedAt DateTime @default(now())
+
+  @@unique([locationId, ym, upcNorm])
+  @@index([locationId, ym])
+}

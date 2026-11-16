@@ -1,19 +1,22 @@
 import { getSession } from "@/lib/auth";
 import { getActiveLocationId } from "@/lib/location";
+import { prisma } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { todayISO } from "@/lib/day";
 import { gradeLabel } from "@/lib/format";
 import {
-  compareByKey, compareWindows, defaultMonth, delta, isMonth, monthLabel, monthStart, shiftMonth,
+  compareByKey, compareWindows, defaultMonth, delta, isMonth, monthLabel, shiftMonth,
   type CompareMode, type Delta, type Tone,
 } from "@/lib/compare";
 import { getWindowFigures, type WindowFigures } from "@/lib/monthCompare";
+import { buildMonthsReport, type MonthsReport } from "@/lib/monthsReport";
 import { Card, PageHeader, EmptyState, Icon, Banner } from "@/components/ui";
 import {
   CompareKpi, CompareTable, MonthGrid, Num, Section, ToneLegend, toneText, fmtVal,
-  type CompareRow, type GridMonth, type GridRow, type Unit,
+  type CompareRow, type Unit,
 } from "@/components/compare";
 import SummaryFilter from "@/components/SummaryFilter";
+import SummaryExport from "@/components/SummaryExport";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -32,6 +35,7 @@ export default async function MonthlySummaryPage({
   const loc = await getActiveLocationId();
   if (!loc) return <Card className="p-8"><EmptyState icon="table_chart" title="No location" /></Card>;
   const sp = await searchParams;
+  const storeName = (await prisma.location.findUnique({ where: { id: loc }, select: { name: true } }))?.name ?? "";
 
   const today = todayISO();
   const month = isMonth(sp.month) ? sp.month : defaultMonth(today);
@@ -107,17 +111,8 @@ export default async function MonthlySummaryPage({
   // ALL MONTHS view — January → selected month, every number vs month before
   // =========================================================================
   if (view === "months") {
-    const yms: string[] = [];
-    for (let m = 1; m <= Number(month.slice(5, 7)); m++) yms.push(`${year}-${String(m).padStart(2, "0")}`);
-    const months: GridMonth[] = yms.map((ym) => ({ ym, label: monthLabel(ym, true).slice(0, 3), partial: running && ym === month }));
-    const figs = await Promise.all(
-      yms.map((ym) => {
-        const start = monthStart(ym);
-        const end = running && ym === month ? new Date(start.getTime() + Number(today.slice(8, 10)) * 86400000) : monthStart(shiftMonth(ym, 1));
-        return getWindowFigures(loc, start, end);
-      })
-    );
-    if (!figs.some((f) => f.hasSales)) {
+    const report = await buildMonthsReport(loc, month, today);
+    if (!report.hasData) {
       return (
         <div>
           {header}
@@ -126,132 +121,34 @@ export default async function MonthlySummaryPage({
         </div>
       );
     }
-    const col = (fn: (f: WindowFigures) => number) => figs.map(fn);
-
-    // Departments, biggest first by year total.
-    const deptTotals = new Map<string, number>();
-    for (const f of figs) for (const d of f.depts) deptTotals.set(d.name, (deptTotals.get(d.name) ?? 0) + d.sales);
-    const deptNames = [...deptTotals.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
-
-    const grade = (f: WindowFigures, g: string) => f.fuelGrades.find((x) => x.grade === g);
-    const grades = GRADES.filter((g) => figs.some((f) => grade(f, g)));
-
-    // Expenses: group subtotal, then each payee.
-    const expenseRows: GridRow[] = [];
-    for (const [group, title] of [["Inventory", "Inventory purchases (vendors)"], ["Operating", "Operating expenses"], ["Fuel", "Fuel purchases"]] as const) {
-      const sub = col((f) => (group === "Inventory" ? f.expenses.inventory : group === "Operating" ? f.expenses.operating : f.expenses.fuel));
-      if (!sub.some(Boolean)) continue;
-      expenseRows.push({ label: title, values: sub, good: false, strong: true });
-      const payees = new Map<string, number>();
-      for (const f of figs) for (const p of f.expenses.byPayee) if (p.group === group) payees.set(p.key, (payees.get(p.key) ?? 0) + p.value);
-      for (const [name] of [...payees.entries()].sort((a, b) => b[1] - a[1])) {
-        expenseRows.push({
-          label: name,
-          values: col((f) => f.expenses.byPayee.filter((p) => p.group === group && p.key === name).reduce((s, p) => s + p.value, 0)),
-          good: false,
-          indent: true,
-        });
-      }
-    }
-    expenseRows.push({ label: "Total expenses", values: col((f) => f.expenses.total), good: false, strong: true });
-
-    const reconLabels = [...new Set(figs.flatMap((f) => f.recon.map((r) => r.label)))];
-    const profitLabels = figs[0].profitParts.map((p) => ({ label: p.label, op: p.op }));
-
     return (
       <div>
         {header}
         {filter}
         {jumpTabs}
+        <SummaryExport targetId="summary-export" fileName={`Monthly-Summary-${month}`} excelHref={`/api/summary/export?month=${month}`} />
 
-        <Section id="overview" title="Store totals by month" icon="storefront" note={`${yearLabel} · each number compared with the month before`}>
-          <MonthGrid
-            months={months}
-            rows={[
-              { label: "Total sales", values: col((f) => f.posSales), strong: true },
-              { label: "Inside sales", values: col((f) => f.merch) },
-              { label: "Gas sales", values: col((f) => f.fuel) },
-              { label: "Gallons sold", values: col((f) => f.gallons), unit: "gal" },
-              { label: "Lottery net", values: col((f) => f.lottoNet) },
-              { label: "Expenses", values: col((f) => f.expenses.total), good: false },
-              { label: "Profit / Loss", values: col((f) => f.profit), strong: true },
-              { label: "Short / Over", values: col((f) => f.shortOver ?? 0) },
-            ]}
-          />
-        </Section>
-
-        <Section id="departments" title="Departments" icon="category" note="Tap a department to see its products">
-          <MonthGrid
-            months={months}
-            rows={[
-              ...deptNames.map((n): GridRow => ({
-                label: <a href={deptHref(n)} className="text-primary font-medium hover:underline">{n}</a>,
-                values: col((f) => f.depts.find((d) => d.name === n)?.sales ?? 0),
-              })),
-              { label: "All inside sales", values: col((f) => f.merch), strong: true },
-            ]}
-          />
-        </Section>
-
-        <Section id="fuel" title="Gas — gallons & sales by grade" icon="local_gas_station" note="Mid-grade is split 50/50 into Regular and Premium">
-          <MonthGrid
-            months={months}
-            rows={[
-              ...grades.map((g, i): GridRow => ({ section: i === 0 ? "Gallons sold" : undefined, label: gradeLabel(g), values: col((f) => grade(f, g)?.gallons ?? 0), unit: "gal" })),
-              { label: "All grades", values: col((f) => f.gallons), unit: "gal", strong: true },
-              ...grades.map((g, i): GridRow => ({ section: i === 0 ? "Gas sales ($)" : undefined, label: gradeLabel(g), values: col((f) => grade(f, g)?.total ?? 0) })),
-              { label: "All grades", values: col((f) => f.fuel), strong: true },
-            ]}
-          />
-        </Section>
-
-        <Section id="lottery" title="Lottery / Lotto" icon="confirmation_number">
-          <MonthGrid
-            months={months}
-            rows={[
-              { label: "Lottery sales", values: col((f) => f.lotto.sales) },
-              { label: "Payouts (winners)", values: col((f) => f.lotto.payout), neutral: true },
-              { label: "Lottery net (POS)", values: col((f) => f.lotto.net), strong: true },
-              { label: "Net entered by staff", values: col((f) => f.lotto.manual?.net ?? 0), neutral: true },
-              { label: "Lottery short / over", values: col((f) => f.lotto.over), strong: true },
-            ]}
-          />
-        </Section>
-
-        <Section id="shorts" title="Short / Over — cash reconciliation" icon="balance" note="Money collected minus POS sales">
-          {reconLabels.length ? (
-            <MonthGrid
-              months={months}
-              rows={[
-                ...reconLabels.map((l): GridRow => ({ label: l, values: col((f) => f.recon.find((r) => r.label === l)?.value ?? 0), neutral: true })),
-                { label: "Short / Over", values: col((f) => f.shortOver ?? 0), strong: true },
-              ]}
-            />
-          ) : (
-            <EmptyState icon="balance" title="No cash/card totals synced yet" />
-          )}
-        </Section>
-
-        <Section id="expenses" title="Expenses — where the money went" icon="receipt_long" note="Spending more than the month before shows red">
-          <MonthGrid months={months} rows={expenseRows} />
-        </Section>
-
-        <Section id="profit" title="Profit / Loss" icon="account_balance_wallet" note="Same formula as the Dashboard">
-          <MonthGrid
-            months={months}
-            rows={[
-              ...profitLabels.map((p, i): GridRow => ({
-                label: `${i > 0 ? p.op + " " : ""}${p.label}`,
-                values: col((f) => f.profitParts[i]?.raw ?? 0),
-                good: p.op === "+",
-                neutral: p.label === "Fuel" || p.label.startsWith("Lottery net"),
-              })),
-              { label: "= Profit / Loss", values: col((f) => f.profit), strong: true },
-            ]}
-          />
-        </Section>
-
-        <Footnote />
+        <div id="summary-export">
+          <ExportTitle title={`Monthly Summary — ${yearLabel}`} store={storeName} />
+          <ProjectionNote report={report} />
+          {report.sections.map((s) => (
+            <Section key={s.id} id={s.id} title={s.title} icon={s.icon} note={s.note || undefined}>
+              {s.empty ? (
+                <EmptyState icon={s.icon} title={s.empty} />
+              ) : (
+                <MonthGrid
+                  months={report.months}
+                  projLabels={report.projLabels}
+                  rows={s.rows.map((r) => ({
+                    ...r,
+                    label: r.dept ? <a href={deptHref(r.dept)} className="text-primary font-medium hover:underline">{r.label}</a> : r.label,
+                  }))}
+                />
+              )}
+            </Section>
+          ))}
+          <Footnote />
+        </div>
       </div>
     );
   }
@@ -298,6 +195,9 @@ export default async function MonthlySummaryPage({
       ) : (
         <>
           {jumpTabs}
+          <SummaryExport targetId="summary-export" fileName={`Monthly-Summary-${w.a.ym}-vs-${w.b.ym}`} excelHref={`/api/summary/export?month=${month}`} />
+          <div id="summary-export">
+          <ExportTitle title={`Monthly Summary — ${w.a.label} vs ${w.b.label}`} store={storeName} />
 
           <div id="overview" className="scroll-mt-32 grid grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3 mb-4">
             <CompareKpi label="Total sales" icon="point_of_sale" d={d.total} bLabel={bShort} sub="Inside + Gas + Lottery + Tax" />
@@ -398,6 +298,7 @@ export default async function MonthlySummaryPage({
           </Section>
 
           <Footnote />
+          </div>
         </>
       )}
     </div>
@@ -405,6 +306,41 @@ export default async function MonthlySummaryPage({
 }
 
 // ---------------------------------------------------------------------------
+
+/** Store name + title, shown only inside downloaded images/PDFs. */
+function ExportTitle({ title, store }: { title: string; store: string }) {
+  return (
+    <div className="hidden [.exporting_&]:flex items-center justify-between mb-4 pb-3 border-b border-outline-variant">
+      <div>
+        <div className="text-headline-lg font-bold text-primary">{title}</div>
+        <div className="text-body-sm text-on-surface-variant">7sCstores · {store} · generated {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
+      </div>
+      <div className="flex items-center gap-3 text-body-sm text-on-surface-variant">
+        <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-secondary/30" /> Better than month before</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-error/30" /> Worse</span>
+      </div>
+    </div>
+  );
+}
+
+function ProjectionNote({ report }: { report: MonthsReport }) {
+  return (
+    <div className="mb-4 rounded-lg border border-tertiary/30 bg-tertiary-container/30 px-4 py-3 text-body-sm text-on-tertiary-container flex gap-2">
+      <Icon name="insights" className="text-[18px] mt-0.5" />
+      <div>
+        <span className="font-semibold">Projected columns</span> (shaded, at the end of each table):{" "}
+        {report.projLabels.current && <>
+          <b>{report.projLabels.current}</b> = the pace so far this month ({report.running?.done} of {report.running?.total} days) for the full month
+          {report.seasonal ? ", averaged with last month adjusted by last year's change" : ""}.{" "}
+        </>}
+        <b>{report.projLabels.next}</b> ={" "}
+        {report.seasonal
+          ? "this month × how much the same months moved last year (summer/winter pattern)."
+          : "this month carried forward. Once there is a full year of history, it will follow last year's seasonal pattern (e.g. soda drops in winter)."}
+      </div>
+    </div>
+  );
+}
 
 function Footnote() {
   return (

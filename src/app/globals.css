@@ -72,3 +72,18 @@ body {
     padding: 0 !important;
   }
 }
+
+/* Monthly Summary picture/PDF export — tables grow to full width, controls hide. */
+.exporting {
+  width: max-content !important;
+  min-width: 1100px;
+  max-width: none !important;
+  padding: 24px;
+  background: #ffffff;
+}
+.exporting .overflow-x-auto { overflow: visible !important; }
+.exporting .sticky { position: static !important; }
+.exporting [data-noexport] { display: none !important; }
+.exporting .material-symbols-outlined { display: none !important; }
+.exporting .shadow-card { box-shadow: none !important; }
+.exporting h2, .exporting .text-headline-lg { white-space: nowrap; }
