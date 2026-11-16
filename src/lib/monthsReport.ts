@@ -69,7 +69,10 @@ export async function buildMonthsReport(loc: string, from: string, month: string
 
   const window = (ym: string) => {
     const start = monthStart(ym);
-    const end = running && ym === month ? new Date(start.getTime() + done * 86400000) : monthStart(shiftMonth(ym, 1));
+    // Running month: through today, exactly like the Dashboard's "This month" (anything
+    // entered for today — expenses, safe drop, lottery — counts). Sales usually
+    // arrive a day later, so projections use the completed days (`done`).
+    const end = running && ym === month ? new Date(start.getTime() + Number(today.slice(8, 10)) * 86400000) : monthStart(shiftMonth(ym, 1));
     return getWindowFigures(loc, start, end);
   };
   const full = (ym: string) => getWindowFigures(loc, monthStart(ym), monthStart(shiftMonth(ym, 1)));

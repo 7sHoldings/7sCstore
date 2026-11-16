@@ -49,8 +49,10 @@ const GROUP: Record<string, "Inventory" | "Operating" | "Fuel"> = {
   FUEL_PURCHASE: "Fuel",
 };
 
-export async function getWindowFigures(loc: string, start: Date, end: Date): Promise<WindowFigures> {
-  const where = { locationId: loc, date: { gte: start, lt: end } };
+export async function getWindowFigures(locArg: string | undefined, start: Date, end: Date): Promise<WindowFigures> {
+  // No location = all locations (as on the Dashboard); settings-based figures need one.
+  const loc = locArg ?? "";
+  const where = { ...(locArg ? { locationId: locArg } : {}), date: { gte: start, lt: end } };
   const [sales, fuelSales, expenseRows, incomingAgg, realTax, tender, manualRaw, creditManual] = await Promise.all([
     prisma.sale.findMany({ where, select: { paymentType: true, amount: true, refund: true, category: true, note: true } }),
     prisma.fuelSale.findMany({ where, select: { grade: true, gallons: true, total: true, pricePerGallon: true } }),
