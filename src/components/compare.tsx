@@ -1,6 +1,6 @@
-import { ReactNode } from "react";
+import { Fragment, ReactNode } from "react";
 import { fmtMoney, fmtNumber } from "@/lib/format";
-import type { Delta, Tone } from "@/lib/compare";
+import { delta, type Delta, type Tone } from "@/lib/compare";
 import { Card, Icon } from "@/components/ui";
 
 /** Row / cell background for a change: green when better, red when worse. */
@@ -119,7 +119,7 @@ export function CompareTable({
       <table className="w-full text-body-sm">
         <thead>
           <tr className="text-left text-label-caps uppercase text-on-surface-variant border-b border-outline-variant/50">
-            <th className="px-5 py-2.5 font-semibold">{firstHead}</th>
+            <th className="sticky left-0 z-[1] bg-surface-container-lowest px-5 py-2.5 font-semibold">{firstHead}</th>
             <th className="px-3 py-2.5 font-semibold text-right whitespace-nowrap">{aLabel}</th>
             <th className="px-3 py-2.5 font-semibold text-right whitespace-nowrap">{bLabel}</th>
             <th className="px-3 py-2.5 font-semibold text-right">Change</th>
@@ -131,9 +131,9 @@ export function CompareTable({
           {rows.map((r, i) => {
             const tone: Tone = r.neutral ? "flat" : r.d.tone;
             return (
-              <tr key={i} className={`border-b border-outline-variant/30 last:border-0 ${toneBg[tone]} ${r.strong ? "font-semibold" : ""}`}>
-                <td className={`px-5 py-2.5 text-on-surface ${r.indent ? "pl-9" : ""}`}>{r.label}</td>
-                <td className="px-3 py-2.5 text-right tabular text-on-surface whitespace-nowrap">{fmtVal(r.d.a, r.unit)}</td>
+              <tr key={i} className={`border-b border-outline-variant/30 last:border-0 ${r.strong ? "font-semibold" : ""}`}>
+                <td className={`sticky left-0 z-[1] bg-surface-container-lowest px-5 py-2.5 text-on-surface ${r.indent ? "pl-9" : ""}`}>{r.label}</td>
+                <td className="px-3 py-2.5 text-right whitespace-nowrap"><Num v={r.d.a} unit={r.unit} tone={tone} /></td>
                 <td className="px-3 py-2.5 text-right tabular text-on-surface-variant whitespace-nowrap">{fmtVal(r.d.b, r.unit)}</td>
                 <td className={`px-3 py-2.5 text-right tabular font-semibold whitespace-nowrap ${toneText[tone]}`}>
                   {r.d.tone === "none" ? "—" : fmtDiff(r.d.diff, r.unit ?? "money")}
@@ -151,11 +151,130 @@ export function CompareTable({
   );
 }
 
+/** Pill classes for a single highlighted number. */
+export const cellTone: Record<Tone, string> = {
+  good: "bg-secondary/15 text-secondary font-semibold",
+  bad: "bg-error/[0.12] text-error font-semibold",
+  flat: "text-on-surface",
+  none: "text-on-surface",
+};
+
+/** One number, highlighted on its own (never its whole row). */
+export function Num({
+  v, unit = "money", tone = "none", compact = false, title,
+}: {
+  v: number; unit?: Unit; tone?: Tone; compact?: boolean; title?: string;
+}) {
+  return (
+    <span title={title} className={`inline-block tabular rounded-md px-1.5 py-0.5 -my-0.5 whitespace-nowrap ${cellTone[tone]}`}>
+      {compact ? fmtCompact(v, unit) : fmtVal(v, unit)}
+    </span>
+  );
+}
+
+export function fmtCompact(v: number, unit: Unit = "money"): string {
+  if (unit !== "money") return fmtNumber(Math.round(v));
+  const a = Math.abs(v), sign = v < 0 ? "-" : "";
+  if (a >= 1000000) return `${sign}$${(a / 1000000).toFixed(2)}M`;
+  if (a >= 100000) return `${sign}$${Math.round(a / 1000)}k`;
+  if (a >= 1000) return `${sign}$${(a / 1000).toFixed(1)}k`;
+  return `${sign}$${Math.round(a)}`;
+}
+
+export interface GridMonth {
+  ym: string;
+  label: string;
+  partial?: boolean; // running month — shown, but not coloured
+}
+export interface GridRow {
+  label: ReactNode;
+  values: number[]; // one per month
+  unit?: Unit;
+  good?: boolean; // default true: higher is better
+  neutral?: boolean; // never coloured
+  strong?: boolean;
+  indent?: boolean;
+  noTotal?: boolean;
+  section?: string; // small header row before this one
+}
+
+/**
+ * Month-by-month grid (January → selected month) with a year-to-date total.
+ * Each number is coloured on its own against the month before it.
+ */
+export function MonthGrid({
+  months, rows, totalLabel = "Year total",
+}: {
+  months: GridMonth[]; rows: GridRow[]; totalLabel?: string;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      {months.length > 3 && (
+        <div className="md:hidden px-4 pt-2 text-[11px] text-on-surface-variant flex items-center gap-1">
+          <Icon name="swipe" className="text-[14px]" /> Swipe sideways to see every month
+        </div>
+      )}
+      <table className="text-body-sm min-w-full">
+        <thead>
+          <tr className="text-label-caps uppercase text-on-surface-variant border-b border-outline-variant/50">
+            <th className="sticky left-0 z-[1] bg-surface-container-lowest px-4 py-2.5 text-left min-w-[120px]" />
+            {months.map((m) => (
+              <th key={m.ym} className="px-2 py-2.5 text-right whitespace-nowrap">
+                {m.label}
+                {m.partial && <div className="normal-case font-normal text-[11px]">to date</div>}
+              </th>
+            ))}
+            <th className="px-4 py-2.5 text-right whitespace-nowrap border-l border-outline-variant/50">{totalLabel}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, ri) => (
+            <Fragment key={ri}>
+              {r.section && (
+                <tr className="bg-surface-container-low">
+                  <td className="sticky left-0 z-[1] bg-surface-container-low px-4 py-1.5 text-label-caps uppercase text-on-surface-variant whitespace-nowrap">{r.section}</td>
+                  <td colSpan={months.length + 1} />
+                </tr>
+              )}
+              <tr className={`border-b border-outline-variant/30 ${r.strong ? "font-semibold" : ""}`}>
+                <td className={`sticky left-0 z-[1] bg-surface-container-lowest px-4 py-2 whitespace-nowrap ${r.indent ? "pl-7" : ""}`}>{r.label}</td>
+                {r.values.map((v, i) => {
+                  const prev = i > 0 ? r.values[i - 1] : null;
+                  const tone: Tone =
+                    r.neutral || prev === null || months[i].partial ? "none" : delta(v, prev, r.good !== false).tone;
+                  return (
+                    <td key={months[i].ym} className="px-1 py-2 text-right">
+                      {v === 0 ? (
+                        <span className="text-on-surface-variant px-1.5">—</span>
+                      ) : (
+                        <Num
+                          v={v}
+                          unit={r.unit}
+                          tone={tone}
+                          compact
+                          title={prev !== null ? `${fmtVal(v, r.unit)} — month before: ${fmtVal(prev, r.unit)}` : fmtVal(v, r.unit)}
+                        />
+                      )}
+                    </td>
+                  );
+                })}
+                <td className="px-4 py-2 text-right tabular whitespace-nowrap border-l border-outline-variant/50 font-semibold">
+                  {r.noTotal ? "" : fmtCompact(r.values.reduce((a, b) => a + b, 0), r.unit)}
+                </td>
+              </tr>
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** A small legend explaining the colours. */
 export function ToneLegend() {
   return (
     <div className="flex flex-wrap items-center gap-3 text-body-sm text-on-surface-variant">
-      <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-secondary/30" /> Better than the other month</span>
+      <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-secondary/30" /> Better than the month before</span>
       <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-error/30" /> Worse</span>
       <span className="text-[12px]">(for expenses and payouts, spending less is better)</span>
     </div>

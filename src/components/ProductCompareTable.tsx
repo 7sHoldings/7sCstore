@@ -82,17 +82,19 @@ export default function ProductCompareTable({
             <tbody>
               {shown.map((r) => {
                 const a = r.a ?? 0, b = r.b ?? 0, d = a - b;
-                const tone = !hasB || r.b === null || d === 0 ? "" : d > 0 ? "bg-secondary/[0.09]" : "bg-error/[0.08]";
+                const tone = !hasB || r.b === null || d === 0 ? "" : d > 0 ? "bg-secondary/15" : "bg-error/[0.12]";
                 const txt = !hasB || r.b === null || d === 0 ? "text-on-surface-variant" : d > 0 ? "text-secondary" : "text-error";
                 const pct = b ? ((a - b) / b) * 100 : null;
                 return (
-                  <tr key={r.upc} className={`border-b border-outline-variant/30 ${tone}`}>
+                  <tr key={r.upc} className="border-b border-outline-variant/30">
                     <td className="px-3 py-2 pl-5">
                       <div className="font-medium text-on-surface">{r.name}</div>
                       <div className="text-[11px] text-on-surface-variant tabular">{[r.size, r.upc].filter(Boolean).join(" · ")}</div>
                     </td>
                     <td className="px-3 py-2 text-right tabular text-on-surface-variant">{r.price ? usd.format(r.price) : "—"}</td>
-                    <td className="px-3 py-2 text-right tabular font-semibold">{n0.format(a)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <span className={`inline-block tabular font-semibold rounded-md px-1.5 py-0.5 ${tone} ${txt === "text-on-surface-variant" ? "" : txt}`}>{n0.format(a)}</span>
+                    </td>
                     {hasB && <td className="px-3 py-2 text-right tabular text-on-surface-variant">{r.b === null ? "—" : n0.format(b)}</td>}
                     {hasB && (
                       <td className={`px-3 py-2 text-right tabular font-semibold whitespace-nowrap ${txt}`}>
@@ -125,7 +127,7 @@ export default function ProductCompareTable({
                   {r.months.map((v, i) => {
                     const prev = i > 0 ? r.months[i - 1] : null;
                     const last = i === r.months.length - 1;
-                    const t = v === null || prev === null || prev === undefined || last ? "" : v > prev ? "bg-secondary/[0.09] text-secondary" : v < prev ? "bg-error/[0.08] text-error" : "";
+                    const t = v === null || prev === null || prev === undefined || last ? "" : v > prev ? "bg-secondary/15 text-secondary" : v < prev ? "bg-error/[0.12] text-error" : "";
                     return <td key={i} className={`px-3 py-2 text-right tabular ${t}`}>{v === null ? "—" : n0.format(v)}</td>;
                   })}
                 </tr>
