@@ -40,6 +40,10 @@ export interface WindowFigures {
     byPayee: { key: string; group: "Inventory" | "Operating" | "Fuel"; value: number }[];
   };
   incoming: number;
+  salesTaxPaid: number; // "Sales Tax Payment" entered on the Expenses page
+  grossProfit: number; // inside sales − inventory purchases (Dashboard banner)
+  grossProfitPct: number | null; // target ≥ 30%
+  profitTaken: number; // Profit Taken Out entries in this window
   profit: number; // owner's Profit / Loss (same formula as the Dashboard)
   profitParts: { label: string; op: "+" | "−"; raw: number }[];
 }
@@ -63,6 +67,7 @@ export async function getWindowFigures(locArg: string | undefined, start: Date, 
     getLotteryManualRange(loc, start, end),
     getCreditManualRange(loc, start, end),
   ]);
+  const drawAgg = await prisma.profitDraw.aggregate({ _sum: { amount: true }, where });
 
   const view = buildSalesView(sales, fuelSales);
   const salesTax = money(realTax);
@@ -147,6 +152,10 @@ export async function getWindowFigures(locArg: string | undefined, start: Date, 
       byPayee: [...payee.entries()].map(([k, v]) => ({ key: k.split("|")[1], group: v.group, value: money(v.value) })),
     },
     incoming,
+    salesTaxPaid: money(expenseRows.filter((e) => /sales\s*tax/i.test(e.payee ?? "")).reduce((s, e) => s + e.amount, 0)),
+    grossProfit: money(view.merch.split.total - inventory),
+    grossProfitPct: view.merch.split.total > 0 ? Math.round(((view.merch.split.total - inventory) / view.merch.split.total) * 1000) / 10 : null,
+    profitTaken: money(drawAgg._sum.amount ?? 0),
     profit,
     profitParts,
   };

@@ -24,6 +24,7 @@ import type { Unit } from "@/lib/compare";
 export function fmtVal(v: number, unit: Unit = "money"): string {
   if (unit === "gal") return `${fmtNumber(Math.round(v))} gal`;
   if (unit === "units") return fmtNumber(Math.round(v));
+  if (unit === "pct") return `${v.toFixed(1)}%`;
   return fmtMoney(v);
 }
 
@@ -119,6 +120,8 @@ export interface CompareRow {
   unit?: Unit;
   strong?: boolean;
   neutral?: boolean; // show the change, but don't colour it
+  threshold?: number; // colour the number against a fixed target (e.g. 30%)
+  lowerIsBetter?: boolean; // with threshold: below the target is good
   extra?: ReactNode; // optional trailing cell
   indent?: boolean;
 }
@@ -143,7 +146,10 @@ export function CompareTable({
         </thead>
         <tbody>
           {rows.map((r, i) => {
-            const tone: Tone = r.neutral ? "flat" : r.d.tone;
+            const tone: Tone =
+              r.threshold !== undefined
+                ? (r.d.a >= r.threshold) !== !!r.lowerIsBetter ? "good" : "bad"
+                : r.neutral ? "flat" : r.d.tone;
             return (
               <tr key={i} className={`border-b border-outline-variant/30 last:border-0 ${r.strong ? "font-semibold" : ""}`}>
                 <td className={`sticky left-0 z-[1] bg-surface-container-lowest px-5 py-2.5 text-on-surface ${r.indent ? "pl-9" : ""}`}>{r.label}</td>
@@ -188,6 +194,7 @@ export function Num({
 
 /** Full amount in whole dollars (e.g. $203,412) — no "k" / "M" shorthand. */
 export function fmtCompact(v: number, unit: Unit = "money"): string {
+  if (unit === "pct") return `${v.toFixed(1)}%`;
   if (unit !== "money") return fmtNumber(Math.round(v));
   const sign = v < 0 ? "-" : "";
   return `${sign}$${Math.round(Math.abs(v)).toLocaleString("en-US")}`;
@@ -207,6 +214,10 @@ export interface GridRow {
   strong?: boolean;
   indent?: boolean;
   noTotal?: boolean;
+  /** Colour against a fixed target instead of the month before (e.g. gross profit ≥ 30%). */
+  threshold?: number;
+  /** Shown in the total column instead of the sum (e.g. a whole-period percentage). */
+  totalValue?: number | null;
   section?: string; // small header row before this one
   proj?: { current: number | null; next: number | null } | null;
 }
@@ -264,7 +275,9 @@ export function MonthGrid({
                 {r.values.map((v, i) => {
                   const prev = i > 0 ? r.values[i - 1] : null;
                   const tone: Tone =
-                    r.neutral || v === null || prev === null || months[i].partial ? "none" : delta(v, prev, r.good !== false).tone;
+                    r.threshold !== undefined && v !== null && v !== 0
+                      ? (v >= r.threshold) === (r.good !== false) ? "good" : "bad"
+                      : r.neutral || v === null || prev === null || months[i].partial ? "none" : delta(v, prev, r.good !== false).tone;
                   return (
                     <td key={months[i].ym} className="px-1 py-2 text-right">
                       {v === null || v === 0 ? (
@@ -282,7 +295,9 @@ export function MonthGrid({
                   );
                 })}
                 <td className="px-4 py-2 text-right tabular whitespace-nowrap border-l border-outline-variant/50 font-semibold">
-                  {r.noTotal ? "" : fmtCompact(r.values.reduce<number>((a, b) => a + (b ?? 0), 0), r.unit)}
+                  {r.totalValue !== undefined
+                    ? r.totalValue === null ? "" : <Num v={r.totalValue} unit={r.unit} tone={r.threshold !== undefined ? ((r.totalValue >= r.threshold) === (r.good !== false) ? "good" : "bad") : "none"} />
+                    : r.noTotal ? "" : fmtCompact(r.values.reduce<number>((a, b) => a + (b ?? 0), 0), r.unit)}
                 </td>
                 {showProj && projLabels!.current && (
                   <td className={`${projTd} border-l border-dashed border-tertiary/40`}>{r.proj?.current != null ? fmtCompact(r.proj.current, r.unit) : ""}</td>

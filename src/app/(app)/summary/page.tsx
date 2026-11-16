@@ -106,7 +106,7 @@ export default async function MonthlySummaryPage({
       <div className="flex gap-1.5 w-max">
         {[
           ["overview", "Store totals"], ["departments", "Departments"], ["fuel", "Gas"], ["lottery", "Lottery"],
-          ["shorts", "Short / Over"], ["expenses", "Expenses"], ["profit", "Profit"], ["master", "Whole store"],
+          ["shorts", "Short / Over"], ["expenses", "Expenses"], ["profit", "Profit"], ["profitout", "Profit taken out"], ["master", "Whole store"],
         ].map(([id, label]) => (
           <a key={id} href={`#${id}`} className="px-3 py-1.5 rounded-full text-body-sm font-medium bg-surface-container-lowest border border-outline-variant/60 text-on-surface hover:bg-surface-container whitespace-nowrap">
             {label}
@@ -248,7 +248,10 @@ export default async function MonthlySummaryPage({
                 { label: "Lottery net", d: d.lotto },
                 { label: "Expenses", d: d.expenses },
                 { label: "Short / Over", d: d.short },
+                { label: "Gross profit % (target ≥ 30%)", d: delta(A.grossProfitPct ?? 0, B.grossProfitPct ?? 0), unit: "pct", threshold: 30 },
                 { label: "Profit / Loss", d: d.profit, strong: true },
+                { label: "Profit taken out", d: delta(A.profitTaken, B.profitTaken), neutral: true },
+                { label: "Left after profit taken out", d: delta(A.profit - A.profitTaken, B.profit - B.profitTaken), strong: true },
               ]}
             />
           </Section>
@@ -314,6 +317,23 @@ export default async function MonthlySummaryPage({
 
           <Section id="expenses" title="Expenses — where the money went" icon="receipt_long" note="Spending more shows red" shot={shotFor("Expenses")}>
             <ExpenseCompare A={A.expenses} B={B.expenses} aLabel={aShort} bLabel={bShort} />
+            <div className="border-t border-outline-variant/50" />
+            <CompareTable
+              aLabel={aShort}
+              bLabel={bShort}
+              firstHead="Gross profit (like the Dashboard)"
+              rows={[
+                {
+                  label: "Product buying % of inside sales (target ≤ 70%)",
+                  d: delta(A.merch ? (A.expenses.inventory / A.merch) * 100 : 0, B.merch ? (B.expenses.inventory / B.merch) * 100 : 0, false),
+                  unit: "pct",
+                  threshold: 70,
+                  lowerIsBetter: true,
+                },
+                { label: "Gross profit (inside sales − product buying)", d: delta(A.grossProfit, B.grossProfit) },
+                { label: "Gross profit % (target ≥ 30%)", d: delta(A.grossProfitPct ?? 0, B.grossProfitPct ?? 0), unit: "pct", strong: true, threshold: 30 },
+              ]}
+            />
           </Section>
 
           <Section id="profit" title="Profit / Loss" icon="account_balance_wallet" note="Same formula as the Dashboard" shot={shotFor("Profit-Loss")}>
@@ -327,6 +347,8 @@ export default async function MonthlySummaryPage({
                   neutral: p.label === "Fuel" || p.label.startsWith("Lottery net"),
                 })),
                 { label: "= Profit / Loss", d: d.profit, strong: true },
+                { label: "Profit taken out", d: delta(A.profitTaken, B.profitTaken), neutral: true },
+                { label: "Left after profit taken out", d: delta(A.profit - A.profitTaken, B.profit - B.profitTaken), strong: true },
               ]}
             />
           </Section>
@@ -415,8 +437,8 @@ function ExpenseCompare({
   bLabel: string;
 }) {
   const groups = [
-    { name: "Inventory", title: "Inventory purchases (vendors)", a: A.inventory, b: B.inventory },
-    { name: "Operating", title: "Operating expenses", a: A.operating, b: B.operating },
+    { name: "Inventory", title: "Product buying (inventory purchases)", a: A.inventory, b: B.inventory },
+    { name: "Operating", title: "Store expenses", a: A.operating, b: B.operating },
     { name: "Fuel", title: "Fuel purchases", a: A.fuel, b: B.fuel },
   ];
   const rows: CompareRow[] = [];
