@@ -28,7 +28,16 @@ export async function GET(req: NextRequest) {
   }
 
   const started = Date.now();
-  const locations = await prisma.location.findMany();
+  // The POS connection is one Modisoft store. Only sync locations that have
+  // had POS data recently — a placeholder location (e.g. "Coming Soon") must
+  // never receive another store's sales.
+  const recent = new Date(Date.now() - 60 * 86_400_000);
+  const active = await prisma.sale.groupBy({
+    by: ["locationId"],
+    where: { source: "POS_MODI", date: { gte: recent } },
+  });
+  const activeIds = new Set(active.map((a) => a.locationId));
+  const locations = (await prisma.location.findMany()).filter((l) => activeIds.has(l.id));
   const results: {
     location: string; imported?: number; inventory?: number; demand?: number; backfilled?: number; gapsLeft?: number; error?: string;
   }[] = [];
@@ -36,10 +45,26 @@ export async function GET(req: NextRequest) {
   for (const loc of locations) {
     try {
       const r = await runSync(loc.id);
-      // Also take today's inventory reading. Two readings apart in time are what
-      // make the weekly reorder measurable, so this needs to run on a schedule
-      // rather than only when someone presses the button. A failure here must
-      // not mask a successful sales sync.
+
+      // Self-healing backfill FIRST (it is short): re-pull the last 7 days to
+      // catch late corrections in Modisoft, then fill any missing days this
+      // year. The slower inventory / demand pulls run after it.
+      let backfilled: number | undefined, gapsLeft: number | undefined;
+      try {
+        const b = await autoBackfill(loc.id, { deadline: started + 120_000 });
+        backfilled = b.imported;
+        gapsLeft = b.gapsLeft;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "failed";
+        console.error("nightly backfill failed", e);
+        await prisma.syncLog.create({
+          data: { source: "POS_MODI", status: "FAILED", locationId: loc.id, finishedAt: new Date(), message: `Auto backfill failed: ${message}` },
+        });
+        await dispatchAlert({ locationId: loc.id, type: "POS_SYNC_FAILURE", severity: "error", message: `Nightly backfill failed: ${message}` });
+      }
+
+      // Today's inventory reading. Two readings apart in time are what make the
+      // weekly reorder measurable. A failure here must not mask the sales sync.
       let inventory: number | undefined;
       try {
         const inv = await syncInventory(loc.id);
@@ -54,26 +79,6 @@ export async function GET(req: NextRequest) {
         demand = d.measured;
       } catch (e) {
         console.error("nightly demand pull failed", e);
-      }
-      // Self-healing backfill: re-pull the last 7 days (late corrections in
-      // Modisoft) and fill any missing days this year, within the time left.
-      // Only for stores that already have POS data, so a placeholder location
-      // never gets another store's sales.
-      let backfilled: number | undefined, gapsLeft: number | undefined;
-      try {
-        const hasPos = await prisma.sale.count({ where: { locationId: loc.id, source: "POS_MODI" }, take: 1 });
-        if (hasPos) {
-          const b = await autoBackfill(loc.id, { deadline: started + 230_000 });
-          backfilled = b.imported;
-          gapsLeft = b.gapsLeft;
-        }
-      } catch (e) {
-        const message = e instanceof Error ? e.message : "failed";
-        console.error("nightly backfill failed", e);
-        await prisma.syncLog.create({
-          data: { source: "POS_MODI", status: "FAILED", locationId: loc.id, finishedAt: new Date(), message: `Auto backfill failed: ${message}` },
-        });
-        await dispatchAlert({ locationId: loc.id, type: "POS_SYNC_FAILURE", severity: "error", message: `Nightly backfill failed: ${message}` });
       }
       results.push({ location: loc.name, imported: r.imported, inventory, demand, backfilled, gapsLeft });
     } catch (e) {
