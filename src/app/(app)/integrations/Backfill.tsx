@@ -90,6 +90,11 @@ export default function Backfill({ defaultFrom }: { defaultFrom: string }) {
       <p className="text-body-sm text-on-surface-variant mb-4">
         Pull a date range from Modisoft in chunks. Safe to re-run — each day is replaced, not duplicated.
       </p>
+      <p className="text-body-sm text-secondary mb-4 flex items-start gap-1.5">
+        <span className="material-symbols-outlined text-[18px]" aria-hidden>schedule</span>
+        Runs automatically every night with the 12:30 AM sync: the last 7 days are pulled again (to catch
+        corrections) and any missing days this year are filled. Results show in the Sync Log below.
+      </p>
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-[8rem]">
